@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+.git
+.idea
+.venv
+.pytest_cache
+.ruff_cache
+data
+tests
+*.iml
+**/__pycache__
+**/*.egg-info
+**/.DS_Store
+frontend/node_modules
+frontend/dist

@@ -1,0 +1,3 @@
+# NSE trading holidays, as YYYY-MM-DD. Fill in from the official NSE holiday circular.
+# A missing holiday only causes harmless duplicate snapshots of a closed market.
+holidays: []

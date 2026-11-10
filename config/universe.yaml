@@ -1,0 +1,15 @@
+# Underlyings to collect. Symbols match `underlying_symbol` in the Upstox instrument master.
+underlyings:
+  - NIFTY
+  - BANKNIFTY
+  - FINNIFTY
+
+# Indices kept for reference only (no option chain is collected).
+reference_indices:
+  INDIAVIX: "NSE_INDEX|India VIX"
+
+# Number of nearest expiries to snapshot per underlying.
+expiries_per_underlying: 3
+
+# Each chain is one API call. Upstox allows 2000 standard calls per 30 minutes.
+snapshot_interval_minutes: 5

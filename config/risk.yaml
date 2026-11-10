@@ -1,0 +1,49 @@
+capital: 500000
+
+# Limits, as percent of capital.
+max_loss_per_trade_pct: 1.0
+undefined_risk_loss_per_trade_pct: 0.75
+max_daily_loss_pct: 3.0
+max_open_risk_pct: 5.0
+max_underlying_risk_pct: 3.0
+max_margin_use_pct: 50.0
+max_stress_loss_pct: 10.0
+max_vega_pct: 1.0        # Rupees per volatility point.
+max_gamma_1pct_pct: 1.5  # Rupees of gamma P&L from a 1% spot move.
+
+max_delta_notional_multiple: 3.0
+max_open_positions: 5
+max_lots_per_trade: 10
+
+# Multiplier on the stop distance, because stops can fill worse than planned.
+stop_gap_buffer: 1.25
+
+stress:
+  spot_moves_pct: [-5, -3, -2, -1, 1, 2, 3, 5]
+  iv_shifts_pct: [-20, 0, 25, 50]
+
+# Margin figures are estimates, not exchange SPAN. Check with the broker before going live.
+margin:
+  short_option_pct_of_notional: 15.0
+  hedged_max_loss_multiple: 1.2
+  hedged_min_pct_of_notional: 2.0
+  calendar_pct_of_notional: 6.0
+
+# Fractions apply to the absolute premium paid or received. Exits are checked on mid prices.
+# exit_dte is the number of calendar days before the front expiry for the 15:00 time exit.
+exits:
+  directional_buy: {target_frac: 0.6, stop_frac: 0.5, exit_dte: 1}
+  debit_spread: {target_frac: 0.6, stop_frac: 0.5, exit_dte: 1}
+  credit_spread: {target_frac: 0.5, stop_frac: 1.0, exit_dte: 1}
+  butterfly: {target_frac: 1.0, stop_frac: 0.5, exit_dte: 0}
+  short_premium: {target_frac: 0.5, stop_frac: 1.0, exit_dte: 1}
+  long_vol: {target_frac: 0.5, stop_frac: 0.4, exit_dte: 1}
+  calendar: {target_frac: 0.25, stop_frac: 0.3, exit_dte: 1}
+
+paper:
+  auto_trade: true
+  min_score: 60.0
+  max_new_per_cycle: 1
+  idea_ttl_minutes: 10
+  slippage_per_leg: 0.05
+  max_entry_drift_pct: 15.0

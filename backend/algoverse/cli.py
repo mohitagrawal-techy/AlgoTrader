@@ -1,0 +1,458 @@
+"""Command line entry point."""
+
+from __future__ import annotations
+
+import argparse
+import logging
+from collections import Counter
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import httpx
+import pandas as pd
+
+from algoverse.backtest.bhavcopy import import_files, load_lot_sizes
+from algoverse.backtest.config import load_backtest_config
+from algoverse.backtest.engine import ReplaySpec
+from algoverse.backtest.fills import fit_spread_model
+from algoverse.backtest.upstox_history import (
+    CaptureRefused,
+    capture_session,
+    import_expired,
+)
+from algoverse.backtest.walkforward import run_backtest, run_holdout, run_walk_forward
+from algoverse.brokers.base import AuthExpiredError, MarketDataError, PlanRequiredError
+from algoverse.brokers.upstox import RateLimiter, UpstoxMarketData
+from algoverse.data.collector import backfill_daily, collect_snapshots
+from algoverse.data.instruments import download_master, parse_future_contracts
+from algoverse.execution.cycle import run_cycle
+from algoverse.execution.ledger import CLOSED, LIVE_STATUSES
+from algoverse.runtime import Runtime
+from algoverse.settings import get_settings
+
+IST = ZoneInfo("Asia/Kolkata")
+log = logging.getLogger("algoverse")
+# Kept under the Upstox limits so a long import leaves room for the running collector.
+IMPORT_LIMITS = ((20, 1.0), (300, 60.0), (1500, 1800.0))
+
+
+def cmd_serve(_: argparse.Namespace) -> None:
+    import uvicorn
+
+    from algoverse.api.app import create_app
+
+    uvicorn.run(create_app(), host=get_settings().host, port=8000)
+
+
+def cmd_instruments(_: argparse.Namespace) -> None:
+    count = Runtime().refresh_contracts(datetime.now(IST))
+    print(f"Stored {count} option contracts.")
+
+
+def cmd_collect_once(_: argparse.Namespace) -> None:
+    rt = Runtime()
+    now = datetime.now(IST)
+    result = collect_snapshots(rt.market, rt.store, rt.universe, rt.contracts(now), now)
+    print(f"Saved {result.saved} chains. Failures: {result.failures or 'none'}")
+
+
+def cmd_backfill(_: argparse.Namespace) -> None:
+    rt = Runtime()
+    now = datetime.now(IST)
+    result = backfill_daily(rt.market, rt.store, rt.universe, rt.contracts(now), now.date())
+    print(f"Updated {result.saved} series. Failures: {result.failures or 'none'}")
+
+
+def _describe_legs(idea) -> str:
+    sides = {1: "+", -1: "-"}
+    return " ".join(
+        f"{sides[leg.side]}{leg.ratio if leg.ratio > 1 else ''}{leg.strike:g}{leg.option_type}"
+        for leg in idea.candidate.legs
+    )
+
+
+def _print_idea(idea) -> None:
+    structure = idea.structure
+    candidate = idea.candidate
+    score = idea.card.composite
+    label = "n/a" if score is None else f"{score:5.1f}"
+    max_loss = f"{structure.max_loss:,.0f}" if structure.bounded else "undefined"
+    print(
+        f"{label}  {candidate.symbol:<10}{candidate.strategy:<17}{candidate.front_expiry} "
+        f"{_describe_legs(idea):<36} debit {structure.entry_debit:>10,.0f}  "
+        f"max loss {max_loss:>10}  POP {structure.pop:4.0%}  EV {structure.net_ev:>8,.0f}"
+    )
+
+
+def cmd_ideas(args: argparse.Namespace) -> None:
+    rt = Runtime()
+    now = datetime.now(IST)
+    contracts = rt.contracts(now)
+    collected = collect_snapshots(rt.market, rt.store, rt.universe, contracts, now)
+    result = run_cycle(rt.deps, collected.chains, contracts, now, trade=False)
+    tradable = [idea for idea in result.ideas if idea.tradable]
+    rejected = [idea for idea in result.ideas if not idea.tradable]
+    print(f"{len(tradable)} tradable, {len(rejected)} rejected. Analysis only, not advice.")
+    for idea in tradable[: args.top]:
+        _print_idea(idea)
+    if rejected:
+        print("\nMost common rejection reasons:")
+        reasons = Counter(
+            (idea.rejections or idea.risk.reasons)[0].split(":")[0].split(" (")[0]
+            for idea in rejected
+        )
+        for reason, count in reasons.most_common(8):
+            print(f"{count:>4}  {reason}")
+
+
+def cmd_paper_status(_: argparse.Namespace) -> None:
+    rt = Runtime()
+    live = rt.ledger.positions(LIVE_STATUSES)
+    closed = rt.ledger.positions((CLOSED,))
+    realized = sum(p.realized_pnl for p in closed)
+    print(f"Capital {rt.deps.risk.capital:,.0f}. Realized P&L {realized:,.2f}.")
+    print(f"{len(live)} live positions, {len(closed)} closed.")
+    for p in live:
+        flag = " (stale quotes)" if p.stale else ""
+        print(
+            f"#{p.id} {p.status:<8}{p.symbol:<10}{p.strategy:<17}x{p.lots} "
+            f"unrealized {p.unrealized_pnl:,.2f} target {p.target_pnl:,.0f} "
+            f"stop {p.stop_pnl:,.0f}{flag}"
+        )
+
+
+def _print_report(report: dict) -> None:
+    overall = report["summary"]["overall"]
+    window = report.get("window") or {}
+    print(f"Report {report['id']}: {report['verdict']}")
+    print(f"Window {window.get('start')} to {window.get('end')}")
+    for key in ("trades", "net_pnl", "win_rate", "expectancy", "sharpe", "max_drawdown"):
+        print(f"  {key}: {overall.get(key)}")
+    if report.get("double_slippage"):
+        print(f"  net_pnl at 2x slippage: {report['double_slippage']['net_pnl']}")
+    print(f"  trials logged to date: {report['trials_to_date']}")
+    for warning in report["summary"]["warnings"]:
+        print(f"Warning: {warning}")
+    print("Open the Backtests tab in the dashboard for the full report.")
+
+
+def cmd_history_import(args: argparse.Namespace) -> None:
+    settings = get_settings()
+    config = load_backtest_config(settings.config_dir)
+    result = import_files(
+        args.paths, settings.data_dir, config.symbols, load_lot_sizes(settings.config_dir)
+    )
+    if result.imported:
+        first, last = result.imported[0], result.imported[-1]
+        print(f"Imported {len(result.imported)} sessions, {first} to {last}.")
+    for name, reason in result.failed.items():
+        print(f"Skipped {name}: {reason}")
+
+
+def _capture(rt: Runtime, now: datetime):
+    config = load_backtest_config(rt.settings.config_dir)
+    futures = parse_future_contracts(download_master(), set(config.symbols))
+    return capture_session(
+        rt.market, rt.settings.data_dir, config, rt.contracts(now), futures, now.date()
+    )
+
+
+def cmd_history_capture(_: argparse.Namespace) -> None:
+    try:
+        path = _capture(Runtime(), datetime.now(IST))
+    except CaptureRefused as exc:
+        raise SystemExit(f"Nothing saved: {exc}") from exc
+    print(f"Saved {path.name}.")
+
+
+def cmd_history_upstox(_: argparse.Namespace) -> None:
+    rt = Runtime()
+    now = datetime.now(IST)
+    config = load_backtest_config(rt.settings.config_dir)
+    market = UpstoxMarketData(rt.tokens, limiter=RateLimiter(IMPORT_LIMITS))
+    futures = parse_future_contracts(download_master(), set(config.symbols))
+    try:
+        result = import_expired(
+            market, rt.settings.data_dir, config, rt.contracts(now), futures, now.date(), print
+        )
+    except PlanRequiredError as exc:
+        raise SystemExit(
+            "Upstox refused: expired contract data needs the Upstox Plus plan on this account. "
+            "Nothing was saved. The collector still adds one session after each close."
+        ) from exc
+    print(f"Fetched {result.contracts} contracts. Wrote {len(result.written)} sessions.")
+    if result.written:
+        print(f"Sessions {result.written[0]} to {result.written[-1]}.")
+    if result.kept_existing:
+        print(f"Kept {len(result.kept_existing)} sessions already imported from NSE files.")
+    for name, reason in result.failed.items():
+        print(f"Incomplete {name}: {reason}. Run the command again to retry.")
+
+
+def cmd_backtest(args: argparse.Namespace) -> None:
+    settings = get_settings()
+    spec = ReplaySpec(args.start, args.end, args.min_score, tuple(args.disable))
+    now = datetime.now(IST)
+    _print_report(run_backtest(settings.data_dir, settings.config_dir, now, spec))
+
+
+def cmd_walk_forward(_: argparse.Namespace) -> None:
+    settings = get_settings()
+    _print_report(run_walk_forward(settings.data_dir, settings.config_dir, datetime.now(IST)))
+
+
+def cmd_holdout(args: argparse.Namespace) -> None:
+    settings = get_settings()
+    report = run_holdout(
+        settings.data_dir,
+        settings.config_dir,
+        datetime.now(IST),
+        args.min_score,
+        tuple(args.disable),
+        args.allow_reuse,
+    )
+    _print_report(report)
+
+
+def cmd_calibrate_spreads(args: argparse.Namespace) -> None:
+    rt = Runtime()
+    today = datetime.now(IST).date()
+    start = today - timedelta(days=args.days)
+    contracts = rt.contracts(datetime.now(IST))
+    frames = []
+    for symbol in rt.universe.underlyings:
+        chains = rt.store.read_chains(symbol, start, today)
+        lots = contracts.loc[contracts["underlying_symbol"] == symbol, "lot_size"]
+        if not chains.empty and not lots.empty:
+            frames.append(chains.assign(volume=chains["volume"] / float(lots.iloc[0])))
+    # Volume above is already in lots, so the model is fitted with a lot size of one.
+    fitted = fit_spread_model(pd.concat(frames, ignore_index=True), 1.0) if frames else None
+    if fitted is None:
+        print("Not enough collected quotes yet. Leave the collector running and try again.")
+        return
+    print("Suggested values for the spread section of config/backtest.yaml:")
+    for key, value in fitted.items():
+        print(f"  {key}: {value:.4g}")
+
+
+def cmd_forward_start(args: argparse.Namespace) -> None:
+    run = Runtime().forward.start(
+        args.name,
+        datetime.now(IST),
+        args.role,
+        args.min_score,
+        tuple(args.disable),
+        args.report,
+        args.holdout,
+    )
+    print(f"Started forward run #{run.id}: {run.name} v{run.version} as {run.role}.")
+    print("Its code, weights, filters, limits and AI prompts are now locked.")
+
+
+def cmd_forward_attach(args: argparse.Namespace) -> None:
+    run = Runtime().forward.attach(args.run, args.report, args.holdout)
+    print(f"Run #{run.id}: report {run.report_id}, holdout {run.holdout_id}.")
+
+
+def cmd_forward_stop(args: argparse.Namespace) -> None:
+    forward = Runtime().forward
+    run = forward.store.run(args.run)
+    if run is None or run.status != "active":
+        print(f"Run #{args.run} is not active.")
+        return
+    forward.stop(run, datetime.now(IST), "Stopped by user")
+    print(f"Stopped run #{run.id}. Open positions were closed at their last marks.")
+
+
+def cmd_forward_status(_: argparse.Namespace) -> None:
+    overview = Runtime().forward.overview(datetime.now(IST))
+    if not overview["runs"]:
+        print("No forward runs yet.")
+    for run in overview["runs"]:
+        met = sum(gate["passed"] for gate in run["gates"])
+        print(
+            f"#{run['id']} {run['name']} v{run['version']} {run['status']} ({run['role']}): "
+            f"{run['stats'].get('trades', 0)} trades, "
+            f"net {run['stats'].get('net_pnl', 0.0):,.2f}, gates {met}/{len(run['gates'])}"
+        )
+
+
+def _print_lab(lab) -> None:
+    for row in lab.overview()["strategies"]:
+        result = row["result"]
+        if result:
+            test = result["test"]
+            print(
+                f"{result['verdict']:<22}{row['spec']['name'][:34]:<36}"
+                f"test trades {test['trades']:>4}  net {test['net_pnl']:>10,.0f}  "
+                f"at 2x {result['test_2x']['net_pnl'] or 0:>10,.0f}"
+            )
+
+
+def cmd_lab_test(_: argparse.Namespace) -> None:
+    lab = Runtime().lab
+    lab.run_backtest(None, datetime.now(IST), print)
+    _print_lab(lab)
+
+
+def cmd_lab_generate(args: argparse.Namespace) -> None:
+    lab = Runtime().lab
+    outcome = lab.run_generate(datetime.now(IST), args.rounds, args.per_round, args.guidance, print)
+    for dropped in outcome["dropped"]:
+        print(f"Dropped: {dropped}")
+    _print_lab(lab)
+
+
+def cmd_collect(_: argparse.Namespace) -> None:
+    from apscheduler.schedulers.blocking import BlockingScheduler
+
+    rt = Runtime()
+    scheduler = BlockingScheduler(timezone=IST)
+
+    def snapshot_job() -> None:
+        now = datetime.now(IST)
+        if not rt.calendar.is_open(now):
+            return
+        contracts = rt.contracts(now)
+        try:
+            result = collect_snapshots(rt.market, rt.store, rt.universe, contracts, now)
+        except AuthExpiredError:
+            log.error("Upstox session expired. Log in at http://127.0.0.1:8000/auth/login")
+            return
+        log.info("Saved %s chains. Failures: %s", result.saved, result.failures or "none")
+        rt.deps.events = rt.live_events(now.date())
+        cycle = run_cycle(rt.deps, result.chains, contracts, now)
+        log.info(
+            "Paper: %s opened, %s closed, %s exits triggered, %s queued, %s tradable ideas%s",
+            len(cycle.report.opened),
+            len(cycle.report.closed),
+            len(cycle.report.exits_triggered),
+            len(cycle.submitted),
+            sum(idea.tradable for idea in cycle.ideas),
+            ", HALTED for the day" if cycle.report.halted else "",
+        )
+        try:
+            forward = rt.forward.on_cycle(result.chains, contracts, now)
+        except Exception:  # Forward tests must never interrupt collection.
+            log.exception("Forward testing failed this cycle")
+        else:
+            if forward:
+                log.info("Forward: processed %s active runs", len(forward))
+
+    def settlement_job() -> None:
+        now = datetime.now(IST)
+        rt.forward.after_close(now)
+        report = rt.deps.broker.step(now, {})
+        log.info("Settlement check: %s positions closed", len(report.closed))
+
+    def backfill_job() -> None:
+        now = datetime.now(IST)
+        if not rt.calendar.is_trading_day(now.date()):
+            return
+        try:
+            result = backfill_daily(rt.market, rt.store, rt.universe, rt.contracts(now), now.date())
+        except AuthExpiredError:
+            log.error("Upstox session expired. Daily backfill skipped.")
+            return
+        log.info("Backfilled %s series. Failures: %s", result.saved, result.failures or "none")
+
+    def history_capture_job() -> None:
+        now = datetime.now(IST)
+        if not rt.calendar.is_trading_day(now.date()):
+            return
+        try:
+            path = _capture(rt, now)
+        except AuthExpiredError:
+            log.error("Upstox session expired. Today's history session was not saved.")
+        except (CaptureRefused, MarketDataError, httpx.HTTPError) as exc:
+            log.error("History session not saved: %s", exc)
+        else:
+            log.info("Saved history session %s", path.name)
+
+    scheduler.add_job(
+        snapshot_job, "interval", minutes=rt.universe.snapshot_interval_minutes, max_instances=1
+    )
+    scheduler.add_job(settlement_job, "cron", hour=15, minute=35)
+    # Upstox drops a contract the day after it expires, so this cannot wait for the next day.
+    scheduler.add_job(history_capture_job, "cron", hour=15, minute=40)
+    scheduler.add_job(backfill_job, "cron", hour=16, minute=0)
+    log.info("Collector running. Snapshots run only during market hours.")
+    scheduler.start()
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    parser = argparse.ArgumentParser(prog="algoverse")
+    commands = parser.add_subparsers(dest="command", required=True)
+    for name, handler, help_text in (
+        ("serve", cmd_serve, "Run the local API and login flow"),
+        ("instruments", cmd_instruments, "Download today's contract master"),
+        ("collect-once", cmd_collect_once, "Save one round of chain snapshots"),
+        ("collect", cmd_collect, "Run the snapshot and backfill schedule"),
+        ("backfill", cmd_backfill, "Refresh daily price history"),
+        ("paper-status", cmd_paper_status, "Show paper positions and P&L"),
+    ):
+        commands.add_parser(name, help=help_text).set_defaults(handler=handler)
+    fstart = commands.add_parser("forward-start", help="Lock a configuration and forward test it")
+    fstart.add_argument("--name", required=True)
+    fstart.add_argument("--role", choices=["champion", "challenger"], default="challenger")
+    fstart.add_argument("--min-score", type=float)
+    fstart.add_argument("--disable", nargs="*", default=[], help="Profiles not to trade")
+    fstart.add_argument("--report", help="Walk-forward report with the expected results")
+    fstart.add_argument("--holdout", help="Holdout report for the same configuration")
+    fstart.set_defaults(handler=cmd_forward_start)
+    fattach = commands.add_parser("forward-attach", help="Link backtest reports to a run")
+    fattach.add_argument("--run", type=int, required=True)
+    fattach.add_argument("--report")
+    fattach.add_argument("--holdout")
+    fattach.set_defaults(handler=cmd_forward_attach)
+    fstop = commands.add_parser("forward-stop", help="End a forward run")
+    fstop.add_argument("--run", type=int, required=True)
+    fstop.set_defaults(handler=cmd_forward_stop)
+    commands.add_parser("forward-status", help="Summarise forward runs").set_defaults(
+        handler=cmd_forward_status
+    )
+    commands.add_parser("lab-test", help="Backtest every strategy in the lab").set_defaults(
+        handler=cmd_lab_test
+    )
+    generate = commands.add_parser("lab-generate", help="Let the AI design and test strategies")
+    generate.add_argument("--rounds", type=int)
+    generate.add_argument("--per-round", type=int)
+    generate.add_argument("--guidance", default="")
+    generate.set_defaults(handler=cmd_lab_generate)
+    history = commands.add_parser("history-import", help="Import NSE files you downloaded")
+    history.add_argument("paths", nargs="+", help="CSV or zip files, or folders of them")
+    history.set_defaults(handler=cmd_history_import)
+    commands.add_parser(
+        "history-upstox", help="Import expired contracts from Upstox (needs Upstox Plus)"
+    ).set_defaults(handler=cmd_history_upstox)
+    commands.add_parser(
+        "history-capture", help="Save today's session after the close"
+    ).set_defaults(handler=cmd_history_capture)
+    commands.add_parser(
+        "walk-forward", help="Tune on past data and test on unseen windows"
+    ).set_defaults(handler=cmd_walk_forward)
+    single = commands.add_parser("backtest", help="Run one configuration over one window")
+    single.add_argument("--start", type=date.fromisoformat, required=True)
+    single.add_argument("--end", type=date.fromisoformat, required=True)
+    single.add_argument("--min-score", type=float, default=60.0)
+    single.add_argument("--disable", nargs="*", default=[], help="Profiles not to trade")
+    single.set_defaults(handler=cmd_backtest)
+    holdout = commands.add_parser("holdout", help="Spend the final holdout on one configuration")
+    holdout.add_argument("--min-score", type=float, required=True)
+    holdout.add_argument("--disable", nargs="*", default=[], help="Profiles not to trade")
+    holdout.add_argument("--allow-reuse", action="store_true")
+    holdout.set_defaults(handler=cmd_holdout)
+    calibrate = commands.add_parser("calibrate-spreads", help="Fit the spread model to snapshots")
+    calibrate.add_argument("--days", type=int, default=30)
+    calibrate.set_defaults(handler=cmd_calibrate_spreads)
+    ideas = commands.add_parser("ideas", help="Rank ideas now, without paper trading")
+    ideas.add_argument("--top", type=int, default=20)
+    ideas.set_defaults(handler=cmd_ideas)
+    args = parser.parse_args()
+    args.handler(args)
+
+
+if __name__ == "__main__":
+    main()

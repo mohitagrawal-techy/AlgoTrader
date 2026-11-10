@@ -1,0 +1,31 @@
+# AI layer settings. Currently a local Ollama model, used for testing.
+enabled: true
+provider: ollama
+model: gpt-oss:20b
+# How long a reasoning model thinks, and its working memory. Thinking counts against this memory.
+think: low
+context_tokens: 16384
+base_url: http://127.0.0.1:11434
+request_timeout_seconds: 120
+
+# Only the highest-ranked tradable ideas are reviewed.
+critique_top_n: 3
+# The AI can lower a score by at most this many points. It can never raise one.
+max_score_penalty: 15
+
+# Cached results avoid re-reviewing the same idea every 5-minute cycle.
+critique_ttl_minutes: 30
+research_ttl_minutes: 120
+
+# AI work stops at either limit. The numeric pipeline keeps running without it.
+max_calls_per_day: 500
+cycle_time_limit_seconds: 180
+
+# Public headlines are the local model's only source of news. It cannot search the web.
+news_max_age_hours: 48
+news_max_headlines: 40
+news_feeds:
+  - https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms
+  - https://www.livemint.com/rss/markets
+  - https://www.business-standard.com/rss/markets-106.rss
+  - https://www.thehindubusinessline.com/markets/feeder/default.rss

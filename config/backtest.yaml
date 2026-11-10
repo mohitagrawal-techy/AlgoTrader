@@ -1,0 +1,53 @@
+# Backtest settings. Files downloaded by hand from NSE go through `algoverse history-import`.
+symbols: [NIFTY, BANKNIFTY, FINNIFTY]
+expiries_per_underlying: 3
+strike_range: 0.15
+
+# Fills in history use the next session's open, so these replace the paper-trading values.
+idea_ttl_minutes: 10080
+max_entry_drift_pct: 30.0
+warmup_sessions: 60
+
+# Daily files have no bid/ask, so spreads are modelled. Full spread as a percent of price:
+#   base_pct + moneyness_pct_per_pct * |strike/spot - 1|% + illiquidity_pct / sqrt(1 + lots traded)
+# These are starting estimates. Run `algoverse calibrate-spreads` once snapshots exist.
+spread:
+  base_pct: 0.5
+  moneyness_pct_per_pct: 0.15
+  illiquidity_pct: 5.0
+  tick: 0.05
+  # Modelled size at the touch, as a share of the day's reported volume.
+  depth_share: 0.02
+
+walk_forward:
+  train_sessions: 252
+  test_sessions: 63
+  holdout_sessions: 63
+  min_train_trades: 20
+  workers: 8
+
+# Each combination is one trial per fold. Every trial is logged and counted in the report.
+grid:
+  min_score: [50, 55, 60, 65, 70, 75]
+  disabled_profiles:
+    - []
+    - [directional_buy, long_vol]
+
+monte_carlo_runs: 2000
+tail_share: 0.05
+min_trades_for_confidence: 100
+
+# Reported separately whenever the imported data covers them.
+stress_windows:
+  - {name: COVID crash, start: 2020-02-20, end: 2020-04-30}
+  - {name: 2024 election result, start: 2024-06-03, end: 2024-06-07}
+
+# Strategy lab. Strategies are tuned on the earlier part of the history. The final test_share is
+# only used for the final ranking, and the AI designer never sees results from it.
+lab:
+  test_share: 0.3
+  min_sessions: 60
+  min_test_trades: 15
+  rounds: 3
+  per_round: 4
+  workers: 6
