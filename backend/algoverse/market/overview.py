@@ -18,12 +18,14 @@ import yaml
 from algoverse.analytics.regime import ema
 from algoverse.brokers.base import AuthExpiredError, MarketDataError
 from algoverse.dashboard import MARKET_FILE, clean, read_published
+from algoverse.market.institutions import empty_institutions, fetch_institutions
 from algoverse.market.sectors import load_sector_list
 
 log = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 OPEN_TTL_SECONDS = 20.0
 CLOSED_TTL_SECONDS = 300.0
+INSTITUTIONS_TTL_SECONDS = 1800.0
 HISTORY_DAYS = 520
 CHART_SESSIONS = 252
 DISTRIBUTION_EDGES = [-float("inf"), -5, -3, -2, -1, 0, 1, 2, 3, 5, float("inf")]
@@ -289,6 +291,40 @@ class OverviewService:
         self._cached: dict | None = None
         self._cached_at = float("-inf")
         self._history_day: date | None = None
+        self._institutions_lock = threading.Lock()
+        self._institutions: dict | None = None
+        self._institutions_at = float("-inf")
+
+    def _institutions_path(self) -> Path:
+        return self.data_dir / "market" / "institutions.json"
+
+    def _institutions_fallback(self, status: str) -> dict:
+        try:
+            saved = json.loads(self._institutions_path().read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            return empty_institutions(status)
+        return saved | {"status": status}
+
+    def institutions(self, now: datetime) -> dict:
+        """FII and DII activity. Published daily, so it is fetched at most twice an hour."""
+        with self._institutions_lock:
+            fresh = self._clock() - self._institutions_at < INSTITUTIONS_TTL_SECONDS
+            if self._institutions is not None and fresh:
+                return self._institutions
+            try:
+                payload = clean(fetch_institutions(self.market, now))
+            except AuthExpiredError:
+                return self._institutions_fallback(SESSION_EXPIRED)
+            except MarketDataError as exc:
+                log.warning("FII and DII fetch failed: %s", exc)
+                return self._institutions_fallback(UNAVAILABLE)
+            self._institutions, self._institutions_at = payload, self._clock()
+            path = self._institutions_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload))
+            os.replace(tmp, path)
+            return payload
 
     def _saved_path(self) -> Path:
         return self.data_dir / "market" / "overview.json"

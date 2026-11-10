@@ -13,7 +13,7 @@ from algoverse.ai.schemas import load_ai_config
 from algoverse.ai.service import build_ai_service
 from algoverse.brokers.auth import token_store
 from algoverse.brokers.upstox import UpstoxMarketData
-from algoverse.data.calendar import MarketCalendar
+from algoverse.data.calendar import BrokerCalendar
 from algoverse.data.instruments import download_master, parse_option_contracts
 from algoverse.data.store import SnapshotStore
 from algoverse.evaluation.config import EventCalendar, load_scoring_config
@@ -37,7 +37,9 @@ class Runtime:
         config_dir = self.settings.config_dir
         self.store = SnapshotStore(self.settings.data_dir)
         self.universe = load_universe(config_dir)
-        self.calendar = MarketCalendar(load_calendar_config(config_dir).holidays)
+        self.calendar = BrokerCalendar(
+            self.settings.data_dir, load_calendar_config(config_dir).holidays
+        )
         self.tokens = token_store(self.settings)
         self.market = UpstoxMarketData(self.tokens)
         risk = load_risk_config(config_dir)

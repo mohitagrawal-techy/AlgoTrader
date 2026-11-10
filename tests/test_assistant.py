@@ -133,6 +133,27 @@ def test_components_available_without_the_industry_list(tmp_path, component, par
     assert service.component_data(component, params, NOW)
 
 
+def test_institutions_component_uses_server_figures(tmp_path):
+    from algoverse.market.institutions import CASH
+
+    service, _ = build(tmp_path)
+    row = {
+        "time_stamp": 1794162600000,
+        "buy_amount": 200.0,
+        "sell_amount": 150.0,
+        "oi_contracts": 0,
+        "total_long_contracts": 0,
+        "total_short_contracts": 0,
+        "total_call_long_contracts": 0,
+        "total_put_long_contracts": 0,
+        "total_call_short_contracts": 0,
+        "total_put_short_contracts": 0,
+    }
+    service.overview.market.institutional_flows = lambda *_: {CASH: [row]}
+    data = service.component_data("institutions", {}, NOW)
+    assert data["latest_net"]["fii_cash"] == 50.0 and data["as_of"] == "2026-11-09"
+
+
 @pytest.mark.parametrize(
     "component", ["breadth", "market_map", "distribution", "industries", "movers"]
 )

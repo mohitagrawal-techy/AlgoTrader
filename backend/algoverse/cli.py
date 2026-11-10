@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
+import threading
 from collections import Counter
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -23,8 +25,17 @@ from algoverse.backtest.upstox_history import (
 from algoverse.backtest.walkforward import run_backtest, run_holdout, run_walk_forward
 from algoverse.brokers.base import AuthExpiredError, MarketDataError, PlanRequiredError
 from algoverse.brokers.upstox import RateLimiter, UpstoxMarketData
+from algoverse.brokers.upstox_feed import UpstoxFeed
 from algoverse.data.collector import backfill_daily, collect_snapshots
+from algoverse.data.holidays import fetch_holidays, load_holidays, refresh_holidays, save_holidays
 from algoverse.data.instruments import download_master, parse_future_contracts
+from algoverse.data.stream import (
+    StreamService,
+    build_subscription,
+    load_stream_config,
+    read_status,
+)
+from algoverse.data.ticks import stored_days
 from algoverse.execution.cycle import run_cycle
 from algoverse.execution.ledger import CLOSED, LIVE_STATUSES
 from algoverse.runtime import Runtime
@@ -187,6 +198,63 @@ def cmd_history_upstox(_: argparse.Namespace) -> None:
         print(f"Kept {len(result.kept_existing)} sessions already imported from NSE files.")
     for name, reason in result.failed.items():
         print(f"Incomplete {name}: {reason}. Run the command again to retry.")
+
+
+def cmd_holidays(_: argparse.Namespace) -> None:
+    settings = get_settings()
+    now = datetime.now(IST)
+    save_holidays(settings.data_dir, fetch_holidays())
+    closed, sessions = load_holidays(settings.data_dir)
+    print("Upcoming days F&O is closed:")
+    for day in sorted(d for d in closed if d >= now.date()):
+        print(f"  {day} {day:%a}")
+    print("Upcoming listed sessions (these do trade):")
+    for day, (start, end) in sorted(d for d in sessions.items() if d[0] >= now.date()):
+        print(f"  {day} {day:%a} {start:%H:%M} to {end:%H:%M}")
+
+
+def cmd_stream(_: argparse.Namespace) -> None:
+    rt = Runtime()
+    config = load_stream_config(rt.settings.config_dir)
+    stop = threading.Event()
+    for signal_number in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(signal_number, lambda *_: stop.set())
+    if not config.enabled:
+        log.info("The live feed is turned off in config/stream.yaml.")
+        stop.wait()
+        return
+
+    def subscribe(now: datetime) -> dict[str, dict]:
+        symbols = set(rt.universe.underlyings)
+        futures = parse_future_contracts(download_master(), symbols)
+        return build_subscription(
+            rt.market, rt.universe, rt.contracts(now), futures, config, now.date()
+        )
+
+    before = timedelta(minutes=config.minutes_before_open)
+    after = timedelta(minutes=config.minutes_after_close)
+
+    def is_session(now: datetime) -> bool:
+        return rt.calendar.within_session(now, before, after)
+
+    log.info("Live feed service running. It connects around each market session.")
+    StreamService(
+        rt.settings.data_dir,
+        config,
+        UpstoxFeed(rt.tokens),
+        subscribe,
+        is_session,
+        lambda now: rt.tokens.current(now) is not None,
+        stop=stop,
+    ).run()
+
+
+def cmd_stream_status(_: argparse.Namespace) -> None:
+    data_dir = get_settings().data_dir
+    print(f"Feed status: {read_status(data_dir) or 'not started'}")
+    for day in stored_days(data_dir):
+        size = day["bytes"] / 1e6
+        print(f"{day['date']}  {day['rows']:>12,} ticks  {size:>9,.1f} MB  {day['files']} files")
 
 
 def cmd_backtest(args: argparse.Namespace) -> None:
@@ -372,9 +440,19 @@ def cmd_collect(_: argparse.Namespace) -> None:
     scheduler.add_job(
         snapshot_job, "interval", minutes=rt.universe.snapshot_interval_minutes, max_instances=1
     )
-    scheduler.add_job(settlement_job, "cron", hour=15, minute=35)
+    def holiday_job() -> None:
+        try:
+            if refresh_holidays(rt.settings.data_dir, datetime.now(IST)):
+                log.info("Updated the market holiday list from Upstox")
+        except (MarketDataError, httpx.HTTPError, OSError, ValueError, KeyError) as exc:
+            log.warning("Could not update the holiday list: %s", exc)
+
+    # Hourly so a failed download soon retries. It only downloads when the copy is 12 hours old.
+    scheduler.add_job(holiday_job, "interval", hours=1, next_run_time=datetime.now(IST))
+    # Upstox lists some sessions closing at 15:40, so these wait until after that.
+    scheduler.add_job(settlement_job, "cron", hour=15, minute=45)
     # Upstox drops a contract the day after it expires, so this cannot wait for the next day.
-    scheduler.add_job(history_capture_job, "cron", hour=15, minute=40)
+    scheduler.add_job(history_capture_job, "cron", hour=15, minute=45)
     scheduler.add_job(backfill_job, "cron", hour=16, minute=0)
     log.info("Collector running. Snapshots run only during market hours.")
     scheduler.start()
@@ -392,6 +470,9 @@ def main() -> None:
         ("collect", cmd_collect, "Run the snapshot and backfill schedule"),
         ("backfill", cmd_backfill, "Refresh daily price history"),
         ("paper-status", cmd_paper_status, "Show paper positions and P&L"),
+        ("holidays", cmd_holidays, "Download and show market holidays"),
+        ("stream", cmd_stream, "Run the live feed and save every tick"),
+        ("stream-status", cmd_stream_status, "Show the live feed and stored ticks"),
     ):
         commands.add_parser(name, help=help_text).set_defaults(handler=handler)
     fstart = commands.add_parser("forward-start", help="Lock a configuration and forward test it")

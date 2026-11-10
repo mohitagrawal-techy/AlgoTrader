@@ -254,6 +254,7 @@ class AssistantService:
             "options": self._options,
             "sector_performance": self._sector_performance,
             "sector_table": self._sector_table,
+            "institutions": self._institutions,
             "market_map": self._market_map,
             "distribution": self._distribution,
             "industries": self._industries,
@@ -317,6 +318,25 @@ class AssistantService:
     def _sector_table(self, data, params, now) -> dict:
         _require(data["sectors"], "Sector data has not loaded yet.")
         return self._as_of(data) | {"sectors": [_sector_view(row) for row in data["sectors"]]}
+
+    def _institutions(self, data, params, now) -> dict:
+        flows = self.overview.institutions(now)
+        _require(flows["daily"], "FII and DII data has not loaded yet.")
+        return {
+            "as_of": flows["as_of"],
+            "units": "rupees crore. Positive net means net buying.",
+            "latest_net": {
+                "fii_cash": flows["fii_net"],
+                "dii_cash": flows["dii_net"],
+                "combined": flows["combined_net"],
+            },
+            "last_five_sessions_net": {
+                "fii_cash": flows["fii_recent"],
+                "dii_cash": flows["dii_recent"],
+            },
+            "recent_days": flows["daily"][-10:],
+            "by_segment": flows["segments"],
+        }
 
     def _market_map(self, data, params, now) -> dict:
         groups = _require(data["heatmap"], NEEDS_LIST)

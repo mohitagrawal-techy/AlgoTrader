@@ -145,6 +145,26 @@ export interface ExpiryMarket {
   rows: ChainRow[];
 }
 
+export interface LiveSide {
+  bid: number | null;
+  ask: number | null;
+  ltp: number | null;
+  iv: number | null;
+  delta: number | null;
+  oi: number | null;
+  volume: number | null;
+}
+
+export interface LiveChain {
+  symbol: string;
+  expiry: string;
+  state: string;
+  live: boolean;
+  as_of?: string | null;
+  spot?: number | null;
+  rows: { strike: number; ce?: LiveSide; pe?: LiveSide }[];
+}
+
 export interface SymbolMarket {
   symbol: string;
   spot: number;
@@ -399,6 +419,39 @@ export interface OverviewComparison {
   volatility: { dates: string[]; closes: number[] };
 }
 
+export interface InstitutionFlow {
+  date: string;
+  fii_net: number | null;
+  dii_net: number | null;
+}
+
+export interface InstitutionSegment {
+  label: string;
+  date: string;
+  buy: number;
+  sell: number;
+  net: number;
+  oi_contracts: number | null;
+  oi_change: number | null;
+  long_pct: number | null;
+  call_net: number | null;
+  put_net: number | null;
+}
+
+export interface OverviewInstitutions {
+  status: "ok" | "session_expired" | "unavailable";
+  fetched_at: string | null;
+  as_of: string | null;
+  fii_net: number | null;
+  dii_net: number | null;
+  combined_net: number | null;
+  fii_recent: number | null;
+  dii_recent: number | null;
+  daily: InstitutionFlow[];
+  monthly: InstitutionFlow[];
+  segments: InstitutionSegment[];
+}
+
 export interface OverviewPayload {
   status: "live" | "closed" | "session_expired" | "unavailable";
   fetched_at: string | null;
@@ -566,6 +619,10 @@ export const api = {
   health: () => getJson<Health>("/api/health"),
   ideas: () => getJson<IdeasPayload>("/api/ideas"),
   market: () => getJson<MarketPayload>("/api/market"),
+  marketLive: (symbol: string, expiry: string) =>
+    getJson<LiveChain>(
+      `/api/market/live?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}`,
+    ),
   portfolio: () => getJson<Portfolio>("/api/portfolio"),
   backtests: () => getJson<BacktestListing>("/api/backtests"),
   forward: () => getJson<ForwardOverview>("/api/forward"),
@@ -598,6 +655,7 @@ export const api = {
   overviewHistory: (name: string) =>
     getJson<OverviewHistory>(`/api/overview/history?name=${encodeURIComponent(name)}`),
   overviewComparison: () => getJson<OverviewComparison>("/api/overview/comparison"),
+  overviewInstitutions: () => getJson<OverviewInstitutions>("/api/overview/institutions"),
   async uploadSectors(file: File): Promise<{ stocks: number }> {
     const response = await fetch("/api/overview/sectors", {
       method: "POST",

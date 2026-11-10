@@ -48,5 +48,15 @@ services:
       backend:
         condition: service_healthy
 
+  # Keeps the Upstox live feed connected in market hours and saves every tick to /data/ticks.
+  stream:
+    <<: *backend
+    command: ["stream"]
+    healthcheck:
+      disable: true
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   algoverse-data:

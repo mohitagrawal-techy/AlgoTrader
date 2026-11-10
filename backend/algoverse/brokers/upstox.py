@@ -135,6 +135,14 @@ class UpstoxMarketData:
         data = self._get(f"/v3/historical-candle/{key}/days/1/{end}/{start}")
         return parse_candles(data["candles"])
 
+    def institutional_flows(
+        self, category: str, data_types: list[str], interval: str
+    ) -> dict[str, list[dict]]:
+        """FII or DII activity by segment. `category` is "fii" or "dii", `interval` 1D or 1M."""
+        return self._get(
+            f"/v2/market/{category}", {"data_type": data_types, "interval": interval}
+        )
+
     def expired_expiries(self, underlying_key: str) -> list[date]:
         """Past expiries Upstox still serves. Needs the Plus plan."""
         data = self._get("/v2/expired-instruments/expiries", {"instrument_key": underlying_key})

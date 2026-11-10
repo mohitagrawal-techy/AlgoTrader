@@ -1,11 +1,14 @@
-import { useMemo, useState } from "react";
-import type {
-  ChainRow,
-  ExpiryMarket,
-  MarketPayload,
-  QuoteSide,
-  ResearchBrief,
-  SymbolMarket,
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  api,
+  type ChainRow,
+  type ExpiryMarket,
+  type LiveChain,
+  type LiveSide,
+  type MarketPayload,
+  type QuoteSide,
+  type ResearchBrief,
+  type SymbolMarket,
 } from "../api";
 import { Legend, LineChart, PairedColumns } from "../charts";
 import { compact, dateTimeIst, fraction, num, pct, shortDate } from "../format";
@@ -15,6 +18,7 @@ const CALLS = "var(--series-1)";
 const PUTS = "var(--series-2)";
 const OI_CHART_STRIKES = 31;
 const FLAT_TERM_SLOPE = 0.0025;
+const LIVE_POLL_MS = 2000;
 
 function otmIv(rows: ChainRow[], forward: number) {
   return rows.map((row) => {
@@ -30,54 +34,120 @@ function trendStatus(trend: string | null): { tone: Tone; label: string } {
   return { tone: "neutral", label: "Not enough history" };
 }
 
-function Side({ side, cls }: { side: QuoteSide | null; cls: string }) {
-  const cells = side
-    ? [
-        compact(side.oi),
-        compact(side.oi_change),
-        compact(side.volume),
-        side.iv == null ? "–" : (side.iv * 100).toFixed(1),
-        num(side.delta, 2),
-        num(side.bid, 2),
-        num(side.ask, 2),
-      ]
-    : Array(7).fill("–");
+type Moneyness = "ITM" | "ATM" | "OTM";
+
+const CHAIN_HEADS = ["OI", "OI chg", "Vol", "IV", "Delta", "Bid", "LTP", "Ask"];
+
+function moneyness(strike: number, atm: number, isCall: boolean): Moneyness {
+  if (strike === atm) return "ATM";
+  return strike < atm === isCall ? "ITM" : "OTM";
+}
+
+function signedCompact(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "–";
+  return `${value > 0 ? "+" : ""}${compact(value)}`;
+}
+
+function changeTone(value: number | null | undefined): string {
+  return !value ? "" : value > 0 ? "pnl-up" : "pnl-down";
+}
+
+function Side({
+  side,
+  cls,
+  state,
+  maxOi,
+  peak,
+}: {
+  side: QuoteSide | null;
+  cls: "call" | "put";
+  state: Moneyness;
+  maxOi: number;
+  peak: boolean;
+}) {
+  const oiShare = side?.oi && maxOi > 0 ? (side.oi / maxOi) * 100 : 0;
+  const cells = [
+    {
+      head: "OI",
+      text: side ? compact(side.oi) : "–",
+      className: `oi-bar${peak ? " oi-peak" : ""}`,
+      style: { "--bar": `${oiShare}%` } as CSSProperties,
+    },
+    { head: "OI chg", text: signedCompact(side?.oi_change), className: changeTone(side?.oi_change) },
+    { head: "Vol", text: side ? compact(side.volume) : "–" },
+    { head: "IV", text: side?.iv == null ? "–" : (side.iv * 100).toFixed(1) },
+    { head: "Delta", text: side ? num(side.delta, 2) : "–" },
+    { head: "Bid", text: side ? num(side.bid, 2) : "–" },
+    { head: "LTP", text: side ? num(side.ltp, 2) : "–", className: "chain-ltp" },
+    { head: "Ask", text: side ? num(side.ask, 2) : "–" },
+  ];
   const ordered = cls === "call" ? cells : [...cells].reverse();
   return (
     <>
-      {ordered.map((cell, index) => (
-        <td key={index} className={`right ${cls}`}>
-          {cell}
+      {ordered.map((cell) => (
+        <td key={cell.head} className={`right ${cls} ${state.toLowerCase()} ${cell.className ?? ""}`} style={cell.style}>
+          {cell.text}
         </td>
       ))}
     </>
   );
 }
 
-function ChainTable({ expiry }: { expiry: ExpiryMarket }) {
-  const nearest = expiry.rows.reduce(
-    (best, row) =>
-      Math.abs(row.strike - expiry.forward) < Math.abs(best - expiry.forward) ? row.strike : best,
+function Tag({ state }: { state: Moneyness }) {
+  return <span className={`moneyness ${state.toLowerCase()}`}>{state}</span>;
+}
+
+function ChainTable({ expiry, spot }: { expiry: ExpiryMarket; spot: number }) {
+  const wrap = useRef<HTMLDivElement>(null);
+  const atm = expiry.rows.reduce(
+    (best, row) => (Math.abs(row.strike - spot) < Math.abs(best - spot) ? row.strike : best),
     expiry.rows[0]?.strike ?? 0,
   );
-  const callHeads = ["OI", "OI chg", "Vol", "IV", "Delta", "Bid", "Ask"];
+  const allOi = expiry.rows.flatMap((row) => [row.ce?.oi ?? 0, row.pe?.oi ?? 0]);
+  const maxOi = Math.max(...allOi, 0);
+  const peakCall = Math.max(...expiry.rows.map((row) => row.ce?.oi ?? 0), 0);
+  const peakPut = Math.max(...expiry.rows.map((row) => row.pe?.oi ?? 0), 0);
+  const spotIndex = expiry.rows.findIndex((row) => row.strike > spot);
+  const spotAt = spotIndex < 0 ? expiry.rows.length : spotIndex;
+
+  // Opens centred on the money. The caller remounts this for each symbol and expiry.
+  useLayoutEffect(() => {
+    const box = wrap.current;
+    const row = box?.querySelector<HTMLElement>("tr.atm");
+    if (!box || !row) return;
+    const offset = row.getBoundingClientRect().top - box.getBoundingClientRect().top;
+    box.scrollTop = offset - (box.clientHeight - row.offsetHeight) / 2;
+    box.scrollLeft = (box.scrollWidth - box.clientWidth) / 2;
+  }, []);
+
+  const spotRow = (
+    <tr className="spot-row" key="spot">
+      <td colSpan={CHAIN_HEADS.length * 2 + 1}>
+        <span>Spot {num(spot, 2)}</span>
+      </td>
+    </tr>
+  );
   return (
-    <div className="table-wrap chain-wrap">
+    <div className="table-wrap chain-wrap" ref={wrap}>
       <table className="table table-chain">
         <thead>
           <tr className="band">
-            <th colSpan={7}>Calls</th>
+            <th colSpan={CHAIN_HEADS.length} className="band-call">
+              Calls
+            </th>
             <th />
-            <th colSpan={7}>Puts</th>
+            <th colSpan={CHAIN_HEADS.length} className="band-put">
+              Puts
+            </th>
           </tr>
           <tr>
-            {callHeads.map((head) => (
+            {CHAIN_HEADS.map((head) => (
               <th key={`c-${head}`} className="right">
                 {head}
               </th>
             ))}
             <th className="strike">Strike</th>
-            {[...callHeads].reverse().map((head) => (
+            {[...CHAIN_HEADS].reverse().map((head) => (
               <th key={`p-${head}`} className="right">
                 {head}
               </th>
@@ -85,13 +155,38 @@ function ChainTable({ expiry }: { expiry: ExpiryMarket }) {
           </tr>
         </thead>
         <tbody>
-          {expiry.rows.map((row) => (
-            <tr key={row.strike} className={row.strike === nearest ? "atm" : ""}>
-              <Side side={row.ce} cls="call" />
-              <td className="strike">{num(row.strike)}</td>
-              <Side side={row.pe} cls="put" />
-            </tr>
-          ))}
+          {expiry.rows.flatMap((row, index) => {
+            const callState = moneyness(row.strike, atm, true);
+            const putState = moneyness(row.strike, atm, false);
+            const line = (
+              <tr key={row.strike} className={row.strike === atm ? "atm" : ""}>
+                <Side
+                  side={row.ce}
+                  cls="call"
+                  state={callState}
+                  maxOi={maxOi}
+                  peak={peakCall > 0 && row.ce?.oi === peakCall}
+                />
+                <td className="strike">
+                  <span className="strike-cell">
+                    <Tag state={callState} />
+                    <b>{num(row.strike)}</b>
+                    <Tag state={putState} />
+                  </span>
+                </td>
+                <Side
+                  side={row.pe}
+                  cls="put"
+                  state={putState}
+                  maxOi={maxOi}
+                  peak={peakPut > 0 && row.pe?.oi === peakPut}
+                />
+              </tr>
+            );
+            const atEnd = index === expiry.rows.length - 1 && spotAt === expiry.rows.length;
+            if (index === spotAt) return [spotRow, line];
+            return atEnd ? [line, spotRow] : [line];
+          })}
         </tbody>
       </table>
     </div>
@@ -165,8 +260,55 @@ function Brief({ brief }: { brief: ResearchBrief }) {
   );
 }
 
+function liveSide(base: QuoteSide | null, live: LiveSide | undefined): QuoteSide | null {
+  if (!live) return base;
+  // The feed has no previous-day OI, so the change is rolled forward from the last snapshot.
+  const change =
+    base?.oi_change != null && base.oi != null && live.oi != null
+      ? base.oi_change + live.oi - base.oi
+      : null;
+  return { ...live, oi_change: change };
+}
+
+function withLive(expiry: ExpiryMarket, live: LiveChain): ExpiryMarket {
+  const byStrike = new Map(live.rows.map((row) => [row.strike, row]));
+  return {
+    ...expiry,
+    rows: expiry.rows.map((row) => {
+      const update = byStrike.get(row.strike);
+      return update
+        ? { ...row, ce: liveSide(row.ce, update.ce), pe: liveSide(row.pe, update.pe) }
+        : row;
+    }),
+  };
+}
+
+function useLiveChain(symbol: string, expiry: string | undefined): LiveChain | null {
+  const [live, setLive] = useState<LiveChain | null>(null);
+  useEffect(() => {
+    if (!expiry) return;
+    let active = true;
+    const load = () => {
+      if (document.visibilityState !== "visible") return;
+      api
+        .marketLive(symbol, expiry)
+        .then((body) => active && setLive(body))
+        .catch(() => active && setLive(null));
+    };
+    load();
+    const timer = window.setInterval(load, LIVE_POLL_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [symbol, expiry]);
+  return live?.live && live.symbol === symbol && live.expiry === expiry ? live : null;
+}
+
 function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: string }) {
   const expiry = market.expiries.find((e) => e.expiry === expiryKey) ?? market.expiries[0];
+  const live = useLiveChain(market.symbol, expiry?.expiry);
+  const chain = useMemo(() => (expiry && live ? withLive(expiry, live) : expiry), [expiry, live]);
   const smile = useMemo(
     () => [
       {
@@ -288,8 +430,35 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
         </Panel>
       </div>
 
-      <Panel title={`Option chain, ${shortDate(expiry.expiry)}`} aside={<span className="muted">IV in %, within 6% of forward</span>}>
-        <ChainTable expiry={expiry} />
+      <Panel
+        title={`Option chain, ${shortDate(expiry.expiry)}`}
+        aside={
+          <span className="chart-controls">
+            <Legend
+              items={[
+                { name: "ITM calls", color: "var(--call-itm-key)" },
+                { name: "ITM puts", color: "var(--put-itm-key)" },
+                { name: "ATM", color: "var(--ink)" },
+              ]}
+            />
+            {live ? (
+              <Status tone="good">Live</Status>
+            ) : (
+              <span className="muted">Snapshot, every 5 min</span>
+            )}
+          </span>
+        }
+      >
+        <ChainTable
+          key={`${market.symbol}-${expiry.expiry}`}
+          expiry={chain ?? expiry}
+          spot={live?.spot ?? market.spot}
+        />
+        <p className="panel-note">
+          ITM, ATM and OTM are measured against spot, and ATM is the nearest strike. Bars show open
+          interest on one scale for both sides, and bold marks the largest on each side. IV is in %.
+          Strikes within 6% of the forward.
+        </p>
       </Panel>
     </>
   );

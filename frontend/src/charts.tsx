@@ -1,17 +1,32 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 const MARGIN = { top: 22, right: 18, bottom: 28, left: 58 };
 
-function useWidth() {
+/** The chart's drawn size. A resizable panel can make it differ from the preferred height. */
+function useSize(preferredHeight: number) {
   const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
+  const [size, setSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
     if (!ref.current) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    const observer = new ResizeObserver(([entry]) =>
+      setSize({ width: entry.contentRect.width, height: entry.contentRect.height }),
+    );
     observer.observe(ref.current);
     return () => observer.disconnect();
   }, []);
-  return [ref, width] as const;
+  return [ref, size.width, size.height || preferredHeight] as const;
+}
+
+function chartStyle(preferredHeight: number): CSSProperties {
+  return { height: preferredHeight, "--chart-height": `${preferredHeight}px` } as CSSProperties;
 }
 
 export function niceTicks(min: number, max: number, count = 5): number[] {
@@ -103,7 +118,7 @@ interface LineChartProps {
 
 export function LineChart({
   series,
-  height = 240,
+  height: preferredHeight = 240,
   label,
   formatX,
   formatY,
@@ -116,7 +131,7 @@ export function LineChart({
   minSpan = 0,
   tickX = niceTicks,
 }: LineChartProps) {
-  const [ref, width] = useWidth();
+  const [ref, width, height] = useSize(preferredHeight);
   const clipId = useId();
   const [hover, setHover] = useState<number | null>(null);
 
@@ -190,7 +205,7 @@ export function LineChart({
   let lastLabelX = -Infinity;
 
   return (
-    <div className="chart" ref={ref} style={{ height }}>
+    <div className="chart" ref={ref} style={chartStyle(preferredHeight)}>
       {scales && (
         <svg width={width} height={height} role="img" aria-label={label}>
           <defs>
@@ -349,13 +364,13 @@ export function PairedColumns({
   data,
   names,
   colors,
-  height = 240,
+  height: preferredHeight = 240,
   label,
   formatX,
   formatY,
   marker,
 }: ColumnsProps) {
-  const [ref, width] = useWidth();
+  const [ref, width, height] = useSize(preferredHeight);
   const [hover, setHover] = useState<number | null>(null);
   const bottom = height - MARGIN.bottom;
   const plotWidth = Math.max(width - MARGIN.left - MARGIN.right, 0);
@@ -369,7 +384,7 @@ export function PairedColumns({
   const markerIndex = marker ? data.findIndex((d) => d.x >= marker.x) : -1;
 
   return (
-    <div className="chart" ref={ref} style={{ height }}>
+    <div className="chart" ref={ref} style={chartStyle(preferredHeight)}>
       {width > 0 && (
         <svg width={width} height={height} role="img" aria-label={label}>
           {niceTicks(0, yMax * 1.05, 4).map((tick) => (
@@ -456,6 +471,128 @@ export function PairedColumns({
   );
 }
 
+function divergingBar(x: number, width: number, zero: number, value: number) {
+  if (value <= zero) return columnPath(x, width, value, zero);
+  const radius = Math.min(4, width / 2, value - zero);
+  return (
+    `M${x} ${zero}V${value - radius}Q${x} ${value} ${x + radius} ${value}` +
+    `H${x + width - radius}Q${x + width} ${value} ${x + width} ${value - radius}V${zero}Z`
+  );
+}
+
+interface DivergingProps {
+  data: { key: string; a: number | null; b: number | null }[];
+  names: [string, string];
+  colors: [string, string];
+  height?: number;
+  label: string;
+  formatX: (key: string) => string;
+  formatY: (value: number) => string;
+  formatTip: (value: number | null) => string;
+}
+
+/** Paired columns that grow up or down from a zero line. */
+export function DivergingColumns({
+  data,
+  names,
+  colors,
+  height: preferredHeight = 260,
+  label,
+  formatX,
+  formatY,
+  formatTip,
+}: DivergingProps) {
+  const [ref, width, height] = useSize(preferredHeight);
+  const [hover, setHover] = useState<number | null>(null);
+  const margin = { top: 12, right: 8, bottom: 26, left: 58 };
+  const bottom = height - margin.bottom;
+  const plotWidth = Math.max(width - margin.left - margin.right, 0);
+  const band = data.length ? plotWidth / data.length : 0;
+  const barWidth = Math.max(Math.min(band / 2 - 2, 14), 1);
+  const values = data.flatMap((d) => [d.a, d.b]).filter((v): v is number => v !== null);
+  const low = Math.min(0, ...values);
+  const high = Math.max(0, ...values);
+  const padding = (high - low || 1) * 0.06;
+  const domain: [number, number] = [low - (low < 0 ? padding : 0), high + (high > 0 ? padding : 0)];
+  const y = linear(domain, [bottom, margin.top]);
+  const center = (index: number) => margin.left + band * (index + 0.5);
+  const every = Math.max(1, Math.ceil(70 / (band || 1)));
+  const hovered = hover !== null ? data[hover] : null;
+  const zero = y(0);
+
+  return (
+    <div className="chart" ref={ref} style={chartStyle(preferredHeight)}>
+      {width > 0 && (
+        <svg width={width} height={height} role="img" aria-label={label}>
+          {niceTicks(domain[0], domain[1], 4).map((tick) => (
+            <g key={tick}>
+              <line
+                x1={margin.left}
+                x2={width - margin.right}
+                y1={y(tick)}
+                y2={y(tick)}
+                className={tick === 0 ? "axis-line" : "grid-line"}
+              />
+              <text x={margin.left - 8} y={y(tick) + 4} textAnchor="end" className="tick">
+                {formatY(tick)}
+              </text>
+            </g>
+          ))}
+          {data.map((d, index) => (
+            <g key={d.key}>
+              {d.a !== null && (
+                <path
+                  d={divergingBar(center(index) - barWidth - 1, barWidth, zero, y(d.a))}
+                  style={{ fill: colors[0] }}
+                />
+              )}
+              {d.b !== null && (
+                <path
+                  d={divergingBar(center(index) + 1, barWidth, zero, y(d.b))}
+                  style={{ fill: colors[1] }}
+                />
+              )}
+              {index % every === 0 && (
+                <text x={center(index)} y={height - 8} textAnchor="middle" className="tick">
+                  {formatX(d.key)}
+                </text>
+              )}
+              <rect
+                x={center(index) - band / 2}
+                y={margin.top}
+                width={band}
+                height={Math.max(bottom - margin.top, 0)}
+                fill={hover === index ? "var(--hover-wash)" : "transparent"}
+                onPointerEnter={() => setHover(index)}
+                onPointerLeave={() => setHover(null)}
+              />
+            </g>
+          ))}
+        </svg>
+      )}
+      {hovered && hover !== null && (
+        <Tooltip x={center(hover)} width={width}>
+          <strong>{formatX(hovered.key)}</strong>
+          <div className="tip-row">
+            <span>
+              <i style={{ background: colors[0] }} />
+              {names[0]}
+            </span>
+            <b>{formatTip(hovered.a)}</b>
+          </div>
+          <div className="tip-row">
+            <span>
+              <i style={{ background: colors[1] }} />
+              {names[1]}
+            </span>
+            <b>{formatTip(hovered.b)}</b>
+          </div>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
+
 const HEAT_THRESHOLDS = [-2, -1, -0.25, 0.25, 1, 2];
 
 /** One of seven diverging classes: 0 is the deepest fall, 3 is flat, 6 is the strongest rise. */
@@ -529,21 +666,21 @@ interface TreemapStock {
 
 export function Treemap({
   groups,
-  height,
+  height: preferredHeight,
   label,
 }: {
   groups: { industry: string; value: number; stocks: TreemapStock[] }[];
   height: number;
   label: string;
 }) {
-  const [ref, width] = useWidth();
+  const [ref, width, height] = useSize(preferredHeight);
   const [hover, setHover] = useState<{ stock: TreemapStock; industry: string; x: number; y: number } | null>(null);
   const placed = useMemo(
     () => squarify([...groups].sort((a, b) => b.value - a.value), { x: 0, y: 0, width, height }),
     [groups, width, height],
   );
   return (
-    <div className="chart treemap" ref={ref} style={{ height }} onPointerLeave={() => setHover(null)}>
+    <div className="chart treemap" ref={ref} style={chartStyle(preferredHeight)} onPointerLeave={() => setHover(null)}>
       {width > 0 && (
         <svg width={width} height={height} role="img" aria-label={label}>
           {placed.map((group) => {
@@ -646,7 +783,7 @@ export interface CandlePoint {
 
 export function Candles({
   data,
-  height = 340,
+  height: preferredHeight = 340,
   label,
   formatDate,
   formatPrice,
@@ -657,7 +794,7 @@ export function Candles({
   formatDate: (iso: string) => string;
   formatPrice: (value: number) => string;
 }) {
-  const [ref, width] = useWidth();
+  const [ref, width, height] = useSize(preferredHeight);
   const [hover, setHover] = useState<number | null>(null);
   const margin = { top: 12, right: 14, bottom: 26, left: 62 };
   const plotWidth = Math.max(width - margin.left - margin.right, 0);
@@ -697,7 +834,7 @@ export function Candles({
   const change = point && previous ? (point.close / previous.close - 1) * 100 : null;
 
   return (
-    <div className="chart" ref={ref} style={{ height }}>
+    <div className="chart" ref={ref} style={chartStyle(preferredHeight)}>
       {width > 0 && data.length > 0 && (
         <svg width={width} height={height} role="img" aria-label={label}>
           {niceTicks(domain[0], domain[1], 5).map((tick) => (
@@ -763,14 +900,14 @@ export function Candles({
 
 export function Histogram({
   bars,
-  height = 240,
+  height: preferredHeight = 240,
   label,
 }: {
   bars: { label: string; count: number; tone: "up" | "down" }[];
   height?: number;
   label: string;
 }) {
-  const [ref, width] = useWidth();
+  const [ref, width, height] = useSize(preferredHeight);
   const margin = { top: 22, bottom: 40, side: 8 };
   const plot = Math.max(width - margin.side * 2, 0);
   const band = bars.length ? plot / bars.length : 0;
@@ -779,7 +916,7 @@ export function Histogram({
   const peak = Math.max(...bars.map((bar) => bar.count), 1);
   const y = linear([0, peak], [bottom, margin.top]);
   return (
-    <div className="chart" ref={ref} style={{ height }}>
+    <div className="chart" ref={ref} style={chartStyle(preferredHeight)}>
       {width > 0 && (
         <svg width={width} height={height} role="img" aria-label={label}>
           <line x1={margin.side} x2={width - margin.side} y1={bottom} y2={bottom} className="axis-line" />

@@ -1,0 +1,20 @@
+# Upstox live feed (WebSocket). Every tick is saved under <data dir>/ticks.
+enabled: true
+
+# "full" gives LTP, five levels of depth, OI, IV and Greeks. Upstox allows 2000 keys in this mode.
+mode: full
+max_instruments: 1900
+
+# Contracts to subscribe to, chosen once at each connection.
+expiries_per_underlying: 3
+strike_range: 0.15
+
+# Connect this long around each session, whose hours come from the Upstox holiday list.
+# Outside these hours the feed disconnects and the day's files are merged.
+minutes_before_open: 15
+minutes_after_close: 15
+
+# How often ticks reach disk. A crash can lose at most this much.
+flush_seconds: 10
+# How often the latest prices are published to the dashboard.
+live_seconds: 2

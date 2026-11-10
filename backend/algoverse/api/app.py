@@ -22,6 +22,7 @@ from algoverse.brokers import auth
 from algoverse.brokers.base import AuthExpiredError, MarketDataError
 from algoverse.dashboard import IDEAS_FILE, MARKET_FILE, clean, read_published
 from algoverse.data.collector import collect_snapshots
+from algoverse.data.stream import live_chain
 from algoverse.execution.cycle import run_cycle
 from algoverse.execution.ledger import CANCELLED, CLOSED, EXITING, LIVE_STATUSES, OPEN
 from algoverse.lab.service import LabBusy, LabError
@@ -156,6 +157,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def market() -> dict:
         return read_published(config.data_dir, MARKET_FILE) or {"generated_at": None, "symbols": {}}
 
+    @app.get("/api/market/live")
+    def market_live(symbol: str, expiry: str) -> dict:
+        return clean(live_chain(config.data_dir, symbol, expiry, datetime.now(IST)))
+
     @app.get("/api/portfolio")
     def portfolio() -> dict:
         now = datetime.now(IST)
@@ -225,6 +230,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/overview/comparison")
     def overview_comparison() -> dict:
         return runtime.overview.comparison(datetime.now(IST))
+
+    @app.get("/api/overview/institutions")
+    def overview_institutions() -> dict:
+        return runtime.overview.institutions(datetime.now(IST))
 
     @app.post("/api/overview/sectors")
     async def upload_sectors(

@@ -19,6 +19,12 @@
   --overlay-1: #1baf7a;
   --overlay-2: #6250d6;
   --up-wash: rgba(42, 120, 214, 0.12);
+  --call-itm: rgba(42, 120, 214, 0.1);
+  --call-itm-key: rgba(42, 120, 214, 0.35);
+  --call-bar: rgba(42, 120, 214, 0.3);
+  --put-itm: rgba(235, 104, 52, 0.11);
+  --put-itm-key: rgba(235, 104, 52, 0.38);
+  --put-bar: rgba(235, 104, 52, 0.32);
   --down-wash: rgba(227, 73, 72, 0.12);
   --meter-track: #cde2fb;
   --meter-fill: #2a78d6;
@@ -70,6 +76,12 @@
     --overlay-1: #199e70;
     --overlay-2: #9085e9;
     --up-wash: rgba(57, 135, 229, 0.16);
+    --call-itm: rgba(57, 135, 229, 0.15);
+    --call-itm-key: rgba(57, 135, 229, 0.5);
+    --call-bar: rgba(57, 135, 229, 0.4);
+    --put-itm: rgba(217, 89, 38, 0.17);
+    --put-itm-key: rgba(217, 89, 38, 0.55);
+    --put-bar: rgba(217, 89, 38, 0.45);
     --down-wash: rgba(230, 103, 103, 0.16);
     --meter-track: #184f95;
     --meter-fill: #5598e7;
@@ -117,6 +129,12 @@
   --overlay-1: #199e70;
   --overlay-2: #9085e9;
   --up-wash: rgba(57, 135, 229, 0.16);
+  --call-itm: rgba(57, 135, 229, 0.15);
+  --call-itm-key: rgba(57, 135, 229, 0.5);
+  --call-bar: rgba(57, 135, 229, 0.4);
+  --put-itm: rgba(217, 89, 38, 0.17);
+  --put-itm-key: rgba(217, 89, 38, 0.55);
+  --put-bar: rgba(217, 89, 38, 0.45);
   --down-wash: rgba(230, 103, 103, 0.16);
   --meter-track: #184f95;
   --meter-fill: #5598e7;
@@ -1181,6 +1199,336 @@ main {
   white-space: nowrap;
 }
 
+.heat-scale {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--ink-2);
+  font-size: 11px;
+}
+
+.heat-scale i {
+  width: 16px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.heat-scale span:first-child {
+  margin-right: 4px;
+}
+
+.heat-scale span:last-child {
+  margin-left: 4px;
+}
+
+.sector-heatmap {
+  position: relative;
+  padding: 0 14px;
+}
+
+.heatmap {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.heatmap th:first-child {
+  width: 170px;
+}
+
+.heatmap thead th:first-child,
+.heatmap tbody th {
+  padding: 0 8px 0 0;
+  color: var(--ink-2);
+  font-weight: 500;
+  text-align: left;
+}
+
+.heatmap td {
+  height: 26px;
+  padding: 0 2px;
+  border-radius: 2px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.heatmap-missing {
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+
+.heatmap-benchmark th,
+.heatmap-benchmark td {
+  border-bottom: 2px solid var(--axis);
+}
+
+.heatmap-benchmark th {
+  color: var(--ink);
+}
+
+.heatmap-sort {
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+}
+
+.heatmap-sort:hover,
+.heatmap-sort.active {
+  color: var(--ink);
+}
+
+.institution-tiles {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0 14px 10px;
+}
+
+.overview-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.dash-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  grid-column: span var(--span);
+  min-width: 0;
+  height: var(--card-height, auto);
+}
+
+.dash-card > .panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  transition: border-color 0.12s;
+}
+
+.dash-card.resizing > .panel {
+  border-color: var(--series-1);
+}
+
+.dash-card > .panel > * {
+  flex: none;
+}
+
+.dash-card .panel-header,
+.dash-card .panel-aside,
+.dash-card .chart-controls {
+  flex-wrap: wrap;
+}
+
+.dash-card > .panel > .ai-explain {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 60%;
+  overflow: auto;
+}
+
+.dash-card > .panel > .chart {
+  flex: 1 1 var(--chart-height);
+  height: auto !important;
+  min-height: 90px;
+}
+
+.dash-card .chart svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.dash-card > .panel > .table-wrap,
+.dash-card > .panel > .sector-bars,
+.dash-card > .panel > .sector-heatmap,
+.dash-card > .panel > .breadth,
+.dash-card > .panel > .index-strip,
+.dash-card > .panel > .sector-empty,
+.dash-card > .panel > .empty {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.dash-card > .panel > .table-wrap > .table,
+.dash-card .heatmap {
+  height: 100%;
+}
+
+.dash-card > .panel > .table-wrap > .table thead tr {
+  height: 1px;
+}
+
+.dash-card > .panel > .sector-bars {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+}
+
+.resize-east,
+.resize-south {
+  position: absolute;
+  z-index: 3;
+  touch-action: none;
+}
+
+.resize-east {
+  top: 10px;
+  right: -9px;
+  bottom: 18px;
+  width: 12px;
+  cursor: ew-resize;
+}
+
+.resize-south {
+  right: 18px;
+  bottom: -9px;
+  left: 10px;
+  height: 12px;
+  cursor: ns-resize;
+}
+
+.resize-east::after,
+.resize-south::after {
+  position: absolute;
+  border-radius: 2px;
+  background: var(--series-1);
+  content: "";
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.resize-east::after {
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 2px;
+}
+
+.resize-south::after {
+  top: 5px;
+  right: 0;
+  left: 0;
+  height: 2px;
+}
+
+.resize-east:hover::after,
+.resize-south:hover::after,
+.resize-east:active::after,
+.resize-south:active::after {
+  opacity: 1;
+}
+
+.resize-corner {
+  position: absolute;
+  z-index: 4;
+  right: 1px;
+  bottom: 1px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-bottom-right-radius: 9px;
+  background:
+    linear-gradient(135deg, transparent 58%, var(--axis) 58%, var(--axis) 66%, transparent 66%, transparent 74%, var(--axis) 74%, var(--axis) 82%, transparent 82%);
+  cursor: nwse-resize;
+  opacity: 0;
+  touch-action: none;
+  transition: opacity 0.12s;
+}
+
+.dash-card:hover .resize-corner,
+.dash-card.resizing .resize-corner,
+.resize-corner:focus-visible {
+  opacity: 1;
+}
+
+.arrange-overlay {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  border: 1px dashed var(--axis);
+  border-radius: 10px;
+  background: var(--hover-wash);
+  cursor: grab;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.arrange-overlay:hover {
+  border-color: var(--series-1);
+}
+
+.arrange-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px 6px 14px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+  background: var(--surface);
+}
+
+.arrange-title {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arrange-buttons {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  cursor: default;
+}
+
+.arrange-buttons .button {
+  min-width: 32px;
+  padding: 2px 8px;
+}
+
+.dash-card.moving {
+  z-index: 20;
+  opacity: 0.88;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+}
+
+.dash-card.moving .arrange-overlay {
+  cursor: grabbing;
+}
+
+.dash-card.swap-target .arrange-overlay {
+  border: 2px solid var(--series-1);
+  background: var(--up-wash);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .treemap-group {
   fill: var(--surface-2);
 }
@@ -1557,8 +1905,94 @@ main {
   font-weight: 600;
 }
 
+.table-chain .band .band-call {
+  box-shadow: inset 0 -2px 0 var(--series-1);
+  color: var(--ink);
+}
+
+.table-chain .band .band-put {
+  box-shadow: inset 0 -2px 0 var(--series-2);
+  color: var(--ink);
+}
+
+.table-chain td.call.itm {
+  background-color: var(--call-itm);
+}
+
+.table-chain td.put.itm {
+  background-color: var(--put-itm);
+}
+
+.table-chain td.oi-bar {
+  background-repeat: no-repeat;
+}
+
+.table-chain td.call.oi-bar {
+  background-image: linear-gradient(to right, var(--call-bar) var(--bar), transparent var(--bar));
+}
+
+.table-chain td.put.oi-bar {
+  background-image: linear-gradient(to left, var(--put-bar) var(--bar), transparent var(--bar));
+}
+
+.table-chain td.oi-peak {
+  font-weight: 700;
+}
+
+.table-chain .chain-ltp {
+  font-weight: 600;
+}
+
+.strike-cell {
+  display: inline-grid;
+  grid-template-columns: 30px minmax(52px, auto) 30px;
+  align-items: center;
+  gap: 6px;
+}
+
+.moneyness {
+  padding: 1px 0;
+  border-radius: 3px;
+  color: var(--ink-3);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .table-chain tr.atm td {
-  background: var(--selected);
+  background-color: var(--selected);
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+}
+
+.moneyness.itm {
+  color: var(--ink);
+}
+
+.moneyness.atm {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.table-chain .spot-row td {
+  padding: 0;
+  border-bottom: 0;
+  background: var(--axis);
+  height: 2px;
+  line-height: 0;
+  text-align: center;
+}
+
+.spot-row span {
+  position: relative;
+  padding: 2px 8px;
+  border: 1px solid var(--axis);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 14px;
 }
 
 .chain-wrap {
@@ -1796,7 +2230,29 @@ main {
   }
 }
 
+@media (max-width: 1000px) {
+  .dash-card {
+    grid-column: 1 / -1;
+    height: auto;
+  }
+
+  .resize-east,
+  .resize-south,
+  .resize-corner,
+  .layout-hint {
+    display: none;
+  }
+}
+
 @media (max-width: 760px) {
+  .heatmap {
+    font-size: 11px;
+  }
+
+  .heatmap th:first-child {
+    width: 88px;
+  }
+
   .panel-header,
   .panel-aside,
   .chart-controls {
@@ -1815,8 +2271,13 @@ main {
     display: none;
   }
 
-  .chart-controls .legend {
-    display: none;
+  .institution-tiles .tile-value {
+    font-size: 15px;
+    white-space: nowrap;
+  }
+
+  .legend {
+    flex-wrap: wrap;
   }
 
   .topbar {
