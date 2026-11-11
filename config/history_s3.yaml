@@ -1,0 +1,6 @@
+# AWS S3 bucket that holds historical F&O data. Credentials never go in this file: set
+# AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in .env, or run with an IAM role.
+bucket: us-east-1-stock-history-data
+# Folder inside the bucket. Empty means the whole bucket.
+prefix: ohlc_new/
+region: us-east-1

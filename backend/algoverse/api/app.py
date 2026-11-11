@@ -27,6 +27,7 @@ from algoverse.execution.cycle import run_cycle
 from algoverse.execution.ledger import CANCELLED, CLOSED, EXITING, LIVE_STATUSES, OPEN
 from algoverse.lab.service import LabBusy, LabError
 from algoverse.market.assistant import AssistantError, UnknownTarget
+from algoverse.market.index_details import save_constituents
 from algoverse.market.sectors import SectorListError, parse_sector_csv, save_sector_list
 from algoverse.runtime import Runtime
 from algoverse.settings import REPO_ROOT, Settings, get_settings
@@ -107,6 +108,10 @@ class ChatRequest(BaseModel):
 
 class LabBacktestRequest(BaseModel):
     ids: list[str] | None = Field(default=None, max_length=300)
+
+
+class LabLadderRequest(BaseModel):
+    start_id: str | None = None
 
 
 class LabGenerateRequest(BaseModel):
@@ -235,6 +240,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def overview_institutions() -> dict:
         return runtime.overview.institutions(datetime.now(IST))
 
+    @app.get("/api/overview/details")
+    def overview_details(name: str) -> dict:
+        result = runtime.overview.details(name, datetime.now(IST))
+        if result is None:
+            raise HTTPException(404, "Unknown index")
+        return result
+
+    @app.get("/api/overview/constituents")
+    def overview_constituents() -> dict:
+        return {"indices": runtime.overview.constituent_lists()}
+
+    @app.post("/api/overview/constituents")
+    async def upload_constituents(
+        name: str, request: Request, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        if x_algoverse_client != CLIENT_HEADER_VALUE:
+            raise HTTPException(403, "Uploads must come from the dashboard")
+        if not runtime.overview.accepts_constituents(name):
+            raise HTTPException(404, "Unknown index")
+        try:
+            stocks = parse_sector_csv(await request.body())
+        except SectorListError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        save_constituents(config.data_dir, name, stocks)
+        runtime.overview.forget_member_quotes(name)
+        return {"stocks": len(stocks)}
+
     @app.post("/api/overview/sectors")
     async def upload_sectors(
         request: Request, x_algoverse_client: str | None = Header(default=None)
@@ -316,6 +348,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict:
         _require_dashboard(x_algoverse_client)
         return _lab(lambda: runtime.lab.start_backtest(body.ids, datetime.now(IST)))
+
+    @app.post("/api/lab/ladder")
+    def lab_ladder(
+        body: LabLadderRequest, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        _require_dashboard(x_algoverse_client)
+        return _lab(lambda: runtime.lab.start_ladder(body.start_id, datetime.now(IST)))
 
     @app.post("/api/lab/generate")
     def lab_generate(

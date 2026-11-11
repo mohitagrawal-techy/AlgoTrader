@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   api,
+  type ConstituentList,
   type IndexRow,
   type MoverRow,
   type OverviewComparison,
@@ -8,8 +9,19 @@ import {
   type OverviewInstitutions,
   type OverviewPayload,
 } from "../api";
-import { Candles, DivergingColumns, Histogram, Legend, LineChart, Treemap, heatClass, timeTicks } from "../charts";
+import {
+  Candles,
+  DivergingColumns,
+  HEAT_SCALE,
+  Histogram,
+  Legend,
+  LineChart,
+  Treemap,
+  heatClass,
+  timeTicks,
+} from "../charts";
 import { ResizableGrid, useGridLayout, type Card } from "../layout";
+import { IndexHoverLayer } from "./IndexHover";
 import { compact, dateTimeIst, fraction, inrCompact, num, shortDate, timeIst } from "../format";
 import { Empty, Panel, Select, Status, Tile, type Tone } from "../ui";
 
@@ -29,9 +41,6 @@ const COMPARE_COLORS = [
   "var(--series-4)",
   "var(--series-5)",
 ];
-// A 2% day and a 30% year are both strong moves, so the colour scale widens with the period.
-const HEAT_SCALE: Record<string, number> = { "1D": 1, "1W": 2, "1M": 4, "3M": 7.5, "1Y": 15 };
-
 function dateMs(iso: string): number {
   return new Date(`${iso.slice(0, 10)}T15:30:00+05:30`).getTime();
 }
@@ -65,7 +74,7 @@ function statusFor(status: OverviewPayload["status"]): { tone: Tone; label: stri
 
 function IndexTile({ row }: { row: IndexRow }) {
   return (
-    <div className="tile index-tile">
+    <div className="tile index-tile" data-index-name={row.name} tabIndex={0}>
       <div className="tile-label">{row.label}</div>
       <div className="tile-value">{num(row.last, 2)}</div>
       <div className="index-change">
@@ -93,7 +102,7 @@ function SectorBars({ sectors, period }: { sectors: IndexRow[]; period: Period }
       {rows.map(({ row, value }) => {
         const width = (Math.abs(value) / scale) * 50;
         return (
-          <div className="sector-bar" key={row.name} title={`${row.label}: ${signedPct(value)}`}>
+          <div className="sector-bar" key={row.name} data-index-name={row.name}>
             <span className="sector-name">{row.label}</span>
             <span className="sector-track">
               <i
@@ -202,13 +211,17 @@ function SectorHeatmap({ sectors, benchmark }: { sectors: IndexRow[]; benchmark?
           <tbody>
             {benchmark && (
               <tr className="heatmap-benchmark">
-                <th scope="row">{benchmark.label}</th>
+                <th scope="row" data-index-name={benchmark.name}>
+                  {benchmark.label}
+                </th>
                 {cells(benchmark)}
               </tr>
             )}
             {rows.map((row) => (
               <tr key={row.name}>
-                <th scope="row">{row.label}</th>
+                <th scope="row" data-index-name={row.name}>
+                  {row.label}
+                </th>
                 {cells(row)}
               </tr>
             ))}
@@ -674,7 +687,9 @@ function SectorTable({ sectors }: { sectors: IndexRow[] }) {
         <tbody>
           {sectors.map((row) => (
             <tr key={row.name}>
-              <td className="primary">{row.label}</td>
+              <td className="primary" data-index-name={row.name} tabIndex={0}>
+                {row.label}
+              </td>
               <td className="right">{num(row.last, 2)}</td>
               <HeatCell value={row.change_pct} period="1D" />
               <td className="right">
@@ -788,7 +803,17 @@ function MoverTable({ title, rows, list, showValue }: { title: string; rows: Mov
   );
 }
 
-function SectorUpload({ onDone, replace }: { onDone: () => void; replace?: boolean }) {
+function SectorUpload({
+  onDone,
+  replace,
+  upload: send = api.uploadSectors,
+  label,
+}: {
+  onDone: () => void;
+  replace?: boolean;
+  upload?: (file: File) => Promise<{ stocks: number }>;
+  label?: string;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -799,7 +824,7 @@ function SectorUpload({ onDone, replace }: { onDone: () => void; replace?: boole
     setBusy(true);
     setMessage(null);
     try {
-      const result = await api.uploadSectors(file);
+      const result = await send(file);
       setMessage(`Loaded ${compact(result.stocks)} stocks.`);
       onDone();
     } catch (error) {
@@ -816,10 +841,55 @@ function SectorUpload({ onDone, replace }: { onDone: () => void; replace?: boole
         disabled={busy}
         onClick={() => input.current?.click()}
       >
-        {busy ? "Uploading…" : replace ? "Replace list" : "Upload industry list"}
+        {busy ? "Uploading…" : (label ?? (replace ? "Replace list" : "Upload industry list"))}
       </button>
       {message && <span className="muted">{message}</span>}
     </span>
+  );
+}
+
+function IndexLists() {
+  const [lists, setLists] = useState<ConstituentList[]>([]);
+  const [name, setName] = useState("Nifty 50");
+  const refresh = useCallback(() => {
+    api
+      .constituentLists()
+      .then((body) => setLists(body.indices))
+      .catch(() => undefined);
+  }, []);
+  useEffect(refresh, [refresh]);
+  const added = lists.filter((item) => item.stocks > 0);
+  const current = lists.find((item) => item.name === name);
+  return (
+    <Panel
+      title="Index constituents"
+      aside={<span className="muted">{added.length} of {lists.length} lists added</span>}
+    >
+      <div className="index-lists">
+        <p className="secondary">
+          Upstox doesn't publish which stocks are in an index. Download an index's constituents CSV
+          from niftyindices.com and add it here, and its stocks appear when you hover over it.
+        </p>
+        <div className="filters">
+          <Select
+            label="Index"
+            value={name}
+            onChange={setName}
+            options={lists.map((item) => ({
+              value: item.name,
+              label: item.stocks ? `${item.label} (${item.stocks})` : item.label,
+            }))}
+          />
+          <SectorUpload
+            key={name}
+            onDone={refresh}
+            upload={(file) => api.uploadConstituents(name, file)}
+            label={current?.stocks ? "Replace list" : "Add list"}
+            replace={!!current?.stocks}
+          />
+        </div>
+      </div>
+    </Panel>
   );
 }
 
@@ -1070,6 +1140,7 @@ export function OverviewView() {
           },
         ]
       : []),
+    { id: "index-lists", title: "Index constituents", span: 12, node: <IndexLists /> },
     {
       id: "sectors",
       title: "Sectors",
@@ -1099,7 +1170,7 @@ export function OverviewView() {
       : []),
   ];
   return (
-    <>
+    <IndexHoverLayer>
       <div className="filters overview-head">
         <Status tone={status.tone}>{status.label}</Status>
         <span className="muted">
@@ -1142,6 +1213,6 @@ export function OverviewView() {
         onChange={setLayout}
         onCommit={save}
       />
-    </>
+    </IndexHoverLayer>
   );
 }

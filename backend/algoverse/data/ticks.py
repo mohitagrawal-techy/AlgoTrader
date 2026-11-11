@@ -117,7 +117,8 @@ class TickWriter:
         for day, rows in by_day.items():
             self._sequence += 1
             stamp = rows[-1]["received_at"].strftime("%H%M%S%f")
-            write_table(_day_dir(self.data_dir, day) / f"part-{stamp}-{self._sequence}.parquet", rows)
+            name = f"part-{stamp}-{self._sequence}.parquet"
+            write_table(_day_dir(self.data_dir, day) / name, rows)
             self.rows_written += len(rows)
         self._buffer = []
 
@@ -125,7 +126,8 @@ class TickWriter:
         path = _day_dir(self.data_dir, received_at.date()) / "market_status.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a") as file:
-            file.write(json.dumps({"received_at": received_at.isoformat(), "status": status}) + "\n")
+            entry = {"received_at": received_at.isoformat(), "status": status}
+            file.write(json.dumps(entry) + "\n")
 
 
 def _finish_merge(folder: Path) -> None:

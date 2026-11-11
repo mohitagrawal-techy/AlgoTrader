@@ -86,6 +86,15 @@ class Registry:
         with self._connect() as connection:
             return connection.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
 
+    def window_trials(self, kind: str, start: str, end: str) -> int:
+        """How many trials of one kind have read a period. Each read weakens its evidence."""
+        with self._connect() as connection:
+            return connection.execute(
+                "SELECT COUNT(*) FROM trials "
+                "WHERE kind = ? AND window_start = ? AND window_end = ?",
+                (kind, start, end),
+            ).fetchone()[0]
+
     def holdout_uses(self, start: date, end: date) -> int:
         with self._connect() as connection:
             return connection.execute(

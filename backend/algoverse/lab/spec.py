@@ -29,6 +29,36 @@ NEUTRAL_WEIGHTS = {
     "pop": 2,
 }
 NO_CONTRACTS = "no expiry or strikes match the rules"
+SignalName = Literal[
+    "iv_rank",
+    "vix_rank",
+    "vix_change_pct",
+    "iv_minus_rv",
+    "term_slope",
+    "pcr",
+    "skew",
+    "oi_buildup",
+    "spot_vs_max_pain_pct",
+    "adx",
+    "gap_pct",
+    "range_pct",
+]
+SIGNALS = {
+    "iv_rank": "IV rank (0 to 100)",
+    "vix_rank": "India VIX rank (0 to 100)",
+    "vix_change_pct": "India VIX change, %",
+    "iv_minus_rv": "ATM IV minus realised volatility, points",
+    "term_slope": "IV term structure slope",
+    "pcr": "Put-call ratio",
+    "skew": "25-delta skew, points",
+    "oi_buildup": "OI build-up (-1 bearish to +1 bullish)",
+    "spot_vs_max_pain_pct": "Spot vs max pain, %",
+    "adx": "ADX trend strength",
+    "gap_pct": "Latest session's opening gap, %",
+    "range_pct": "Latest session's range, %",
+}
+SIMPLE_MAX_FILTERS = 1
+MODERATE_MAX_FILTERS = 2
 
 
 class LegSpec(BaseModel):
@@ -50,6 +80,12 @@ class LegSpec(BaseModel):
         return self
 
 
+class Condition(BaseModel):
+    signal: SignalName
+    op: Literal["above", "below"]
+    value: float
+
+
 class EntryRules(BaseModel):
     # Empty means any trend.
     trend: list[Literal["up", "down", "range"]] = Field(default_factory=list)
@@ -57,6 +93,8 @@ class EntryRules(BaseModel):
     iv_rank_max: float | None = Field(default=None, ge=0, le=100)
     dte_min: int = Field(default=3, ge=1, le=45)
     dte_max: int = Field(default=30, ge=1, le=45)
+    # Every condition must hold. Several together make a more selective strategy.
+    conditions: list[Condition] = Field(default_factory=list, max_length=6)
 
     @model_validator(mode="after")
     def _check_ranges(self) -> EntryRules:
@@ -83,7 +121,7 @@ class StrategySpec(BaseModel):
     id: str = Field(pattern=r"^[a-z0-9_]{1,48}$")
     name: str = Field(min_length=1, max_length=60)
     rationale: str = Field(default="", max_length=600)
-    source: Literal["template", "user", "ai"] = "user"
+    source: Literal["template", "user", "ai", "ladder"] = "user"
     bias: Literal["bullish", "bearish", "neutral"] = "neutral"
     # Empty means every configured underlying.
     symbols: list[str] = Field(default_factory=list, max_length=10)
@@ -91,6 +129,10 @@ class StrategySpec(BaseModel):
     entry: EntryRules = Field(default_factory=EntryRules)
     exits: ExitRules = Field(default_factory=ExitRules)
     created_at: str | None = None
+    # Set for strategies built by the ladder: where it came from and what changed.
+    parent_id: str | None = None
+    rung: int = Field(default=1, ge=1, le=20)
+    step: str | None = Field(default=None, max_length=120)
 
     @model_validator(mode="after")
     def _check_exit_window(self) -> StrategySpec:
@@ -122,6 +164,35 @@ def has_undefined_risk(spec: StrategySpec) -> bool:
     for leg in spec.legs:
         net[leg.option_type] += (1 if leg.action == "buy" else -1) * leg.ratio
     return net["CE"] < 0 or net["PE"] < 0
+
+
+def _filter_count(spec: StrategySpec) -> int:
+    entry = spec.entry
+    has_iv_rule = entry.iv_rank_min is not None or entry.iv_rank_max is not None
+    return int(bool(entry.trend)) + int(has_iv_rule) + len(entry.conditions)
+
+
+def complexity_level(spec: StrategySpec) -> str:
+    """Simple, moderate or complex, from the legs and entry conditions it uses."""
+    filters = _filter_count(spec)
+    if len(spec.legs) >= 3 or filters > MODERATE_MAX_FILTERS:
+        return "complex"
+    if len(spec.legs) == 2 or filters > SIMPLE_MAX_FILTERS:
+        return "moderate"
+    return "simple"
+
+
+def describe_entry(spec: StrategySpec) -> str:
+    entry = spec.entry
+    parts = [f"{entry.dte_min}-{entry.dte_max} days to expiry"]
+    if entry.trend:
+        parts.append(f"trend {'/'.join(entry.trend)}")
+    if entry.iv_rank_min is not None:
+        parts.append(f"IV rank at least {entry.iv_rank_min:g}")
+    if entry.iv_rank_max is not None:
+        parts.append(f"IV rank at most {entry.iv_rank_max:g}")
+    parts += [f"{SIGNALS[c.signal]} {c.op} {c.value:g}" for c in entry.conditions]
+    return ", ".join(parts)
 
 
 def describe_legs(spec: StrategySpec) -> str:
@@ -171,7 +242,39 @@ def build_candidate(
     return Candidate(symbol, spec.id, profile_key(spec), spec.bias, tuple(legs))
 
 
-def entry_failures(spec: StrategySpec, ctx: MarketContext) -> list[str]:
+def signal_value(name: str, ctx: MarketContext, front_expiry: date | None) -> float | None:
+    """A market reading known at decision time, or None when it is not available yet."""
+    regime = ctx.regime
+    stats = ctx.by_expiry.get(front_expiry) if front_expiry else None
+    if name == "iv_rank":
+        return ctx.iv.ranking.rank if ctx.iv.ranking else None
+    if name == "vix_rank":
+        return ctx.vix_ranking.rank if ctx.vix_ranking else None
+    if name == "vix_change_pct":
+        return ctx.vix_change_pct
+    if name == "term_slope":
+        return ctx.term_slope
+    if name in ("adx", "gap_pct", "range_pct"):
+        return getattr(regime, name) if regime else None
+    if stats is None:
+        return None
+    if name == "iv_minus_rv":
+        known = stats.atm_iv is not None and ctx.realised_vol is not None
+        return (stats.atm_iv - ctx.realised_vol) * 100 if known else None
+    if name == "pcr":
+        return stats.pcr
+    if name == "skew":
+        return None if stats.skew is None else stats.skew * 100
+    if name == "oi_buildup":
+        return stats.buildup
+    if name == "spot_vs_max_pain_pct":
+        return (ctx.spot / stats.max_pain - 1) * 100 if stats.max_pain else None
+    return None
+
+
+def entry_failures(
+    spec: StrategySpec, ctx: MarketContext, front_expiry: date | None = None
+) -> list[str]:
     rules, reasons = spec.entry, []
     if rules.trend:
         trend = ctx.regime.trend if ctx.regime else None
@@ -185,6 +288,15 @@ def entry_failures(spec: StrategySpec, ctx: MarketContext) -> list[str]:
             reasons.append("entry rule: IV rank is below the minimum")
         elif rules.iv_rank_max is not None and ranking.rank > rules.iv_rank_max:
             reasons.append("entry rule: IV rank is above the maximum")
+    for condition in rules.conditions:
+        value = signal_value(condition.signal, ctx, front_expiry)
+        label = SIGNALS[condition.signal]
+        if value is None:
+            reasons.append(f"entry rule: {label} is not available")
+        elif condition.op == "above" and value <= condition.value:
+            reasons.append(f"entry rule: {label} is not above the level")
+        elif condition.op == "below" and value >= condition.value:
+            reasons.append(f"entry rule: {label} is not below the level")
     return reasons
 
 
@@ -209,7 +321,7 @@ class CustomSet:
             if candidate is None:
                 self.no_contracts[spec.id] += 1
             else:
-                found.append((candidate, entry_failures(spec, ctx)))
+                found.append((candidate, entry_failures(spec, ctx, candidate.front_expiry)))
         return found
 
 

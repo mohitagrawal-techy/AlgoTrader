@@ -17,6 +17,13 @@ from algoverse.backtest.bhavcopy import import_files, load_lot_sizes
 from algoverse.backtest.config import load_backtest_config
 from algoverse.backtest.engine import ReplaySpec
 from algoverse.backtest.fills import fit_spread_model
+from algoverse.backtest.s3_history import (
+    S3AccessError,
+    load_s3_config,
+    make_client,
+    pull_history,
+    stored_sessions,
+)
 from algoverse.backtest.upstox_history import (
     CaptureRefused,
     capture_session,
@@ -257,6 +264,39 @@ def cmd_stream_status(_: argparse.Namespace) -> None:
         print(f"{day['date']}  {day['rows']:>12,} ticks  {size:>9,.1f} MB  {day['files']} files")
 
 
+def cmd_history_s3(args: argparse.Namespace) -> None:
+    settings = get_settings()
+    config = load_backtest_config(settings.config_dir)
+    s3 = load_s3_config(settings.config_dir)
+    try:
+        result = pull_history(
+            make_client(s3),
+            s3,
+            settings.data_dir,
+            config.symbols,
+            load_lot_sizes(settings.config_dir),
+            args.dry_run,
+            args.limit,
+            print,
+        )
+    except S3AccessError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(
+        f"{result.listed} objects found: {result.pending} to import, "
+        f"{result.unchanged} unchanged, {result.ignored} not data files."
+    )
+    if args.dry_run:
+        return
+    if result.sessions:
+        first, last = result.sessions[0], result.sessions[-1]
+        print(f"Imported {len(result.sessions)} sessions, {first} to {last}.")
+    for key, reason in list(result.failed.items())[:20]:
+        print(f"Skipped {key}: {reason}")
+    if len(result.failed) > 20:
+        print(f"...and {len(result.failed) - 20} more skipped.")
+    print(f"{stored_sessions(settings.data_dir)} sessions are now stored.")
+
+
 def cmd_backtest(args: argparse.Namespace) -> None:
     settings = get_settings()
     spec = ReplaySpec(args.start, args.end, args.min_score, tuple(args.disable))
@@ -361,6 +401,15 @@ def cmd_lab_test(_: argparse.Namespace) -> None:
     lab = Runtime().lab
     lab.run_backtest(None, datetime.now(IST), print)
     _print_lab(lab)
+
+
+def cmd_lab_ladder(args: argparse.Namespace) -> None:
+    lab = Runtime().lab
+    report = lab.run_ladder(args.start, datetime.now(IST), print)
+    for node in report["lineage"]:
+        print(f"Rung {node['rung']} ({node['level']}): {node['step'] or node['name']}")
+    if report.get("final"):
+        print(f"Final verdict: {report['final']['verdict']}")
 
 
 def cmd_lab_generate(args: argparse.Namespace) -> None:
@@ -497,6 +546,9 @@ def main() -> None:
     commands.add_parser("lab-test", help="Backtest every strategy in the lab").set_defaults(
         handler=cmd_lab_test
     )
+    ladder = commands.add_parser("lab-ladder", help="Build a strategy from simple to complex")
+    ladder.add_argument("--start", help="Id of a saved strategy to start from")
+    ladder.set_defaults(handler=cmd_lab_ladder)
     generate = commands.add_parser("lab-generate", help="Let the AI design and test strategies")
     generate.add_argument("--rounds", type=int)
     generate.add_argument("--per-round", type=int)
@@ -505,6 +557,10 @@ def main() -> None:
     history = commands.add_parser("history-import", help="Import NSE files you downloaded")
     history.add_argument("paths", nargs="+", help="CSV or zip files, or folders of them")
     history.set_defaults(handler=cmd_history_import)
+    s3_pull = commands.add_parser("history-s3", help="Pull historical data from the S3 bucket")
+    s3_pull.add_argument("--dry-run", action="store_true", help="List what would be imported")
+    s3_pull.add_argument("--limit", type=int, help="Import at most this many files")
+    s3_pull.set_defaults(handler=cmd_history_s3)
     commands.add_parser(
         "history-upstox", help="Import expired contracts from Upstox (needs Upstox Plus)"
     ).set_defaults(handler=cmd_history_upstox)

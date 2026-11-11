@@ -18,6 +18,7 @@ import yaml
 from algoverse.analytics.regime import ema
 from algoverse.brokers.base import AuthExpiredError, MarketDataError
 from algoverse.dashboard import MARKET_FILE, clean, read_published
+from algoverse.market.index_details import build_details, load_constituents
 from algoverse.market.institutions import empty_institutions, fetch_institutions
 from algoverse.market.sectors import load_sector_list
 
@@ -294,6 +295,8 @@ class OverviewService:
         self._institutions_lock = threading.Lock()
         self._institutions: dict | None = None
         self._institutions_at = float("-inf")
+        self._member_quotes_lock = threading.Lock()
+        self._member_quotes: dict[str, tuple[float, dict[str, dict] | None]] = {}
 
     def _institutions_path(self) -> Path:
         return self.data_dir / "market" / "institutions.json"
@@ -482,6 +485,71 @@ class OverviewService:
             return None
         bars = self._bars(name, self._live_rows(now))
         return clean({"name": name, "label": items[name]["label"], "candles": candle_rows(bars)})
+
+    def _index_items(self) -> tuple[dict[str, dict], str]:
+        config = load_market_config(self.config_dir)
+        volatility = config["volatility"]
+        items = {i["name"]: i for i in [*config["sectors"], *config["broad"], volatility]}
+        return items, volatility["name"]
+
+    def constituent_lists(self) -> list[dict]:
+        """Every index that can have a stock list, and how many stocks each list holds."""
+        items, volatility = self._index_items()
+        return [
+            {
+                "name": name,
+                "label": item["label"],
+                "stocks": len(load_constituents(self.data_dir, name)),
+            }
+            for name, item in sorted(items.items(), key=lambda pair: pair[1]["label"])
+            if name != volatility
+        ]
+
+    def accepts_constituents(self, name: str) -> bool:
+        items, volatility = self._index_items()
+        return name in items and name != volatility
+
+    def forget_member_quotes(self, name: str) -> None:
+        with self._member_quotes_lock:
+            self._member_quotes.pop(name, None)
+
+    def _quotes_for_members(
+        self, name: str, stocks: list[dict], is_open: bool
+    ) -> dict[str, dict] | None:
+        ttl = OPEN_TTL_SECONDS if is_open else CLOSED_TTL_SECONDS
+        with self._member_quotes_lock:
+            cached = self._member_quotes.get(name)
+        if cached is not None and self._clock() - cached[0] < ttl:
+            return cached[1]
+        try:
+            quotes = self.market.quotes([f"NSE_EQ|{stock['isin']}" for stock in stocks])
+        except MarketDataError as exc:
+            log.warning("Constituent quotes failed for %s: %s", name, exc)
+            return None
+        with self._member_quotes_lock:
+            self._member_quotes[name] = (self._clock(), quotes)
+        return quotes
+
+    def details(self, name: str, now: datetime) -> dict | None:
+        """The hover card for one index, or None when the name is not configured."""
+        items, volatility = self._index_items()
+        if name not in items:
+            return None
+        live = self._live_rows(now)
+        stocks = [] if name == volatility else load_constituents(self.data_dir, name)
+        quotes = (
+            self._quotes_for_members(name, stocks, self.calendar.is_open(now)) if stocks else None
+        )
+        return clean(
+            build_details(
+                items[name],
+                live.get(name),
+                self._bars(name, live),
+                stocks,
+                quotes,
+                name == volatility,
+            )
+        )
 
     def comparison(self, now: datetime) -> dict:
         """Closes on shared dates for the main indices, plus India VIX."""

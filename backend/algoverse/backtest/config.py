@@ -46,6 +46,14 @@ class LabConfig(BaseModel):
     rounds: int = Field(default=3, ge=1, le=10)
     per_round: int = Field(default=4, ge=1, le=8)
     workers: int = Field(default=6, ge=1)
+    # The ladder splits the training period, using this last share for unseen checks.
+    validate_share: float = Field(default=0.35, gt=0, lt=1)
+    ladder_rungs: int = Field(default=4, ge=1, le=8)
+    ladder_beam: int = Field(default=2, ge=1, le=5)
+    ladder_steps: int = Field(default=10, ge=1, le=30)
+    ladder_min_trades: int = Field(default=8, ge=0)
+    # Chance of accepting a useless change, spread across every change tried on a rung.
+    ladder_alpha: float = Field(default=0.2, gt=0, lt=1)
 
 
 class BacktestConfig(BaseModel):

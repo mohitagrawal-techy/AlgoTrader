@@ -452,6 +452,64 @@ export interface OverviewInstitutions {
   segments: InstitutionSegment[];
 }
 
+export interface IndexMember {
+  symbol: string;
+  name: string;
+  industry: string;
+  last: number;
+  change_pct: number;
+}
+
+export interface IndexDetails {
+  name: string;
+  label: string;
+  last: number | null;
+  change: number | null;
+  change_pct: number | null;
+  previous_close: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  range_position: number | null;
+  vs_nifty: number | null;
+  returns: Record<string, number>;
+  quote_day: string | null;
+  five_days: {
+    date: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    change_pct: number | null;
+  }[];
+  stats: {
+    high_52w: number | null;
+    low_52w: number | null;
+    from_high_pct: number | null;
+    from_low_pct: number | null;
+    ema20: number | null;
+    ema50: number | null;
+    realised_vol: number | null;
+    average_range_pct: number | null;
+  };
+  has_constituents: boolean;
+  constituents: {
+    count: number;
+    priced: number;
+    advancing: number;
+    declining: number;
+    unchanged: number;
+    average_change: number | null;
+    members: IndexMember[];
+  } | null;
+}
+
+export interface ConstituentList {
+  name: string;
+  label: string;
+  stocks: number;
+}
+
 export interface OverviewPayload {
   status: "live" | "closed" | "session_expired" | "unavailable";
   fetched_at: string | null;
@@ -538,11 +596,17 @@ export interface LabLeg {
   expiry: number;
 }
 
+export interface LabCondition {
+  signal: string;
+  op: "above" | "below";
+  value: number;
+}
+
 export interface LabSpec {
   id?: string;
   name: string;
   rationale: string;
-  source?: "template" | "user" | "ai";
+  source?: "template" | "user" | "ai" | "ladder";
   bias: "bullish" | "bearish" | "neutral";
   symbols: string[];
   legs: LabLeg[];
@@ -552,8 +616,12 @@ export interface LabSpec {
     iv_rank_max: number | null;
     dte_min: number;
     dte_max: number;
+    conditions: LabCondition[];
   };
   exits: { target_frac: number; stop_frac: number; exit_dte: number };
+  parent_id?: string | null;
+  rung?: number;
+  step?: string | null;
 }
 
 export interface LabSummary {
@@ -576,12 +644,43 @@ export interface LabResult {
   test: LabSummary;
   test_2x: { trades: number | null; net_pnl: number | null; sharpe: number | null };
   equity: { day: string; pnl: number }[];
+  evidence: { floor: number; prob_positive: number; trials: number } | null;
+}
+
+export interface LadderNode {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  rung: number;
+  step: string | null;
+  kind: string | null;
+  level: "simple" | "moderate" | "complex";
+  legs: string;
+  entry: string;
+  design: LabSummary;
+  validate: LabSummary;
+  prob_better: number | null;
+  accepted: boolean | null;
+  reason: string | null;
+}
+
+export interface LadderReport {
+  run_at: string;
+  windows: Record<string, string | number>;
+  trials: number;
+  rungs: { rung: number; tried: LadderNode[] }[];
+  winner_id: string | null;
+  lineage: LadderNode[];
+  final?: Pick<LabResult, "verdict" | "test" | "test_2x" | "evidence">;
+  final_period_uses: number;
 }
 
 export interface LabRow {
   spec: LabSpec;
   legs_text: string;
   undefined_risk: boolean;
+  level: "simple" | "moderate" | "complex";
+  entry_text: string;
   result: LabResult | null;
 }
 
@@ -593,6 +692,10 @@ export interface LabOverview {
   ai: { enabled: boolean; model: string };
   defaults: { rounds: number; per_round: number };
   job: { kind: string; state: "running" | "done" | "failed"; message: string } | null;
+  symbols: string[];
+  signals: { name: string; label: string }[];
+  ladder: LadderReport | null;
+  ladder_ready: boolean;
   strategies: LabRow[];
 }
 
@@ -631,6 +734,8 @@ export const api = {
   labDelete: (id: string) =>
     sendJson<unknown>(`/api/lab/strategies/${encodeURIComponent(id)}`, "DELETE"),
   labBacktest: (ids: string[] | null) => sendJson<unknown>("/api/lab/backtest", "POST", { ids }),
+  labLadder: (startId: string | null) =>
+    sendJson<unknown>("/api/lab/ladder", "POST", { start_id: startId }),
   labGenerate: (guidance: string) => sendJson<unknown>("/api/lab/generate", "POST", { guidance }),
   overview: () => getJson<OverviewPayload>("/api/overview"),
   explain: (
@@ -656,6 +761,19 @@ export const api = {
     getJson<OverviewHistory>(`/api/overview/history?name=${encodeURIComponent(name)}`),
   overviewComparison: () => getJson<OverviewComparison>("/api/overview/comparison"),
   overviewInstitutions: () => getJson<OverviewInstitutions>("/api/overview/institutions"),
+  overviewDetails: (name: string) =>
+    getJson<IndexDetails>(`/api/overview/details?name=${encodeURIComponent(name)}`),
+  constituentLists: () => getJson<{ indices: ConstituentList[] }>("/api/overview/constituents"),
+  async uploadConstituents(name: string, file: File): Promise<{ stocks: number }> {
+    const response = await fetch(`/api/overview/constituents?name=${encodeURIComponent(name)}`, {
+      method: "POST",
+      headers: { "X-AlgoVerse-Client": "dashboard", "Content-Type": "text/csv" },
+      body: file,
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(body?.detail ?? "Upload failed.");
+    return body;
+  },
   async uploadSectors(file: File): Promise<{ stocks: number }> {
     const response = await fetch("/api/overview/sectors", {
       method: "POST",

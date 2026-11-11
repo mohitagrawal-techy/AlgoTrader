@@ -51,3 +51,10 @@ lab:
   rounds: 3
   per_round: 4
   workers: 6
+  # Strategy ladder. It climbs from simple to complex, one tested change per rung.
+  validate_share: 0.35
+  ladder_rungs: 4
+  ladder_beam: 2
+  ladder_steps: 10
+  ladder_min_trades: 8
+  ladder_alpha: 0.2

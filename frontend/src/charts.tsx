@@ -593,6 +593,9 @@ export function DivergingColumns({
   );
 }
 
+// A 2% day and a 30% year are both strong moves, so the colour scale widens with the period.
+export const HEAT_SCALE: Record<string, number> = { "1D": 1, "1W": 2, "1M": 4, "3M": 7.5, "1Y": 15 };
+
 const HEAT_THRESHOLDS = [-2, -1, -0.25, 0.25, 1, 2];
 
 /** One of seven diverging classes: 0 is the deepest fall, 3 is flat, 6 is the strongest rise. */

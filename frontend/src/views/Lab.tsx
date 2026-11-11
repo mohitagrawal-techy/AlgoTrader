@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
-  type LabLeg,
   type LabOverview,
   type LabRow,
   type LabSpec,
@@ -13,43 +12,19 @@ import { Empty, Panel, Pnl, Select, Status, Tile, type Tone } from "../ui";
 
 const VERDICTS: Record<string, { tone: Tone; label: string }> = {
   held_up: { tone: "good", label: "Held up on unseen data" },
+  unproven: { tone: "warning", label: "Profit could be luck" },
   fails_at_2x_slippage: { tone: "warning", label: "Fails at 2x slippage" },
   failed: { tone: "critical", label: "Lost on unseen data" },
   too_few_trades: { tone: "neutral", label: "Too few trades" },
 };
-const SOURCES: Record<string, string> = { template: "Template", user: "Yours", ai: "AI" };
-const TRENDS = ["up", "down", "range"] as const;
-const POLL_MS = 3000;
-
-const NEW_LEG: LabLeg = {
-  action: "buy",
-  option_type: "CE",
-  ratio: 1,
-  select: "delta",
-  value: 0.5,
-  expiry: 0,
+const SOURCES: Record<string, string> = {
+  template: "Template",
+  user: "Yours",
+  ai: "AI",
+  ladder: "Ladder",
 };
-
-function blankSpec(): LabSpec {
-  return {
-    name: "",
-    rationale: "",
-    bias: "neutral",
-    symbols: [],
-    legs: [{ ...NEW_LEG }, { ...NEW_LEG, action: "sell", value: 0.3 }],
-    entry: { trend: [], iv_rank_min: null, iv_rank_max: null, dte_min: 5, dte_max: 30 },
-    exits: { target_frac: 0.5, stop_frac: 0.5, exit_dte: 1 },
-  };
-}
-
-function entryText(spec: LabSpec): string {
-  const entry = spec.entry;
-  const parts = [`${entry.dte_min}–${entry.dte_max} days to expiry`];
-  if (entry.trend.length) parts.push(`trend ${entry.trend.join(" or ")}`);
-  if (entry.iv_rank_min !== null) parts.push(`IV rank ≥ ${entry.iv_rank_min}`);
-  if (entry.iv_rank_max !== null) parts.push(`IV rank ≤ ${entry.iv_rank_max}`);
-  return parts.join(", ");
-}
+const LEVELS: Record<string, string> = { simple: "Simple", moderate: "Moderate", complex: "Complex" };
+const POLL_MS = 3000;
 
 function exitText(spec: LabSpec): string {
   const exits = spec.exits;
@@ -58,211 +33,137 @@ function exitText(spec: LabSpec): string {
   )}% of premium, time exit ${exits.exit_dte}d before expiry`;
 }
 
-function NumberField({
-  label,
-  value,
-  onChange,
-  step = 1,
-  min,
-  max,
-  optional,
+function LadderPanel({
+  data,
+  busy,
+  onBuild,
+  onSelect,
 }: {
-  label: string;
-  value: number | null;
-  onChange: (value: number | null) => void;
-  step?: number;
-  min?: number;
-  max?: number;
-  optional?: boolean;
+  data: LabOverview;
+  busy: boolean;
+  onBuild: (startId: string | null) => void;
+  onSelect: (id: string) => void;
 }) {
+  const [start, setStart] = useState("");
+  const report = data.ladder;
+  const final = report?.final;
+  const verdict = final ? VERDICTS[final.verdict] : null;
   return (
-    <label className="field">
-      <span>{label}</span>
-      <input
-        type="number"
-        value={value ?? ""}
-        step={step}
-        min={min}
-        max={max}
-        placeholder={optional ? "Any" : undefined}
-        onChange={(event) =>
-          onChange(event.target.value === "" ? (optional ? null : 0) : Number(event.target.value))
-        }
-      />
-    </label>
-  );
-}
-
-function Builder({
-  initial,
-  onSaved,
-  onCancel,
-}: {
-  initial: LabSpec;
-  onSaved: (id: string) => void;
-  onCancel: () => void;
-}) {
-  const [spec, setSpec] = useState<LabSpec>(initial);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const setLeg = (index: number, change: Partial<LabLeg>) =>
-    setSpec((current) => ({
-      ...current,
-      legs: current.legs.map((leg, i) => (i === index ? { ...leg, ...change } : leg)),
-    }));
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const saved = await api.labSave(spec);
-      onSaved(saved.id as string);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not save.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Panel title={initial.id ? "Edit strategy" : "New strategy"}>
+    <Panel title="Strategy ladder" aside={report ? <span className="muted">{report.trials} variations tested</span> : undefined}>
       <div className="builder">
+        <p className="secondary">
+          Starts with a simple strategy and adds one change at a time: a condition, a better
+          structure, or a different exit. A change stays only if it does better on sessions it was
+          not designed on, by more than luck explains. One winner then gets a final test on a period
+          nothing has seen.
+        </p>
         <div className="builder-row">
-          <label className="field grow">
-            <span>Name</span>
-            <input
-              value={spec.name}
-              maxLength={60}
-              onChange={(event) => setSpec({ ...spec, name: event.target.value })}
-            />
-          </label>
           <Select
-            label="Bias"
-            value={spec.bias}
-            onChange={(bias) => setSpec({ ...spec, bias })}
+            label="Start from"
+            value={start}
+            onChange={setStart}
             options={[
-              { value: "bullish", label: "Bullish" },
-              { value: "bearish", label: "Bearish" },
-              { value: "neutral", label: "Neutral" },
+              { value: "", label: "Simple starters (call, put, strangle)" },
+              ...data.strategies.map((row) => ({
+                value: row.spec.id as string,
+                label: row.spec.name,
+              })),
             ]}
           />
-        </div>
-
-        <h4>Legs</h4>
-        {spec.legs.map((leg, index) => (
-          <div className="builder-row leg-row" key={index}>
-            <Select
-              label="Action"
-              value={leg.action}
-              onChange={(action) => setLeg(index, { action })}
-              options={[
-                { value: "buy", label: "Buy" },
-                { value: "sell", label: "Sell" },
-              ]}
-            />
-            <NumberField label="Qty" value={leg.ratio} min={1} max={4} onChange={(v) => setLeg(index, { ratio: v ?? 1 })} />
-            <Select
-              label="Type"
-              value={leg.option_type}
-              onChange={(option_type) => setLeg(index, { option_type })}
-              options={[
-                { value: "CE", label: "Call" },
-                { value: "PE", label: "Put" },
-              ]}
-            />
-            <Select
-              label="Strike by"
-              value={leg.select}
-              onChange={(select) => setLeg(index, { select, value: select === "delta" ? 0.3 : 0 })}
-              options={[
-                { value: "delta", label: "Delta" },
-                { value: "atm_offset", label: "Strikes from ATM" },
-              ]}
-            />
-            {leg.select === "delta" ? (
-              <NumberField label="Delta" value={leg.value} step={0.05} min={0.05} max={0.95} onChange={(v) => setLeg(index, { value: v ?? 0.5 })} />
-            ) : (
-              <NumberField label="Strikes" value={leg.value} min={-20} max={20} onChange={(v) => setLeg(index, { value: v ?? 0 })} />
-            )}
-            <Select
-              label="Expiry"
-              value={String(leg.expiry)}
-              onChange={(expiry) => setLeg(index, { expiry: Number(expiry) })}
-              options={[
-                { value: "0", label: "Entry expiry" },
-                { value: "1", label: "Next expiry" },
-                { value: "2", label: "Expiry after" },
-              ]}
-            />
-            {spec.legs.length > 1 && (
-              <button
-                type="button"
-                className="link-button"
-                onClick={() => setSpec({ ...spec, legs: spec.legs.filter((_, i) => i !== index) })}
-              >
-                Remove
-              </button>
-            )}
-          </div>
-        ))}
-        {spec.legs.length < 4 && (
           <button
             type="button"
-            className="link-button"
-            onClick={() => setSpec({ ...spec, legs: [...spec.legs, { ...NEW_LEG }] })}
+            className="button"
+            disabled={busy || !data.ladder_ready}
+            onClick={() => onBuild(start || null)}
           >
-            Add a leg
-          </button>
-        )}
-
-        <h4>Enter when</h4>
-        <div className="builder-row">
-          <span className="field">
-            <span>Trend (none ticked = any)</span>
-            <span className="checks">
-              {TRENDS.map((trend) => (
-                <label key={trend}>
-                  <input
-                    type="checkbox"
-                    checked={spec.entry.trend.includes(trend)}
-                    onChange={(event) =>
-                      setSpec({
-                        ...spec,
-                        entry: {
-                          ...spec.entry,
-                          trend: event.target.checked
-                            ? [...spec.entry.trend, trend]
-                            : spec.entry.trend.filter((item) => item !== trend),
-                        },
-                      })
-                    }
-                  />
-                  {trend}
-                </label>
-              ))}
-            </span>
-          </span>
-          <NumberField label="IV rank min" optional value={spec.entry.iv_rank_min} min={0} max={100} onChange={(v) => setSpec({ ...spec, entry: { ...spec.entry, iv_rank_min: v } })} />
-          <NumberField label="IV rank max" optional value={spec.entry.iv_rank_max} min={0} max={100} onChange={(v) => setSpec({ ...spec, entry: { ...spec.entry, iv_rank_max: v } })} />
-          <NumberField label="Days to expiry, min" value={spec.entry.dte_min} min={1} max={45} onChange={(v) => setSpec({ ...spec, entry: { ...spec.entry, dte_min: v ?? 1 } })} />
-          <NumberField label="Days to expiry, max" value={spec.entry.dte_max} min={1} max={45} onChange={(v) => setSpec({ ...spec, entry: { ...spec.entry, dte_max: v ?? 30 } })} />
-        </div>
-
-        <h4>Exit when</h4>
-        <div className="builder-row">
-          <NumberField label="Profit, × premium" value={spec.exits.target_frac} step={0.05} min={0.05} max={5} onChange={(v) => setSpec({ ...spec, exits: { ...spec.exits, target_frac: v ?? 0.5 } })} />
-          <NumberField label="Loss, × premium" value={spec.exits.stop_frac} step={0.05} min={0.05} max={5} onChange={(v) => setSpec({ ...spec, exits: { ...spec.exits, stop_frac: v ?? 0.5 } })} />
-          <NumberField label="Days before expiry" value={spec.exits.exit_dte} min={0} max={10} onChange={(v) => setSpec({ ...spec, exits: { ...spec.exits, exit_dte: v ?? 1 } })} />
-        </div>
-
-        {error && <p className="ai-error">{error}</p>}
-        <div className="builder-row">
-          <button type="button" className="button" disabled={busy || !spec.name.trim()} onClick={save}>
-            {busy ? "Saving…" : "Save strategy"}
-          </button>
-          <button type="button" className="button ghost" onClick={onCancel}>
-            Cancel
+            Build ladder
           </button>
         </div>
       </div>
+      {report && (
+        <div className="ladder">
+          {report.lineage.length > 0 && (
+            <ol className="ladder-path">
+              {report.lineage.map((node) => (
+                <li key={node.id}>
+                  <span className={`ladder-level ${node.level}`}>{LEVELS[node.level]}</span>
+                  <strong>{node.step ?? node.name}</strong>
+                  <small className="secondary">
+                    Unseen Sharpe {num(node.validate.sharpe, 2)}, {node.validate.trades} trades
+                  </small>
+                </li>
+              ))}
+            </ol>
+          )}
+          {verdict && final && (
+            <div className="ladder-final">
+              <Status tone={verdict.tone}>{verdict.label}</Status>
+              <span>
+                Final test: {final.test.trades} trades, <Pnl value={final.test.net_pnl}>{signedInr(final.test.net_pnl)}</Pnl>
+                {", at 2x slippage "}
+                <Pnl value={final.test_2x.net_pnl ?? 0}>{signedInr(final.test_2x.net_pnl)}</Pnl>
+              </span>
+              {report.winner_id && (
+                <button type="button" className="link-button" onClick={() => onSelect(report.winner_id as string)}>
+                  View strategy
+                </button>
+              )}
+            </div>
+          )}
+          {report.final_period_uses > 1 && (
+            <p className="secondary">
+              The final test period has now been used {report.final_period_uses} times, so each new
+              result counts for less.
+            </p>
+          )}
+          {report.rungs.map((rung) => {
+            const kept = rung.tried.filter((node) => node.accepted).length;
+            return (
+              <details key={rung.rung} open={rung.rung === report.rungs.length}>
+                <summary>
+                  Rung {rung.rung}: {kept} of {rung.tried.length} kept
+                </summary>
+                <div className="table-wrap">
+                  <table className="table compact-table">
+                    <thead>
+                      <tr>
+                        <th>{rung.rung === 1 ? "Strategy" : "Change"}</th>
+                        <th className="right">Unseen trades</th>
+                        <th className="right">Unseen P&amp;L</th>
+                        <th className="right">Unseen Sharpe</th>
+                        <th className="right">Chance better</th>
+                        <th>Outcome</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rung.tried.map((node) => (
+                        <tr key={node.id}>
+                          <td className="wrap-cell">
+                            <div className="primary">{node.step ?? node.name}</div>
+                            <div className="secondary">{node.legs}</div>
+                          </td>
+                          <td className="right">{node.validate.trades}</td>
+                          <td className="right">
+                            <Pnl value={node.validate.net_pnl}>{signedInr(node.validate.net_pnl)}</Pnl>
+                          </td>
+                          <td className="right">{num(node.validate.sharpe, 2)}</td>
+                          <td className="right">
+                            {node.prob_better === null ? "–" : `${Math.round(node.prob_better * 100)}%`}
+                          </td>
+                          <td className="wrap-cell">
+                            <Status tone={node.accepted ? "good" : "neutral"}>{node.accepted ? "Kept" : "Dropped"}</Status>
+                            <div className="secondary">{node.reason}</div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
     </Panel>
   );
 }
@@ -316,7 +217,7 @@ function Detail({
       <header className="detail-header">
         <div>
           <div className="eyebrow">
-            {SOURCES[spec.source ?? "user"]} · {spec.bias}
+            {SOURCES[spec.source ?? "user"]} · {LEVELS[row.level]} · {spec.bias}
             {row.undefined_risk ? " · undefined risk" : ""}
           </div>
           <h2>{spec.name}</h2>
@@ -331,7 +232,7 @@ function Detail({
       <dl className="facts facts-1">
         <div>
           <dt>Enter</dt>
-          <dd>{entryText(spec)}</dd>
+          <dd>{row.entry_text}</dd>
         </div>
         <div>
           <dt>Exit</dt>
@@ -417,10 +318,9 @@ function Detail({
   );
 }
 
-export function LabView() {
+export function LabView({ initialSelected }: { initialSelected: string | null }) {
   const [data, setData] = useState<LabOverview | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [editing, setEditing] = useState<LabSpec | null>(null);
+  const [selected, setSelected] = useState<string | null>(initialSelected);
   const [source, setSource] = useState("all");
   const [guidance, setGuidance] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -464,8 +364,8 @@ export function LabView() {
           <p>
             Testing needs {data.history.needed} sessions of history and {data.history.sessions} are
             stored. The collector adds one session after each market close. To go further back, run{" "}
-            <code>algoverse history-upstox</code> (needs Upstox Plus) or import NSE bhavcopy files
-            with <code>algoverse history-import &lt;folder&gt;</code>. You can still create
+            <code>algoverse history-s3</code> to pull from your S3 bucket, or import NSE bhavcopy
+            files with <code>algoverse history-import &lt;folder&gt;</code>. You can still create
             strategies now.
           </p>
         </div>
@@ -479,6 +379,13 @@ export function LabView() {
         </div>
       )}
       {error && <p className="ai-error">{error}</p>}
+
+      <LadderPanel
+        data={data}
+        busy={running}
+        onBuild={(startId) => act(() => api.labLadder(startId))}
+        onSelect={setSelected}
+      />
 
       <Panel
         title="Let the AI design strategies"
@@ -519,14 +426,15 @@ export function LabView() {
           onChange={setSource}
           options={[
             { value: "all", label: "All strategies" },
+            { value: "ladder", label: "Ladder winners" },
             { value: "ai", label: "AI-designed" },
             { value: "user", label: "Yours" },
             { value: "template", label: "Templates" },
           ]}
         />
-        <button type="button" className="button ghost" onClick={() => setEditing(blankSpec())}>
+        <a className="button" href="#lab/new">
           New strategy
-        </button>
+        </a>
         <button
           type="button"
           className="button ghost"
@@ -539,18 +447,6 @@ export function LabView() {
           {data.tested} of {data.strategies.length} tested · {data.trials_logged} trials logged
         </span>
       </div>
-
-      {editing && (
-        <Builder
-          initial={editing}
-          onCancel={() => setEditing(null)}
-          onSaved={(id) => {
-            setEditing(null);
-            setSelected(id);
-            void load();
-          }}
-        />
-      )}
 
       <div className="split">
         <Panel
@@ -588,7 +484,7 @@ export function LabView() {
                         <td className="wrap-cell">
                           <div className="primary">{row.spec.name}</div>
                           <div className="secondary">
-                            {SOURCES[row.spec.source ?? "user"]} · {row.legs_text}
+                            {SOURCES[row.spec.source ?? "user"]} · {LEVELS[row.level]} · {row.legs_text}
                           </div>
                         </td>
                         <td>
@@ -632,13 +528,10 @@ export function LabView() {
               minTrades={data.min_test_trades}
               busy={running || !ready}
               onTest={() => act(() => api.labBacktest([current.spec.id as string]))}
-              onEdit={() =>
-                setEditing(
-                  current.spec.source === "template"
-                    ? { ...current.spec, id: undefined, name: `${current.spec.name} copy` }
-                    : current.spec,
-                )
-              }
+              onEdit={() => {
+                const action = current.spec.source === "template" ? "copy" : "edit";
+                window.location.hash = `lab/${action}/${current.spec.id}`;
+              }}
               onDelete={() => act(() => api.labDelete(current.spec.id as string))}
             />
           )}

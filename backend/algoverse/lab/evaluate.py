@@ -18,13 +18,15 @@ from algoverse.backtest.report import daily_stats, trade_stats
 from algoverse.backtest.walkforward import load_services
 from algoverse.dashboard import clean
 from algoverse.data.store import SnapshotStore
+from algoverse.lab.evidence import luck_adjusted_floor
 from algoverse.lab.spec import NO_CONTRACTS, CustomSet, StrategySpec, apply_specs, signature
 
 HELD_UP = "held_up"
+UNPROVEN = "unproven"
 FAILS_2X = "fails_at_2x_slippage"
 FAILED = "failed"
 TOO_FEW = "too_few_trades"
-VERDICT_ORDER = {HELD_UP: 0, FAILS_2X: 1, FAILED: 2, TOO_FEW: 3}
+VERDICT_ORDER = {HELD_UP: 0, UNPROVEN: 1, FAILS_2X: 2, FAILED: 3, TOO_FEW: 4}
 TOP_REASONS = 5
 _CACHE: dict[tuple[str, str], tuple] = {}
 
@@ -102,6 +104,10 @@ def _run(task: tuple[str, str, str, date, date, float]) -> dict:
         "signals": signals,
         "blocked": dict(outcomes.most_common(TOP_REASONS)),
         "unfilled": result.unfilled,
+        "pnls": (
+            [] if result.trades.empty else [float(pnl) for pnl in result.trades["net_pnl"]]
+        ),
+        "daily": {str(day): float(pnl) for day, pnl in zip(daily.index, daily, strict=True)},
         "equity": [
             {"day": day, "pnl": float(pnl)}
             for day, pnl in zip(daily.index, daily.cumsum().to_numpy(float), strict=True)
@@ -132,12 +138,15 @@ def _summary(run: dict) -> dict:
     }
 
 
-def verdict(test: dict, doubled: dict, min_trades: int) -> str:
+def verdict(test: dict, doubled: dict, min_trades: int, floor: float | None = None) -> str:
+    """`floor` is the luck-adjusted profit per trade. A profit below it may be chance."""
     if test["trades"] < min_trades:
         return TOO_FEW
     if test["net_pnl"] <= 0:
         return FAILED
-    return HELD_UP if doubled["net_pnl"] > 0 else FAILS_2X
+    if doubled["net_pnl"] <= 0:
+        return FAILS_2X
+    return UNPROVEN if floor is not None and floor <= 0 else HELD_UP
 
 
 def rank_key(result: dict | None) -> tuple:
@@ -152,8 +161,13 @@ def evaluate_specs(
     specs: list[StrategySpec],
     now: datetime,
     progress: Callable[[int, int, str], None] | None = None,
+    trials: int | None = None,
 ) -> list[dict]:
-    """Three replays per strategy: training, test, and test at double the modelled spread."""
+    """Three replays per strategy: training, test, and test at double the modelled spread.
+
+    `trials` is how many strategies have been tried in all, which sets how strict the luck
+    adjustment is.
+    """
     services = load_services(config_dir)
     config = services.backtest
     windows = split_windows(History(data_dir).sessions, config)
@@ -176,6 +190,7 @@ def evaluate_specs(
 
     def finish(spec: StrategySpec, train_run: dict, test_run: dict, doubled_run: dict) -> dict:
         train, test, doubled = _summary(train_run), _summary(test_run), _summary(doubled_run)
+        evidence = luck_adjusted_floor(test_run["pnls"], trials or len(specs))
         for kind, start, end, summary, multiplier in (
             ("lab_train", windows.train_start, windows.train_end, train, 1.0),
             ("lab_test", windows.test_start, windows.test_end, test, 1.0),
@@ -201,7 +216,13 @@ def evaluate_specs(
                 "train": train,
                 "test": test,
                 "test_2x": {key: doubled.get(key) for key in ("trades", "net_pnl", "sharpe")},
-                "verdict": verdict(test, doubled, config.lab.min_test_trades),
+                "evidence": evidence,
+                "verdict": verdict(
+                    test,
+                    doubled,
+                    config.lab.min_test_trades,
+                    None if evidence is None else evidence["floor"],
+                ),
                 "equity": test_run["equity"],
             }
         )

@@ -39,7 +39,11 @@ entry expiry, 1 = the next expiry), and a strike rule: select "delta" with value
 (absolute delta), or select "atm_offset" with a whole number of listed strikes from the money \
 (0 = at the money, positive = higher strikes).
 - entry: trend (any of up, down, range; empty list = any), iv_rank_min and iv_rank_max (0-100 or \
-null), dte_min and dte_max (calendar days to the entry expiry, 1-45).
+null), dte_min and dte_max (calendar days to the entry expiry, 1-45), and conditions: up to 6 \
+objects, each with signal, op (above or below) and value, all of which must hold. Signals: \
+iv_rank, vix_rank (0-100); vix_change_pct; iv_minus_rv (ATM IV minus realised volatility, in \
+points); term_slope; pcr; skew (points); oi_buildup (-1 to +1); spot_vs_max_pain_pct; adx; \
+gap_pct; range_pct. Use conditions only when you can say why each one helps.
 - exits: target_frac and stop_frac (fractions of the premium paid or received, 0.05-5), exit_dte \
 (days before expiry for a time exit, 0-10, and less than dte_min).
 

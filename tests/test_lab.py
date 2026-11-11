@@ -16,6 +16,7 @@ from algoverse.lab.evaluate import (
     FAILS_2X,
     HELD_UP,
     TOO_FEW,
+    UNPROVEN,
     normalize_reason,
     rank_key,
     split_windows,
@@ -211,7 +212,7 @@ def test_backtest_stores_results_and_ranks(lab_dirs, tmp_path):
     assert len(results) == 2 and notes[-1].startswith("Tested 2 of 2")
     result = lab.result(saved)
     assert result["train"]["trades"] > 0
-    assert result["verdict"] in (HELD_UP, FAILS_2X, FAILED, TOO_FEW)
+    assert result["verdict"] in (HELD_UP, UNPROVEN, FAILS_2X, FAILED, TOO_FEW)
     assert result["windows"]["train_end"] < result["windows"]["test_start"]
     assert all(point["day"] >= result["windows"]["test_start"] for point in result["equity"])
     overview = lab.overview()

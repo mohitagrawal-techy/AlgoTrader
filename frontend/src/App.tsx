@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
   type BacktestListing,
@@ -19,6 +19,7 @@ import { MarketView } from "./views/Market";
 import { OverviewView } from "./views/Overview";
 import { PaperView } from "./views/Paper";
 import { RiskView } from "./views/Risk";
+import { StrategyEditor, type EditorRoute } from "./views/StrategyEditor";
 
 const NAV_GROUPS = [
   {
@@ -53,8 +54,19 @@ const POLL_MS = 30000;
 const STALE_MS = 15 * 60000;
 
 function tabFromHash(): TabId {
-  const hash = window.location.hash.slice(1);
-  return TABS.some((tab) => tab.id === hash) ? (hash as TabId) : "overview";
+  const first = window.location.hash.slice(1).split("/")[0];
+  return TABS.some((tab) => tab.id === first) ? (first as TabId) : "overview";
+}
+
+function labPath(): string[] {
+  const [first, ...rest] = window.location.hash.slice(1).split("/");
+  return first === "lab" ? rest.map(decodeURIComponent) : [];
+}
+
+function editorRoute(path: string[]): EditorRoute | null {
+  if (path[0] === "new") return { mode: "new" };
+  if ((path[0] === "edit" || path[0] === "copy") && path[1]) return { mode: path[0], id: path[1] };
+  return null;
 }
 
 function readCollapsed(): boolean {
@@ -111,6 +123,8 @@ interface Data {
 
 export function App() {
   const [tab, setTab] = useState<TabId>(tabFromHash);
+  const [path, setPath] = useState<string[]>(labPath);
+  const route = useMemo(() => editorRoute(path), [path.join("/")]); // eslint-disable-line react-hooks/exhaustive-deps
   const [data, setData] = useState<Data | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -151,7 +165,10 @@ export function App() {
   }, [load]);
 
   useEffect(() => {
-    const onHash = () => setTab(tabFromHash());
+    const onHash = () => {
+      setTab(tabFromHash());
+      setPath(labPath());
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -225,7 +242,13 @@ export function App() {
         <button type="button" className="menu-button" aria-label="Open menu" onClick={() => setMenuOpen(true)}>
           <NavIcon path="M4 6h16M4 12h16M4 18h16" />
         </button>
-        <h1 className="page-title">{TABS.find((item) => item.id === tab)?.label}</h1>
+        <h1 className="page-title">
+          {tab === "lab" && route
+            ? route.mode === "edit"
+              ? "Edit strategy"
+              : "New strategy"
+            : TABS.find((item) => item.id === tab)?.label}
+        </h1>
         <div className="topbar-status">
           {health && (
             <>
@@ -290,7 +313,13 @@ export function App() {
         {data && tab === "market" && <MarketView market={data.market} />}
         {data && tab === "paper" && <PaperView portfolio={data.portfolio} />}
         {data && tab === "risk" && <RiskView portfolio={data.portfolio} />}
-        {data && tab === "lab" && <LabView />}
+        {data && tab === "lab" && route && <StrategyEditor key={path.join("/")} route={route} />}
+        {data && tab === "lab" && !route && (
+          <LabView
+            key={path.join("/")}
+            initialSelected={path[0] === "view" && path[1] ? path[1] : null}
+          />
+        )}
         {data && tab === "backtests" && <BacktestsView listing={data.backtests} />}
         {data && tab === "forward" && <ForwardView overview={data.forward} />}
       </main>

@@ -27,9 +27,13 @@ from algoverse.lab.evaluate import (
     sessions_needed,
     split_windows,
 )
+from algoverse.lab.ladder import ROOTS, ladder_windows, run_ladder
 from algoverse.lab.seeds import TEMPLATES
 from algoverse.lab.spec import (
+    SIGNALS,
     StrategySpec,
+    complexity_level,
+    describe_entry,
     describe_legs,
     has_undefined_risk,
     make_id,
@@ -146,6 +150,8 @@ class LabService:
                     "spec": spec.model_dump(),
                     "legs_text": describe_legs(spec),
                     "undefined_risk": has_undefined_risk(spec),
+                    "level": complexity_level(spec),
+                    "entry_text": describe_entry(spec),
                     "result": self.result(spec),
                 }
             )
@@ -166,11 +172,65 @@ class LabService:
                 "ai": {"enabled": self.ai_enabled, "model": load_ai_config(self.config_dir).model},
                 "defaults": {"rounds": config.lab.rounds, "per_round": config.lab.per_round},
                 "job": self._job,
+                "symbols": config.symbols,
+                "signals": [{"name": k, "label": v} for k, v in SIGNALS.items()],
+                "ladder": self._latest_ladder(),
+                "ladder_ready": ladder_windows(sessions, config) is not None,
                 "strategies": rows,
             }
         )
 
     # ---- Work ----------------------------------------------------------------------------
+
+    def _ladder_path(self) -> Path:
+        return self._folder / "ladder.json"
+
+    def _latest_ladder(self) -> dict | None:
+        try:
+            return json.loads(self._ladder_path().read_text())
+        except FileNotFoundError:
+            return None
+
+    def _ladder_roots(self, start_id: str | None) -> list[StrategySpec]:
+        if start_id is None:
+            return ROOTS
+        spec = self.spec(start_id)
+        if spec is None:
+            raise LabError("That strategy no longer exists.")
+        return [spec.model_copy(update={"rung": 1, "parent_id": None, "step": None})]
+
+    def _tested_count(self) -> int:
+        return sum(1 for spec in self.specs() if self.result(spec) is not None)
+
+    def run_ladder(
+        self,
+        start_id: str | None,
+        now: datetime,
+        note: Callable[[str], None] = lambda _: None,
+    ) -> dict:
+        """Climb from simple to complex, then spend the final test on one winner only."""
+        config = load_backtest_config(self.config_dir)
+        if ladder_windows(History(self.data_dir).sessions, config) is None:
+            raise LabError("The ladder needs more history than is stored.")
+        roots = self._ladder_roots(start_id)
+        outcome = run_ladder(self.data_dir, self.config_dir, roots, now, note)
+        report, winner = outcome["report"], outcome["winner"]
+        if winner is not None:
+            note(f"Final test on the one winner: {winner.name}")
+            stored = winner.model_copy(update={"created_at": now.isoformat()})
+            _write(self._spec_path(stored.id), stored.model_dump())
+            trials = self._tested_count() + outcome["trials"]
+            result = self.run_backtest([stored.id], now, note, trials)[0]
+            report["final"] = {
+                key: result[key] for key in ("verdict", "test", "test_2x", "evidence")
+            }
+        registry = Registry(self.data_dir)
+        windows = report["windows"]
+        report["final_period_uses"] = registry.window_trials(
+            "lab_test", windows["final_start"], windows["final_end"]
+        )
+        _write(self._ladder_path(), report)
+        return report
 
     def _require_history(self) -> None:
         config = load_backtest_config(self.config_dir)
@@ -183,7 +243,11 @@ class LabService:
             )
 
     def run_backtest(
-        self, ids: list[str] | None, now: datetime, note: Callable[[str], None] = lambda _: None
+        self,
+        ids: list[str] | None,
+        now: datetime,
+        note: Callable[[str], None] = lambda _: None,
+        trials: int | None = None,
     ) -> list[dict]:
         self._require_history()
         wanted = [s for s in self.specs() if ids is None or s.id in ids]
@@ -196,6 +260,7 @@ class LabService:
             wanted,
             now,
             lambda done, total, name: note(f"Tested {done} of {total}: {name}"),
+            trials if trials is not None else max(self._tested_count(), len(wanted)),
         )
         for result in results:
             _write(self._result_path(result["strategy_id"]), result)
@@ -306,6 +371,23 @@ class LabService:
             return f"Tested {len(self.run_backtest(ids, now, note))} strategies."
 
         return self._start("backtest", work)
+
+    def start_ladder(self, start_id: str | None, now: datetime) -> dict:
+        config = load_backtest_config(self.config_dir)
+        if ladder_windows(History(self.data_dir).sessions, config) is None:
+            raise LabError(
+                f"The ladder needs more than {sessions_needed(config)} sessions of history, "
+                "so each stage has enough to judge."
+            )
+        self._ladder_roots(start_id)
+
+        def work(note) -> str:
+            report = self.run_ladder(start_id, now, note)
+            if report["winner_id"] is None:
+                return "No simple starting strategy had enough trades to build on."
+            return f"Finished after {report['trials']} tested strategies."
+
+        return self._start("ladder", work)
 
     def start_generate(
         self, now: datetime, rounds: int | None, per_round: int | None, guidance: str
