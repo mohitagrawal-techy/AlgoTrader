@@ -30,6 +30,7 @@ from algoverse.market.assistant import AssistantError, UnknownTarget
 from algoverse.market.index_details import save_constituents
 from algoverse.market.sectors import SectorListError, parse_sector_csv, save_sector_list
 from algoverse.market.strike import strike_history
+from algoverse.market.underlying import underlying_view
 from algoverse.runtime import Runtime
 from algoverse.settings import REPO_ROOT, Settings, get_settings
 
@@ -172,8 +173,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         symbol: str, expiry: str, strike: float, option_type: str, day: str | None = None
     ) -> dict:
         try:
+            return clean(strike_history(config.data_dir, symbol, expiry, strike, option_type, day))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/market/underlying")
+    def market_underlying(symbol: str, day: str | None = None, expiry: str | None = None) -> dict:
+        try:
             return clean(
-                strike_history(config.data_dir, symbol, expiry, strike, option_type, day)
+                underlying_view(config.data_dir, symbol, runtime.store.read_candles, day, expiry)
             )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc

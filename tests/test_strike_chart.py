@@ -26,7 +26,11 @@ def snapshot(tmp_path, day: int, hour: int, minute: int, ltp: float = 100.0):
             "ask": ltp + 1,
             "volume": 10,
             "oi": [1000.0, 2000.0, 3000.0],
-            "broker_iv": 15.0,
+            "broker_iv": [15.0, 15.0, 0.0],
+            "broker_delta": [0.5, -0.5, 0.0],
+            "broker_gamma": 0.001,
+            "broker_theta": -5.0,
+            "broker_vega": 10.0,
         }
     )
     write_snapshot(tmp_path, "NIFTY", ts, chain, EXPIRY)
@@ -46,6 +50,10 @@ def ticks(tmp_path, key: str, times: list[str]):
             "vtt": range(len(times)),
             "bid_1": 1.0,
             "ask_1": 2.0,
+            "delta": 0.4,
+            "gamma": 0.002,
+            "theta": -6.0,
+            "vega": 12.0,
         }
     ).to_parquet(folder / "day.parquet")
 
@@ -59,6 +67,15 @@ def test_snapshots_chart_any_strike_and_list_every_strike(tmp_path):
     assert [p["ltp"] for p in result["points"]] == [100.0, 110.0]
     assert result["points"][0]["iv"] == pytest.approx(0.15)
     assert result["instrument_key"] == "NSE_FO|1"
+    first = result["points"][0]
+    greeks = (first["delta"], first["gamma"], first["theta"], first["vega"])
+    assert greeks == (0.5, 0.001, -5.0, 10.0)
+
+
+def test_greeks_without_an_iv_are_left_blank(tmp_path):
+    snapshot(tmp_path, 11, 9, 20)
+    point = strike_history(tmp_path, "NIFTY", EXPIRY, 24100, "CE")["points"][0]
+    assert point["iv"] is None and point["delta"] is None
 
 
 def test_compacted_and_older_days_are_readable(tmp_path):
@@ -77,6 +94,7 @@ def test_feed_ticks_give_one_point_a_minute(tmp_path):
     assert result["source"] == "ticks"
     # The pre-open tick repeats yesterday's close and is left out.
     assert [p["ltp"] for p in result["points"]] == [3.0, 4.0]
+    assert result["points"][0]["delta"] == 0.4 and result["points"][0]["vega"] == 12.0
 
 
 def test_snapshots_before_the_open_are_left_out(tmp_path):

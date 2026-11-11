@@ -171,6 +171,47 @@ export interface StrikePoint {
   volume: number | null;
   bid: number | null;
   ask: number | null;
+  delta: number | null;
+  gamma: number | null;
+  /** Rupees per unit per day. */
+  theta: number | null;
+  /** Rupees per unit per volatility point. */
+  vega: number | null;
+}
+
+export type Buildup = "long_buildup" | "short_buildup" | "short_covering" | "long_unwinding" | "neutral";
+
+export interface BuildupStep {
+  /** Start of the block, in milliseconds since the epoch. */
+  t: number;
+  price_change: number;
+  oi_change: number;
+  label: Buildup;
+}
+
+export interface UnderlyingPoint {
+  t: number;
+  spot: number | null;
+  /** The nearest future's VWAP, moved onto spot by the futures premium. */
+  vwap: number | null;
+  ema_fast: number | null;
+  ema_slow: number | null;
+  rsi: number | null;
+}
+
+export interface UnderlyingView {
+  symbol: string;
+  day: string | null;
+  days: string[];
+  source: "ticks" | "snapshots" | null;
+  /** 1 from the live feed, 5 from chain snapshots. Indicators use this interval. */
+  interval_minutes: number | null;
+  points: UnderlyingPoint[];
+  /** day_high, day_low, day_open, or_high, or_low, prev_high, prev_low, prev_close, pivot_p … */
+  levels: Record<string, number>;
+  previous: { day: string; high: number; low: number; close: number } | null;
+  pcr: { t: number; pcr: number }[];
+  vix: { t: number; vix: number }[];
 }
 
 export interface StrikeHistory {
@@ -187,6 +228,8 @@ export interface StrikeHistory {
   points: StrikePoint[];
   /** Every strike saved for this expiry on the day. */
   strikes: number[];
+  /** Open-interest build-up in each 15-minute block, from the change in price and OI. */
+  buildup: BuildupStep[];
 }
 
 export interface LiveChain {
@@ -798,6 +841,10 @@ export const api = {
         option_type: type,
         ...(day ? { day } : {}),
       })}`,
+    ),
+  marketUnderlying: (symbol: string, expiry: string, day?: string) =>
+    getJson<UnderlyingView>(
+      `/api/market/underlying?${new URLSearchParams({ symbol, expiry, ...(day ? { day } : {}) })}`,
     ),
   portfolio: () => getJson<Portfolio>("/api/portfolio"),
   backtests: () => getJson<BacktestListing>("/api/backtests"),

@@ -15,6 +15,32 @@ def ema(series: pd.Series, span: int) -> pd.Series:
     return series.ewm(span=span, adjust=False, min_periods=span).mean()
 
 
+def rsi(close: pd.Series, period: int = 14) -> pd.Series:
+    """Wilder's relative strength index, 0 to 100.
+
+    The first average is the simple mean of the first `period` changes, then each new change
+    is blended in with weight 1/period. Blank until `period` changes are known.
+    """
+    change = close.diff().to_numpy(dtype=float)
+    out = np.full(len(change), np.nan)
+    if len(change) <= period:
+        return pd.Series(out, index=close.index)
+    gains = np.clip(change, 0, None)
+    losses = np.clip(-change, 0, None)
+    gain = gains[1 : period + 1].mean()
+    loss = losses[1 : period + 1].mean()
+    for i in range(period, len(change)):
+        if i > period:
+            gain = (gain * (period - 1) + gains[i]) / period
+            loss = (loss * (period - 1) + losses[i]) / period
+        if loss == 0:
+            # Only gains is the top of the scale; no movement at all is undefined.
+            out[i] = 100.0 if gain > 0 else np.nan
+        else:
+            out[i] = 100 - 100 / (1 + gain / loss)
+    return pd.Series(out, index=close.index)
+
+
 def realised_vol(close: pd.Series, window: int = 20) -> pd.Series:
     """Annualised close-to-close volatility, as a decimal."""
     returns = np.log(close / close.shift(1))

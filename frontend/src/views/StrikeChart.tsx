@@ -4,10 +4,20 @@ import { LineChart, timeTicks } from "../charts";
 import { compact, num, shortDate, timeIst } from "../format";
 import { atmStrike, strikePosition } from "../moneyness";
 import { Empty, Panel, Select, Status, Tile } from "../ui";
+import { UnderlyingSection } from "./UnderlyingSection";
 
 const PRICE = "var(--series-1)";
 const OI = "var(--series-3)";
 const IV = "var(--series-5)";
+const GREEK_COLOR = "var(--series-2)";
+
+type Greek = "delta" | "gamma" | "theta" | "vega";
+const GREEK_CHARTS: { key: Greek; title: string; note: string; digits: number }[] = [
+  { key: "delta", title: "Delta", note: "Price change per 1-point move in spot", digits: 3 },
+  { key: "gamma", title: "Gamma", note: "Delta change per 1-point move in spot", digits: 4 },
+  { key: "theta", title: "Theta", note: "Rupees lost per unit per day", digits: 2 },
+  { key: "vega", title: "Vega", note: "Rupees per unit per volatility point", digits: 2 },
+];
 // The latest day keeps updating while the page is open.
 const REFRESH_MS = 60_000;
 const CHART_PATH = "market/chart";
@@ -159,6 +169,17 @@ export function StrikePage({ route, market }: { route: StrikeRoute; market: Mark
     ];
   }, [points]);
 
+  const greeks = useMemo(
+    () =>
+      GREEK_CHARTS.map((greek) => ({
+        ...greek,
+        series: [{ name: greek.title, color: GREEK_COLOR, points: line(points, (p) => p[greek.key]) }],
+        now: last(points, (p) => p[greek.key]),
+        change: change(first(points, (p) => p[greek.key]), last(points, (p) => p[greek.key])),
+      })),
+    [points],
+  );
+
   const open = first(points, (p) => p.ltp);
   const close = last(points, (p) => p.ltp);
   const prices = points.map((p) => p.ltp).filter((v): v is number => v != null);
@@ -280,10 +301,10 @@ export function StrikePage({ route, market }: { route: StrikeRoute; market: Mark
             />
           </div>
 
-          <Panel title="Price" aside={<span className="muted">Last traded price</span>}>
+          <Panel title={`${name} price`} aside={<span className="muted">Last traded price</span>}>
             <LineChart
               series={price}
-              height={380}
+              height={320}
               tickX={timeTicks}
               label={`Price of the ${name} ${side} through the day`}
               formatX={clock}
@@ -292,6 +313,19 @@ export function StrikePage({ route, market }: { route: StrikeRoute; market: Mark
               formatTipY={(y) => num(y, 2)}
             />
           </Panel>
+
+          <h3 className="section-title">{route.symbol} and indicators</h3>
+          <UnderlyingSection
+            symbol={route.symbol}
+            expiry={route.expiry}
+            day={route.day}
+            strike={route.strike}
+            type={route.type}
+            premium={close}
+            buildup={shown.buildup ?? []}
+          />
+
+          <h3 className="section-title">{name} detail</h3>
           <div className="grid-2">
             <Panel title="Open interest">
               <LineChart
@@ -319,6 +353,33 @@ export function StrikePage({ route, market }: { route: StrikeRoute; market: Mark
               />
             </Panel>
           </div>
+          <div className="grid-2">
+            {greeks.map((greek) => (
+              <Panel
+                key={greek.key}
+                title={`${greek.title}${greek.now == null ? "" : ` ${num(greek.now, greek.digits)}`}`}
+                aside={
+                  <span className="muted">
+                    {greek.change == null
+                      ? greek.note
+                      : `${signed(greek.change, (v) => num(v, greek.digits))} in the day`}
+                  </span>
+                }
+              >
+                <LineChart
+                  series={greek.series}
+                  height={200}
+                  tickX={timeTicks}
+                  label={`${greek.title} of the ${name} ${side} through the day. ${greek.note}.`}
+                  formatX={clock}
+                  formatY={(y) => num(y, greek.digits > 3 ? greek.digits : 2)}
+                  formatTipX={clock}
+                  formatTipY={(y) => num(y, greek.digits)}
+                />
+                <p className="panel-note">{greek.note}.</p>
+              </Panel>
+            ))}
+          </div>
           <Panel
             title="Volume"
             aside={<span className="muted">{shown.source === "ticks" ? "Per minute" : "Per 5 minutes"}</span>}
@@ -338,6 +399,7 @@ export function StrikePage({ route, market }: { route: StrikeRoute; market: Mark
           <p className="panel-note">
             Contracts in the live feed show one point a minute; the rest, mostly far from the money,
             show the 5-minute snapshots that cover every strike. The chart starts at the 09:15 open.
+            Greeks are the broker's, per unit; they are blank where it had no implied volatility.
           </p>
         </>
       )}

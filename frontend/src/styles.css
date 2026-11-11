@@ -2699,3 +2699,43 @@ main {
   vertical-align: middle;
   border: 1px solid var(--border);
 }
+
+.section-title {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* Chart overlay switches, shown as small chips. */
+.overlay-toggles {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.overlay-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  cursor: pointer;
+  user-select: none;
+}
+
+.overlay-toggles label.on {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+
+.overlay-toggles input {
+  margin: 0;
+  accent-color: var(--series-1);
+}

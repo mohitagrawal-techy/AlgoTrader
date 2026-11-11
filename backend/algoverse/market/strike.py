@@ -20,10 +20,21 @@ IST = ZoneInfo("Asia/Kolkata")
 # Before the open the feed and the chain repeat the previous close, which is not a price of
 # the day, so the chart starts at the normal NSE derivatives open.
 SESSION_OPEN = time(9, 15)
+SESSION_CLOSE = time(15, 30)
 
 
 def _open_ms(day: str) -> int:
     return int(datetime.combine(date.fromisoformat(day), SESSION_OPEN, IST).timestamp() * 1000)
+
+
+def _close_ms(day: str) -> int:
+    return int(datetime.combine(date.fromisoformat(day), SESSION_CLOSE, IST).timestamp() * 1000)
+
+
+def in_session(points: list[dict], day: str) -> list[dict]:
+    """Points from the 09:15 open to the 15:30 close. Outside it prices repeat a close."""
+    opens, closes = _open_ms(day), _close_ms(day)
+    return [p for p in points if opens <= p["t"] <= closes]
 
 
 def chart_days(data_dir: Path, symbol: str) -> list[str]:
@@ -36,7 +47,9 @@ def chart_days(data_dir: Path, symbol: str) -> list[str]:
     return sorted(days, reverse=True)
 
 
+GREEKS = ["delta", "gamma", "theta", "vega"]
 SNAPSHOT_COLUMNS = ["ltp", "oi", "broker_iv", "volume", "bid", "ask"]
+SNAPSHOT_COLUMNS += [f"broker_{g}" for g in GREEKS]
 
 
 def _snapshots(
@@ -74,6 +87,8 @@ def _snapshot_points(frame: pd.DataFrame) -> list[dict]:
     points = []
     for row in frame.itertuples():
         iv = _number(row.broker_iv)
+        # Greeks need an implied volatility; without one the broker reports zeros.
+        greeks = {g: (_number(getattr(row, f"broker_{g}")) if iv else None) for g in GREEKS}
         points.append(
             {
                 "t": int(row.t),
@@ -84,6 +99,7 @@ def _snapshot_points(frame: pd.DataFrame) -> list[dict]:
                 "volume": _number(row.volume),
                 "bid": _number(row.bid) or None,
                 "ask": _number(row.ask) or None,
+                **greeks,
             }
         )
     return points
@@ -94,14 +110,19 @@ def _tick_points(data_dir: Path, day: str, instrument_key: str) -> list[dict]:
     if not any(folder.glob("*.parquet")):
         return []
     # Aggregates are unaffected if a merge briefly leaves a tick in two files.
-    query = """
+    # Greeks need an implied volatility; ticks without one carry zeros.
+    greeks = ",\n               ".join(
+        f"arg_max({g}, received_at) FILTER (WHERE iv > 0) AS {g}" for g in GREEKS
+    )
+    query = f"""
         SELECT epoch_ms(time_bucket(INTERVAL 1 MINUTE, received_at)) AS t,
                arg_max(ltp, received_at) FILTER (WHERE ltp > 0) AS ltp,
                arg_max(oi, received_at) FILTER (WHERE oi > 0) AS oi,
                arg_max(iv, received_at) FILTER (WHERE iv > 0) AS iv,
                max(vtt) AS volume,
                arg_max(bid_1, received_at) FILTER (WHERE bid_1 > 0) AS bid,
-               arg_max(ask_1, received_at) FILTER (WHERE ask_1 > 0) AS ask
+               arg_max(ask_1, received_at) FILTER (WHERE ask_1 > 0) AS ask,
+               {greeks}
         FROM read_parquet(?, union_by_name = true)
         WHERE instrument_key = ?
         GROUP BY t
@@ -109,11 +130,48 @@ def _tick_points(data_dir: Path, day: str, instrument_key: str) -> list[dict]:
     """
     with duckdb.connect() as connection:
         rows = connection.execute(query, [str(folder / "*.parquet"), instrument_key]).fetchall()
-    names = ["t", "ltp", "oi", "iv", "volume", "bid", "ask"]
+    names = ["t", "ltp", "oi", "iv", "volume", "bid", "ask", *GREEKS]
     return [
         {name: (int(v) if name == "t" else _number(v)) for name, v in zip(names, row, strict=True)}
         for row in rows
     ]
+
+
+BUILDUP_MINUTES = 15
+
+
+def buildup_steps(points: list[dict], minutes: int = BUILDUP_MINUTES) -> list[dict]:
+    """Open-interest build-up in each block of the day, from the change in price and OI.
+
+    Price up with OI up is long build-up, price down with OI up is short build-up, price up
+    with OI down is short covering and price down with OI down is long unwinding.
+    """
+    size = minutes * 60_000
+    blocks: dict[int, dict] = {}
+    for point in points:
+        if point.get("ltp") is None or point.get("oi") is None:
+            continue
+        blocks[point["t"] // size * size] = point  # Last point of each block.
+    steps = []
+    previous = None
+    for start in sorted(blocks):
+        point = blocks[start]
+        if previous is not None:
+            price = point["ltp"] - previous["ltp"]
+            oi = point["oi"] - previous["oi"]
+            if price > 0 and oi > 0:
+                label = "long_buildup"
+            elif price < 0 and oi > 0:
+                label = "short_buildup"
+            elif price > 0 and oi < 0:
+                label = "short_covering"
+            elif price < 0 and oi < 0:
+                label = "long_unwinding"
+            else:
+                label = "neutral"
+            steps.append({"t": start, "price_change": price, "oi_change": oi, "label": label})
+        previous = point
+    return steps
 
 
 def strike_history(
@@ -142,6 +200,7 @@ def strike_history(
         "source": None,
         "points": [],
         "strikes": [],
+        "buildup": [],
     }
     if chosen is None:
         return base
@@ -156,9 +215,18 @@ def strike_history(
     if snapshots.empty:
         return base
     key = str(snapshots["instrument_key"].iloc[-1])
-    opens = _open_ms(chosen)
-    ticks = [p for p in _tick_points(data_dir, chosen, key) if p["t"] >= opens]
+    ticks = in_session(_tick_points(data_dir, chosen, key), chosen)
     if len(ticks) >= 2:
-        return base | {"instrument_key": key, "source": "ticks", "points": ticks}
-    points = [p for p in _snapshot_points(snapshots) if p["t"] >= opens]
-    return base | {"instrument_key": key, "source": "snapshots", "points": points}
+        return base | {
+            "instrument_key": key,
+            "source": "ticks",
+            "points": ticks,
+            "buildup": buildup_steps(ticks),
+        }
+    points = in_session(_snapshot_points(snapshots), chosen)
+    return base | {
+        "instrument_key": key,
+        "source": "snapshots",
+        "points": points,
+        "buildup": buildup_steps(points),
+    }
