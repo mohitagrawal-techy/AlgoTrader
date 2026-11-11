@@ -161,6 +161,34 @@ export interface LiveSide {
   volume: number | null;
 }
 
+export interface StrikePoint {
+  /** Milliseconds since the epoch. */
+  t: number;
+  ltp: number | null;
+  oi: number | null;
+  /** A fraction, 0.15 for 15%. */
+  iv: number | null;
+  volume: number | null;
+  bid: number | null;
+  ask: number | null;
+}
+
+export interface StrikeHistory {
+  symbol: string;
+  expiry: string;
+  strike: number;
+  option_type: "CE" | "PE";
+  day: string | null;
+  /** Days with saved chains, newest first. */
+  days: string[];
+  instrument_key: string | null;
+  /** "ticks" is one point a minute from the live feed, "snapshots" one every 5 minutes. */
+  source: "ticks" | "snapshots" | null;
+  points: StrikePoint[];
+  /** Every strike saved for this expiry on the day. */
+  strikes: number[];
+}
+
 export interface LiveChain {
   symbol: string;
   expiry: string;
@@ -760,6 +788,16 @@ export const api = {
   marketLive: (symbol: string, expiry: string) =>
     getJson<LiveChain>(
       `/api/market/live?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}`,
+    ),
+  marketStrike: (symbol: string, expiry: string, strike: number, type: "CE" | "PE", day?: string) =>
+    getJson<StrikeHistory>(
+      `/api/market/strike?${new URLSearchParams({
+        symbol,
+        expiry,
+        strike: String(strike),
+        option_type: type,
+        ...(day ? { day } : {}),
+      })}`,
     ),
   portfolio: () => getJson<Portfolio>("/api/portfolio"),
   backtests: () => getJson<BacktestListing>("/api/backtests"),

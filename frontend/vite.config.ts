@@ -27,13 +27,16 @@ function scopeBootstrap() {
   } as Plugin & { postcssPlugin: string };
 }
 
+// The API the dev server forwards to. Override to preview against a second backend.
+const api = process.env.ALGOVERSE_API ?? "http://127.0.0.1:8000";
+
 export default defineConfig({
   plugins: [react()],
   css: { postcss: { plugins: [scopeBootstrap() as never] } },
   server: {
     proxy: {
-      "/api": "http://127.0.0.1:8000",
-      "/auth": "http://127.0.0.1:8000",
+      "/api": api,
+      "/auth": api,
     },
   },
 });

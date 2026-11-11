@@ -2658,3 +2658,34 @@ main {
     margin-left: 0;
   }
 }
+
+/* Option chain cells open the strike chart. */
+.table-chain td.pickable {
+  cursor: pointer;
+}
+
+.table-chain td.pickable:hover {
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.table-chain td.picked {
+  box-shadow: inset 0 1px 0 var(--series-1), inset 0 -1px 0 var(--series-1);
+  font-weight: 600;
+}
+
+.strike-charts {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.strike-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}

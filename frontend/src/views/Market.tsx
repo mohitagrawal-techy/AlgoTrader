@@ -14,6 +14,7 @@ import { Legend, LineChart, PairedColumns } from "../charts";
 import { compact, dateTimeIst, fraction, num, pct, shortDate } from "../format";
 import { savedStore } from "../saved";
 import { Empty, Panel, Select, Status, Tile, type Tone } from "../ui";
+import { StrikeChart, type StrikeChoice } from "./StrikeChart";
 
 const CALLS = "var(--series-1)";
 const PUTS = "var(--series-2)";
@@ -89,6 +90,8 @@ function Side({
   maxOi,
   peak,
   columns,
+  picked,
+  onPick,
 }: {
   side: QuoteSide | null;
   cls: "call" | "put";
@@ -96,6 +99,8 @@ function Side({
   maxOi: number;
   peak: boolean;
   columns: readonly ChainColumn[];
+  picked: boolean;
+  onPick: () => void;
 }) {
   const oiShare = side?.oi && maxOi > 0 ? (side.oi / maxOi) * 100 : 0;
   const cells = [
@@ -121,7 +126,13 @@ function Side({
   return (
     <>
       {ordered.map((cell) => (
-        <td key={cell.head} className={`right ${cls} ${state.toLowerCase()} ${cell.className ?? ""}`} style={cell.style}>
+        <td
+          key={cell.head}
+          className={`right ${cls} ${state.toLowerCase()} pickable${picked ? " picked" : ""} ${cell.className ?? ""}`}
+          style={cell.style}
+          onClick={onPick}
+          title={`Chart this ${cls}`}
+        >
           {cell.text}
         </td>
       ))}
@@ -137,10 +148,14 @@ function ChainTable({
   expiry,
   spot,
   columns,
+  picked,
+  onPick,
 }: {
   expiry: ExpiryMarket;
   spot: number;
   columns: readonly ChainColumn[];
+  picked: StrikeChoice;
+  onPick: (choice: StrikeChoice) => void;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const atm = expiry.rows.reduce(
@@ -211,6 +226,8 @@ function ChainTable({
                   maxOi={maxOi}
                   columns={columns}
                   peak={peakCall > 0 && row.ce?.oi === peakCall}
+                  picked={picked.strike === row.strike && picked.type === "CE"}
+                  onPick={() => onPick({ strike: row.strike, type: "CE" })}
                 />
                 <td className="strike">
                   <span className="strike-cell">
@@ -226,6 +243,8 @@ function ChainTable({
                   maxOi={maxOi}
                   columns={columns}
                   peak={peakPut > 0 && row.pe?.oi === peakPut}
+                  picked={picked.strike === row.strike && picked.type === "PE"}
+                  onPick={() => onPick({ strike: row.strike, type: "PE" })}
                 />
               </tr>
             );
@@ -390,6 +409,26 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
   const live = liveState.chain;
   const chain = useMemo(() => (expiry && live ? withLive(expiry, live) : expiry), [expiry, live]);
   const [view, setView] = useState(readChainView);
+  const [picked, setPicked] = useState<(StrikeChoice & { expiry: string }) | null>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
+  const atmStrike = expiry
+    ? expiry.rows.reduce(
+        (best, row) =>
+          Math.abs(row.strike - market.spot) < Math.abs(best - market.spot) ? row.strike : best,
+        expiry.rows[0]?.strike ?? 0,
+      )
+    : 0;
+  // Each expiry opens on its at-the-money call until a strike is picked.
+  const choice: StrikeChoice =
+    picked && picked.expiry === expiry?.expiry
+      ? { strike: picked.strike, type: picked.type }
+      : { strike: atmStrike, type: "CE" };
+  const choose = (next: StrikeChoice) =>
+    setPicked({ ...next, expiry: expiry?.expiry ?? "" });
+  const pickFromChain = (next: StrikeChoice) => {
+    choose(next);
+    chartRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const chooseView = (next: string) => {
     setView(next);
     try {
@@ -553,15 +592,29 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
           expiry={chain ?? expiry}
           spot={live?.spot ?? market.spot}
           columns={CHAIN_VIEWS[view] ?? CHAIN_COLUMNS}
+          picked={choice}
+          onPick={pickFromChain}
         />
         <p className="panel-note">
           ITM, ATM and OTM are measured against spot, and ATM is the nearest strike. Bars show open
           interest on one scale for both sides, and bold marks the largest on each side. IV is in %.
           Theta is rupees per unit per day, vega is rupees per unit per volatility point, and gamma
           is the change in delta for a one-point move.
-          Strikes within 6% of the forward.
+          Strikes within 6% of the forward. Click a call or put to chart it below.
         </p>
       </Panel>
+
+      {expiry.rows.length > 0 && (
+        <StrikeChart
+          key={`${market.symbol}-${expiry.expiry}`}
+          ref={chartRef}
+          symbol={market.symbol}
+          expiry={expiry.expiry}
+          fallbackStrikes={expiry.rows.map((row) => row.strike)}
+          choice={choice}
+          onChoose={choose}
+        />
+      )}
     </>
   );
 }

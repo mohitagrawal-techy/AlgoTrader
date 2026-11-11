@@ -29,6 +29,7 @@ from algoverse.lab.service import LabBusy, LabError
 from algoverse.market.assistant import AssistantError, UnknownTarget
 from algoverse.market.index_details import save_constituents
 from algoverse.market.sectors import SectorListError, parse_sector_csv, save_sector_list
+from algoverse.market.strike import strike_history
 from algoverse.runtime import Runtime
 from algoverse.settings import REPO_ROOT, Settings, get_settings
 
@@ -165,6 +166,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/market/live")
     def market_live(symbol: str, expiry: str) -> dict:
         return clean(live_chain(config.data_dir, symbol, expiry, datetime.now(IST)))
+
+    @app.get("/api/market/strike")
+    def market_strike(
+        symbol: str, expiry: str, strike: float, option_type: str, day: str | None = None
+    ) -> dict:
+        try:
+            return clean(
+                strike_history(config.data_dir, symbol, expiry, strike, option_type, day)
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.get("/api/portfolio")
     def portfolio() -> dict:
