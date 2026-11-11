@@ -10,6 +10,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import duckdb
 import httpx
 import pandas as pd
 
@@ -29,6 +30,7 @@ from algoverse.brokers.upstox_feed import UpstoxFeed
 from algoverse.data.collector import backfill_daily, collect_snapshots
 from algoverse.data.holidays import fetch_holidays, load_holidays, refresh_holidays, save_holidays
 from algoverse.data.instruments import download_master, parse_future_contracts
+from algoverse.data.options import compact_chains
 from algoverse.data.stream import (
     StreamService,
     build_subscription,
@@ -38,7 +40,7 @@ from algoverse.data.stream import (
 from algoverse.data.ticks import stored_days
 from algoverse.execution.cycle import run_cycle
 from algoverse.execution.ledger import CLOSED, LIVE_STATUSES
-from algoverse.runtime import Runtime
+from algoverse.runtime import Runtime, organise_storage
 from algoverse.settings import get_settings
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -52,6 +54,7 @@ def cmd_serve(_: argparse.Namespace) -> None:
 
     from algoverse.api.app import create_app
 
+    organise_storage()
     uvicorn.run(create_app(), host=get_settings().host, port=8000)
 
 
@@ -425,6 +428,7 @@ def cmd_lab_generate(args: argparse.Namespace) -> None:
 def cmd_collect(_: argparse.Namespace) -> None:
     from apscheduler.schedulers.blocking import BlockingScheduler
 
+    organise_storage()
     rt = Runtime()
     scheduler = BlockingScheduler(timezone=IST)
 
@@ -491,6 +495,7 @@ def cmd_collect(_: argparse.Namespace) -> None:
     scheduler.add_job(
         snapshot_job, "interval", minutes=rt.universe.snapshot_interval_minutes, max_instances=1
     )
+
     def holiday_job() -> None:
         try:
             if refresh_holidays(rt.settings.data_dir, datetime.now(IST)):
@@ -505,8 +510,69 @@ def cmd_collect(_: argparse.Namespace) -> None:
     # Upstox drops a contract the day after it expires, so this cannot wait for the next day.
     scheduler.add_job(history_capture_job, "cron", hour=15, minute=45)
     scheduler.add_job(backfill_job, "cron", hour=16, minute=0)
+
+    def archive_job() -> None:
+        try:
+            compacted = compact_chains(rt.settings.data_dir, datetime.now(IST))
+            if compacted.days:
+                log.info("Compacted %s option chain snapshots", compacted.snapshots)
+        except (OSError, duckdb.Error) as exc:
+            log.error("Option chain compaction failed: %s", exc)
+        try:
+            result = _run_archive()
+        except Exception as exc:  # A failed upload must never stop the collector.
+            log.error("S3 upload failed: %s", exc)
+            return
+        if result is not None:
+            log.info("S3 upload: %s", _archive_summary(result))
+
+    # After the feed merges the day's ticks; the evening run retries anything that failed.
+    scheduler.add_job(archive_job, "cron", hour="16,20", minute=30, max_instances=1)
+    scheduler.add_job(
+        archive_job, "date", run_date=datetime.now(IST) + timedelta(minutes=2), max_instances=1
+    )
     log.info("Collector running. Snapshots run only during market hours.")
     scheduler.start()
+
+
+def _run_archive(dry_run: bool = False):
+    # Imported here so other commands do not need the AWS library.
+    from algoverse.data.archive import archive, load_archive_config, make_client
+
+    settings = get_settings()
+    config = load_archive_config(settings.config_dir)
+    if not config.enabled and not dry_run:
+        log.info("S3 upload is turned off in config/archive_s3.yaml.")
+        return None
+    return archive(make_client(config), config, settings.data_dir, datetime.now(IST), dry_run)
+
+
+def _archive_summary(result, dry_run: bool = False) -> str:
+    size = f"{result.uploaded} files ({result.uploaded_bytes / 1e6:,.1f} MB)"
+    text = (
+        f"would upload {size}, {result.unchanged} already in S3"
+        if dry_run
+        else f"{size} uploaded, {result.unchanged} already in S3, "
+        f"{result.databases} databases copied"
+    )
+    if result.waiting_days:
+        text += f"; waiting for {', '.join(sorted(result.waiting_days))} to finish"
+    if result.pruned_days:
+        text += f"; local ticks removed for {', '.join(result.pruned_days)}"
+    if result.failures:
+        text += f"; {len(result.failures)} failed, first: {next(iter(result.failures.items()))}"
+    return text
+
+
+def cmd_archive(args: argparse.Namespace) -> None:
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    try:
+        result = _run_archive(args.dry_run)
+    except (BotoCoreError, ClientError) as exc:
+        raise SystemExit(f"S3 upload failed: {exc}") from exc
+    if result is not None:
+        print(_archive_summary(result, args.dry_run).capitalize())
 
 
 def main() -> None:
@@ -526,6 +592,13 @@ def main() -> None:
         ("stream-status", cmd_stream_status, "Show the live feed and stored ticks"),
     ):
         commands.add_parser(name, help=help_text).set_defaults(handler=handler)
+    archive_parser = commands.add_parser(
+        "archive", help="Upload finished days of recorded data to S3"
+    )
+    archive_parser.add_argument(
+        "--dry-run", action="store_true", help="List what would be uploaded, upload nothing"
+    )
+    archive_parser.set_defaults(handler=cmd_archive)
     fstart = commands.add_parser("forward-start", help="Lock a configuration and forward test it")
     fstart.add_argument("--name", required=True)
     fstart.add_argument("--role", choices=["champion", "challenger"], default="challenger")

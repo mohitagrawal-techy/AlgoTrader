@@ -147,7 +147,9 @@ def build_subscription(
     return chosen
 
 
-def split_connections(instruments: dict[str, dict], config: StreamConfig) -> list[tuple[str, list[str]]]:
+def split_connections(
+    instruments: dict[str, dict], config: StreamConfig
+) -> list[tuple[str, list[str]]]:
     """(mode, keys) per connection, filling each in turn from the front of the priority order."""
     keys = list(instruments)
     groups, start = [], 0

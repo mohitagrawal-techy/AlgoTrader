@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from functools import cached_property
 from zoneinfo import ZoneInfo
@@ -14,7 +15,9 @@ from algoverse.ai.service import build_ai_service
 from algoverse.brokers.auth import token_store
 from algoverse.brokers.upstox import UpstoxMarketData
 from algoverse.data.calendar import BrokerCalendar
+from algoverse.data.candles import migrate_flat_layout, resolve_name
 from algoverse.data.instruments import download_master, parse_option_contracts
+from algoverse.data.options import compact_chains, migrate_old_layout
 from algoverse.data.store import SnapshotStore
 from algoverse.evaluation.config import EventCalendar, load_scoring_config
 from algoverse.execution.cycle import CycleDeps
@@ -28,15 +31,34 @@ from algoverse.risk.config import load_risk_config
 from algoverse.risk.costs import load_cost_model
 from algoverse.settings import Settings, get_settings, load_calendar_config, load_universe
 
+log = logging.getLogger(__name__)
+
 IST = ZoneInfo("Asia/Kolkata")
+
+
+def organise_storage(settings: Settings | None = None) -> None:
+    """Move data saved in older layouts into the organised one, and compact finished option
+    chain days. Runs at start-up; safe to repeat."""
+    settings = settings or get_settings()
+    moved = migrate_old_layout(settings.data_dir)
+    if moved:
+        log.info("Moved %s option files into options/", moved)
+    compact_chains(settings.data_dir, datetime.now(IST))
+    universe = load_universe(settings.config_dir)
+    store = SnapshotStore(settings.data_dir, universe.reference_indices)
+    result = migrate_flat_layout(
+        settings.data_dir, lambda name: resolve_name(name, store.aliases)
+    )
+    if result.moved:
+        log.info("Moved %s candle files into the organised layout", result.moved)
 
 
 class Runtime:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
         config_dir = self.settings.config_dir
-        self.store = SnapshotStore(self.settings.data_dir)
         self.universe = load_universe(config_dir)
+        self.store = SnapshotStore(self.settings.data_dir, self.universe.reference_indices)
         self.calendar = BrokerCalendar(
             self.settings.data_dir, load_calendar_config(config_dir).holidays
         )
@@ -90,8 +112,7 @@ class Runtime:
 
     def contracts(self, now: datetime) -> pd.DataFrame:
         """Return today's contract master, downloading it if not yet stored."""
-        path = self.settings.data_dir / "contracts" / f"{now.date().isoformat()}.parquet"
-        if not path.exists():
+        if not self.store.has_contracts(now.date()):
             self.refresh_contracts(now)
         return self.store.read_contracts(now.date())
 

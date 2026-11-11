@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 from algoverse.brokers.base import AuthExpiredError
 from algoverse.data.calendar import MarketCalendar
+from algoverse.data.store import SnapshotStore
 from algoverse.market.assistant import AssistantService
 from algoverse.market.overview import OverviewService
 
@@ -61,10 +62,13 @@ class Market:
         return pd.DataFrame()
 
 
-class Store:
-    """Daily closes up to and including the 9 Nov session, which closed at 24,900."""
+class Store(SnapshotStore):
+    """Daily closes up to and including the 9 Nov session, which closed at 24,900.
+    Minute candles go to the real store under tmp_path."""
 
-    def read_candles(self, name):
+    def read_candles(self, name, interval="1d", start=None, end=None):
+        if interval != "1d":
+            return super().read_candles(name, interval, start, end)
         days = pd.bdate_range("2026-10-01", "2026-11-09")
         frame = pd.DataFrame({"ts": days.tz_localize(IST)})
         frame["open"] = frame["high"] = frame["low"] = 24800.0
@@ -72,12 +76,14 @@ class Store:
         frame.loc[frame.index[-1], "close"] = 24900.0
         return frame
 
-    def upsert_candles(self, name, frame):
-        pass
+    def upsert_candles(self, name, frame, interval="1d"):
+        if interval != "1d":
+            return super().upsert_candles(name, frame, interval)
+        return []
 
 
 def service(tmp_path, market, clock=lambda: 0.0):
-    return OverviewService(tmp_path, CONFIG_DIR, market, Store(), CALENDAR, clock=clock)
+    return OverviewService(tmp_path, CONFIG_DIR, market, Store(tmp_path), CALENDAR, clock=clock)
 
 
 def at(day, hour, minute=0, second=0):
@@ -236,7 +242,10 @@ def test_one_minute_candles_are_fetched_and_saved(tmp_path):
     market = MinuteMarket()
     data = service(tmp_path, market).intraday("Nifty 50", at(TODAY, 9, 26))
     assert market.intraday_calls == [("NSE_INDEX|Nifty 50", 1)]
-    saved = tmp_path / "intraday" / "date=2026-11-11" / "index_Nifty_50.parquet"
+    saved = (
+        tmp_path
+        / "candles/interval=1m/segment=NSE_INDEX/symbol=Nifty_50/month=2026-11/part.parquet"
+    )
     assert saved.exists() and len(pd.read_parquet(saved)) == 12
     assert data["live"] is True and len(data["candles"]) == 3
 

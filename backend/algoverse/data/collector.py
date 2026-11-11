@@ -100,6 +100,6 @@ def backfill_daily(
             log.warning("Backfill failed for %s: %s", symbol, exc)
             continue
         if not candles.empty:
-            store.upsert_candles(symbol, candles)
+            store.upsert_candles(key, candles)
             result.saved += 1
     return result

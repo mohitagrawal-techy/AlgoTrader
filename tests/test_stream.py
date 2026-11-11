@@ -22,9 +22,9 @@ from algoverse.data.stream import (
     StreamConfig,
     StreamService,
     build_subscription,
-    split_connections,
     live_chain,
     load_stream_config,
+    split_connections,
     write_status,
 )
 from algoverse.data.ticks import (

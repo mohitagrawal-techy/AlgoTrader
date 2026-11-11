@@ -18,6 +18,7 @@ import yaml
 from algoverse.analytics.regime import ema
 from algoverse.brokers.base import AuthExpiredError, MarketDataError
 from algoverse.dashboard import MARKET_FILE, clean, read_published
+from algoverse.data.candles import MINUTE
 from algoverse.data.stream import live_dir, read_status
 from algoverse.market.index_details import build_details, load_constituents
 from algoverse.market.institutions import empty_institutions, fetch_institutions
@@ -62,10 +63,6 @@ def load_market_config(config_dir: Path) -> dict:
 
 def index_key(name: str) -> str:
     return f"NSE_INDEX|{name}"
-
-
-def _series_name(name: str) -> str:
-    return "index_" + name.replace(" ", "_")
 
 
 def _ist_day(milliseconds) -> date | None:
@@ -413,7 +410,7 @@ class OverviewService:
                 log.warning("Index history failed for %s: %s", name, exc)
                 continue
             if not candles.empty:
-                self.store.upsert_candles(_series_name(name), candles)
+                self.store.upsert_candles(index_key(name), candles)
                 saved = True
         if saved:
             self.invalidate()  # The next request should include the returns just loaded.
@@ -436,7 +433,7 @@ class OverviewService:
         self._maybe_refresh_history(config, now.date())
 
         def closes(name: str) -> pd.DataFrame:
-            return self.store.read_candles(_series_name(name))
+            return self.store.read_candles(index_key(name))
 
         nifty = quotes.get(index_key("Nifty 50"))
         nifty_change = (
@@ -516,7 +513,7 @@ class OverviewService:
 
     def _bars(self, name: str, live_rows: dict[str, dict]) -> pd.DataFrame:
         columns = ["date", "open", "high", "low", "close"]
-        stored = self.store.read_candles(_series_name(name))
+        stored = self.store.read_candles(index_key(name))
         if stored.empty:
             return merge_live_bar(pd.DataFrame(columns=columns), None)
         frame = stored.assign(date=pd.to_datetime(stored["ts"]).dt.date)[columns]
@@ -615,21 +612,13 @@ class OverviewService:
             days.append(day)
         return days
 
-    def _minute_path(self, name: str, day: date) -> Path:
-        return (
-            self.data_dir / "intraday" / f"date={day.isoformat()}" / f"{_series_name(name)}.parquet"
-        )
-
     def _saved_minutes(self, name: str, day: date) -> pd.DataFrame | None:
-        path = self._minute_path(name, day)
-        return pd.read_parquet(path) if path.exists() else None
+        """One-minute candles saved for a session, from candles/interval=1m."""
+        frame = self.store.read_candles(index_key(name), MINUTE, start=day, end=day)
+        return None if frame.empty else frame
 
     def _save_minutes(self, name: str, day: date, frame: pd.DataFrame) -> None:
-        path = self._minute_path(name, day)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        frame.to_parquet(tmp, index=False)
-        os.replace(tmp, path)
+        self.store.upsert_candles(index_key(name), frame, MINUTE)
 
     def _is_complete(self, frame: pd.DataFrame, day: date) -> bool:
         hours = self.calendar.session(day)

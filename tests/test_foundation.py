@@ -386,7 +386,7 @@ def test_collector_stops_on_expired_session(tmp_path):
 def test_backfill_includes_reference_indices(tmp_path):
     store = SnapshotStore(tmp_path)
     assert backfill_daily(FakeMarket(), store, UNIVERSE, contracts(), NOW.date()).saved == 2
-    assert not store.read_candles("VIX").empty
+    assert not store.read_candles("V").empty
 
 
 def test_backend_never_references_order_endpoints():
