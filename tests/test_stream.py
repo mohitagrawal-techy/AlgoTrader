@@ -389,6 +389,18 @@ def test_empty_range_subscribes_every_strike_and_expiry():
     assert {"O40000", "LO40000", "LO24000"} <= set(chosen)
 
 
+def test_far_expiries_can_be_left_out():
+    universe, contracts, futures = subscription_tables()
+    later = contracts.assign(
+        instrument_key=lambda f: "L" + f["instrument_key"], expiry=NOW.date() + timedelta(days=600)
+    )
+    config = StreamConfig(expiries_per_underlying=None, strike_range=None, max_days_to_expiry=500)
+    chosen = build_subscription(
+        QuoteMarket(), universe, pd.concat([contracts, later]), futures, config, NOW.date()
+    )
+    assert "O24000" in chosen and not any(key.startswith("L") for key in chosen)
+
+
 def test_connections_fill_in_priority_order():
     universe, contracts, futures = subscription_tables()
     config = StreamConfig(
@@ -424,6 +436,7 @@ def test_config_file_stays_inside_upstox_limits():
     assert [c.mode for c in config.connections] == ["full", "option_greeks"]
     assert config.max_instruments == 3500
     assert config.expiries_per_underlying is None and config.strike_range is None
+    assert config.max_days_to_expiry == 500
     assert (config.minutes_before_open, config.minutes_after_close) == (15, 15)
 
 

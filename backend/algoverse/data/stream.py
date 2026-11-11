@@ -7,7 +7,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -66,6 +66,8 @@ class StreamConfig(BaseModel):
     # None means every listed expiry, or every strike.
     expiries_per_underlying: int | None = Field(default=3, ge=1)
     strike_range: float | None = Field(default=0.15, gt=0)
+    # Skip expiries further away than this, which barely trade. None means no limit.
+    max_days_to_expiry: int | None = Field(default=None, ge=0)
     minutes_before_open: int = Field(default=15, ge=0)
     minutes_after_close: int = Field(default=15, ge=0)
     flush_seconds: float = Field(default=10.0, gt=0)
@@ -128,6 +130,9 @@ def build_subscription(
             raise MarketDataError(f"No index quote for {symbol}")
         spot = float(quotes[key]["last_price"])
         expiries = nearest_expiries(contracts, symbol, today, config.expiries_per_underlying)
+        if config.max_days_to_expiry is not None:
+            last = today + timedelta(days=config.max_days_to_expiry)
+            expiries = [expiry for expiry in expiries if expiry <= last]
         options = contracts[
             (contracts["underlying_symbol"] == symbol) & contracts["expiry"].isin(expiries)
         ]

@@ -17,6 +17,10 @@ connections:
 # Contracts to subscribe to, chosen once at each connection. Leave a value empty for all.
 expiries_per_underlying:     # every listed expiry
 strike_range:                # every strike
+# Expiries more than this many days away (the long-dated NIFTY contracts, which barely
+# trade) get no ticks, leaving room for near expiries. They are still in the 5-minute
+# snapshots. 500 days keeps everything to December 2027 as of November 2026.
+max_days_to_expiry: 500
 
 # Connect this long around each session, whose hours come from the Upstox holiday list.
 # Outside these hours the feed disconnects and the day's files are merged.
