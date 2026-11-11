@@ -163,6 +163,43 @@ def cmd_history_import(args: argparse.Namespace) -> None:
         print(f"Skipped {name}: {reason}")
 
 
+def cmd_history_files(args: argparse.Namespace) -> None:
+    from algoverse.backtest.candle_files import import_candle_files
+    from algoverse.data.store import SnapshotStore
+
+    settings = get_settings()
+    config = load_backtest_config(settings.config_dir)
+    store = SnapshotStore(settings.data_dir)
+    try:
+        result = import_candle_files(
+            args.folder,
+            settings.data_dir,
+            args.symbol,
+            store.read_candles,
+            config.expiries_per_underlying,
+            config.strike_range,
+            progress=print,
+            dry_run=args.dry_run,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    verb = "Would write" if args.dry_run else "Wrote"
+    print(f"Read {result.expiries} expiries, {result.contracts} contracts.")
+    if result.written:
+        first, last = result.written[0], result.written[-1]
+        print(f"{verb} {len(result.written)} {args.symbol} sessions, {first} to {last}.")
+    if result.kept_existing:
+        print(f"Kept {len(result.kept_existing)} sessions already imported from NSE files.")
+    if result.incomplete:
+        print(
+            f"Skipped {len(result.incomplete)} sessions without all "
+            f"{config.expiries_per_underlying} nearest expiries in the files "
+            f"({result.incomplete[0]} to {result.incomplete[-1]})."
+        )
+    for name, reason in result.problems.items():
+        print(f"Skipped expiry {name}: {reason}")
+
+
 def _capture(rt: Runtime, now: datetime):
     config = load_backtest_config(rt.settings.config_dir)
     futures = parse_future_contracts(download_master(), set(config.symbols))
@@ -632,6 +669,15 @@ def main() -> None:
     history = commands.add_parser("history-import", help="Import NSE files you downloaded")
     history.add_argument("paths", nargs="+", help="CSV or zip files, or folders of them")
     history.set_defaults(handler=cmd_history_import)
+    files = commands.add_parser(
+        "history-files", help="Import option minute candles saved as files (one underlying)"
+    )
+    files.add_argument(
+        "folder", help="Folder with candles/1minute/<expiry>/ and expired_contracts/"
+    )
+    files.add_argument("--symbol", default="NIFTY", help="Underlying the files are for")
+    files.add_argument("--dry-run", action="store_true", help="Report without writing")
+    files.set_defaults(handler=cmd_history_files)
     s3_pull = commands.add_parser("history-s3", help="Pull historical data from the S3 bucket")
     s3_pull.add_argument("--dry-run", action="store_true", help="List what would be imported")
     s3_pull.add_argument("--limit", type=int, help="Import at most this many files")

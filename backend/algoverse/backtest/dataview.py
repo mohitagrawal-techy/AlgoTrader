@@ -32,7 +32,10 @@ class History:
         return pd.read_parquet(self._files[session], columns=COLUMNS)
 
     def _build_bars(self) -> dict[str, pd.DataFrame]:
-        """Continuous daily bars per symbol, from the nearest-expiry future on each day."""
+        """Continuous daily bars per symbol, from the nearest-expiry future on each day.
+
+        Sessions built from option candle files have no futures; their index bar stands in.
+        """
         rows = []
         for session in self.sessions:
             day = self.day(session)
@@ -40,6 +43,9 @@ class History:
             if not futures.empty:
                 nearest = futures.sort_values("expiry").groupby("symbol", as_index=False).first()
                 rows.append(nearest)
+            index = day[(day["instrument"] == "IDX") & ~day["symbol"].isin(futures["symbol"])]
+            if not index.empty:
+                rows.append(index.groupby("symbol", as_index=False).first())
         if not rows:
             return {}
         frame = pd.concat(rows, ignore_index=True)
