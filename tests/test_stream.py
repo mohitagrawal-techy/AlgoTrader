@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ from algoverse.data.stream import (
     StreamConfig,
     StreamService,
     build_subscription,
+    split_connections,
     live_chain,
     load_stream_config,
     write_status,
@@ -371,15 +373,112 @@ def test_subscription_covers_indices_futures_and_nearby_strikes():
 
 def test_subscription_cap_keeps_strikes_nearest_the_money():
     universe, contracts, futures = subscription_tables()
-    config = StreamConfig(max_instruments=4)
+    config = StreamConfig(connections=[{"mode": "full", "max_instruments": 4}])
     chosen = build_subscription(QuoteMarket(), universe, contracts, futures, config, NOW.date())
     assert len(chosen) == 4 and "O24000" in chosen and "O25000" not in chosen
 
 
+def test_empty_range_subscribes_every_strike_and_expiry():
+    universe, contracts, futures = subscription_tables()
+    later = contracts.assign(instrument_key=lambda f: "L" + f["instrument_key"],
+                             expiry=date(2027, 3, 30))
+    config = StreamConfig(expiries_per_underlying=None, strike_range=None)
+    chosen = build_subscription(
+        QuoteMarket(), universe, pd.concat([contracts, later]), futures, config, NOW.date()
+    )
+    assert {"O40000", "LO40000", "LO24000"} <= set(chosen)
+
+
+def test_connections_fill_in_priority_order():
+    universe, contracts, futures = subscription_tables()
+    config = StreamConfig(
+        connections=[
+            {"mode": "full", "max_instruments": 4},
+            {"mode": "option_greeks", "max_instruments": 10},
+        ],
+        strike_range=None,
+    )
+    chosen = build_subscription(QuoteMarket(), universe, contracts, futures, config, NOW.date())
+    groups = split_connections(chosen, config)
+    assert [mode for mode, _ in groups] == ["full", "option_greeks"]
+    assert groups[0][1] == ["NSE_INDEX|VIX", INDEX, "F1", "O24000"]
+    assert groups[1][1] == ["O24500", "O25000", "O40000"]
+
+
+@pytest.mark.parametrize(
+    "connections",
+    [
+        [{"mode": "full", "max_instruments": 2001}],
+        [{"mode": "full", "max_instruments": 1600}, {"mode": "ltpc", "max_instruments": 10}],
+        [{"mode": "full", "max_instruments": 10}, {"mode": "full", "max_instruments": 10}],
+        [{"mode": m, "max_instruments": 1} for m in ("full", "ltpc", "option_greeks")],
+    ],
+)
+def test_configs_beyond_upstox_limits_are_refused(connections):
+    with pytest.raises(ValueError):
+        StreamConfig(connections=connections)
+
+
 def test_config_file_stays_inside_upstox_limits():
     config = load_stream_config(CONFIG_DIR)
-    assert config.mode == "full" and config.max_instruments <= 2000
+    assert [c.mode for c in config.connections] == ["full", "option_greeks"]
+    assert config.max_instruments == 3500
+    assert config.expiries_per_underlying is None and config.strike_range is None
     assert (config.minutes_before_open, config.minutes_after_close) == (15, 15)
+
+
+def test_two_connections_share_one_recorder(tmp_path):
+    stop = threading.Event()
+    modes = []
+
+    class TwoFeeds:
+        def run(self, keys, mode, on_message, on_idle, should_stop):
+            modes.append((mode, keys))
+            if mode == "full":
+                on_message(option_message())
+                stop.set()
+            else:
+                while not should_stop():
+                    time.sleep(0.01)
+
+    config = StreamConfig(
+        connections=[
+            {"mode": "full", "max_instruments": 1},
+            {"mode": "option_greeks", "max_instruments": 5},
+        ]
+    )
+    StreamService(tmp_path, config, TwoFeeds(), lambda now: DETAILS, lambda now: True,
+                  lambda now: True, clock=lambda: NOW, stop=stop).run()
+    assert sorted(m for m, _ in modes) == ["full", "option_greeks"]
+    assert sum(len(keys) for _, keys in modes) == len(DETAILS)
+    assert stored_days(tmp_path)[0]["rows"] == 1
+
+
+def test_one_dropped_connection_closes_the_other_and_reconnects(tmp_path):
+    stop = threading.Event()
+    stop_wait = stop.wait
+    stop.wait = lambda timeout=None: stop_wait(0)
+    calls = []
+
+    class Flaky:
+        def run(self, keys, mode, on_message, on_idle, should_stop):
+            calls.append(mode)
+            if len(calls) <= 2 and mode == "full":
+                raise OSError("dropped")
+            if len(calls) > 2:
+                stop.set()
+            while not should_stop():
+                time.sleep(0.01)
+
+    config = StreamConfig(
+        connections=[
+            {"mode": "full", "max_instruments": 1},
+            {"mode": "option_greeks", "max_instruments": 5},
+        ]
+    )
+    StreamService(tmp_path, config, Flaky(), lambda now: DETAILS, lambda now: True,
+                  lambda now: True, clock=lambda: NOW, stop=stop).run()
+    assert len(calls) == 4
 
 
 def publish(data_dir, state="connected", at=NOW):
@@ -395,6 +494,9 @@ def publish(data_dir, state="connected", at=NOW):
                 "ask_1": 0.0,
                 "iv": 0.17,
                 "delta": 0.5,
+                "gamma": 0.0007,
+                "theta": -14.6,
+                "vega": 14.7,
                 "oi": 13000.0,
                 "vtt": 6500,
                 **DETAILS[KEY],
@@ -412,6 +514,7 @@ def test_live_chain_returns_current_prices(tmp_path):
     side = live["rows"][0]["ce"]
     assert side["ltp"] == 101.0 and side["bid"] == 100.5 and side["ask"] is None
     assert side["volume"] == 6500.0
+    assert (side["gamma"], side["theta"], side["vega"]) == (0.0007, -14.6, 14.7)
 
 
 @pytest.mark.parametrize(

@@ -9,12 +9,13 @@ import threading
 from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 import httpx
 import pandas as pd
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from websockets.exceptions import WebSocketException
 
 from algoverse.brokers.base import AuthExpiredError, MarketDataError, PlanRequiredError
@@ -42,16 +43,52 @@ RETRYABLE = (
 )
 
 
+# Upstox keys per mode: (when only that mode is used, when modes are mixed). Normal accounts
+# may hold two connections. Mixed modes stay inside the lower limit, whichever way Upstox
+# counts them (per connection or per user).
+FEED_LIMITS = {"full": (2000, 1500), "option_greeks": (3000, 2000), "ltpc": (5000, 2000)}
+MAX_CONNECTIONS = 2
+
+
+class FeedConnection(BaseModel):
+    mode: Literal["full", "option_greeks", "ltpc"]
+    max_instruments: int = Field(ge=1)
+
+
 class StreamConfig(BaseModel):
     enabled: bool = True
-    mode: str = "full"
-    max_instruments: int = Field(default=1900, ge=1, le=2000)
-    expiries_per_underlying: int = Field(default=3, ge=1)
-    strike_range: float = Field(default=0.15, gt=0)
+    # Filled in order: the first connection gets the instruments nearest the money.
+    connections: list[FeedConnection] = Field(
+        default_factory=lambda: [FeedConnection(mode="full", max_instruments=1900)],
+        min_length=1,
+        max_length=MAX_CONNECTIONS,
+    )
+    # None means every listed expiry, or every strike.
+    expiries_per_underlying: int | None = Field(default=3, ge=1)
+    strike_range: float | None = Field(default=0.15, gt=0)
     minutes_before_open: int = Field(default=15, ge=0)
     minutes_after_close: int = Field(default=15, ge=0)
     flush_seconds: float = Field(default=10.0, gt=0)
     live_seconds: float = Field(default=2.0, gt=0)
+
+    @model_validator(mode="after")
+    def _within_upstox_limits(self) -> StreamConfig:
+        modes = [connection.mode for connection in self.connections]
+        if len(set(modes)) != len(modes):
+            raise ValueError("Use each feed mode on one connection only.")
+        mixed = len(modes) > 1
+        for connection in self.connections:
+            limit = FEED_LIMITS[connection.mode][1 if mixed else 0]
+            if connection.max_instruments > limit:
+                raise ValueError(
+                    f"{connection.mode} allows {limit} instruments"
+                    f"{' when modes are mixed' if mixed else ''}."
+                )
+        return self
+
+    @property
+    def max_instruments(self) -> int:
+        return sum(connection.max_instruments for connection in self.connections)
 
 
 def load_stream_config(config_dir: Path) -> StreamConfig:
@@ -71,7 +108,8 @@ def build_subscription(
     config: StreamConfig,
     today: date,
 ) -> dict[str, dict]:
-    """Instrument details by key. Indices and futures come first, then options nearest the money."""
+    """Instrument details by key, in priority order: indices and futures first, then options
+    nearest the money. `split_connections` hands them out to the connections in this order."""
     index_keys = {symbol: underlying_key(contracts, symbol) for symbol in universe.underlyings}
     quotes = market.quotes(list(index_keys.values()))
     chosen: dict[str, dict] = {}
@@ -91,10 +129,10 @@ def build_subscription(
         spot = float(quotes[key]["last_price"])
         expiries = nearest_expiries(contracts, symbol, today, config.expiries_per_underlying)
         options = contracts[
-            (contracts["underlying_symbol"] == symbol)
-            & contracts["expiry"].isin(expiries)
-            & ((contracts["strike"] / spot - 1).abs() <= config.strike_range)
+            (contracts["underlying_symbol"] == symbol) & contracts["expiry"].isin(expiries)
         ]
+        if config.strike_range is not None:
+            options = options[(options["strike"] / spot - 1).abs() <= config.strike_range]
         for row in options.itertuples():
             candidates.append((abs(row.strike / spot - 1), symbol, row))
     candidates.sort(key=lambda item: item[0])
@@ -109,6 +147,18 @@ def build_subscription(
     return chosen
 
 
+def split_connections(instruments: dict[str, dict], config: StreamConfig) -> list[tuple[str, list[str]]]:
+    """(mode, keys) per connection, filling each in turn from the front of the priority order."""
+    keys = list(instruments)
+    groups, start = [], 0
+    for connection in config.connections:
+        chunk = keys[start : start + connection.max_instruments]
+        start += len(chunk)
+        if chunk:
+            groups.append((connection.mode, chunk))
+    return groups
+
+
 class FeedRecorder:
     """Turns feed messages into stored ticks, and publishes the latest prices."""
 
@@ -118,8 +168,12 @@ class FeedRecorder:
         config: StreamConfig,
         instruments: dict[str, dict],
         clock: Callable[[], datetime],
+        connections: list[dict] | None = None,
     ):
         self.data_dir = Path(data_dir)
+        self.connections = connections or []
+        # Each connection runs on its own thread and they share this recorder.
+        self._lock = threading.Lock()
         self.config = config
         self.instruments = instruments
         self.clock = clock
@@ -133,6 +187,10 @@ class FeedRecorder:
         self._last_publish = start
 
     def on_message(self, message: proto.FeedResponse) -> None:
+        with self._lock:
+            self._on_message(message)
+
+    def _on_message(self, message: proto.FeedResponse) -> None:
         now = self.clock()
         self.messages += 1
         if message.type == proto.market_info:
@@ -152,6 +210,10 @@ class FeedRecorder:
             self.last_tick = now
 
     def on_idle(self) -> None:
+        with self._lock:
+            self._on_idle()
+
+    def _on_idle(self) -> None:
         now = self.clock()
         seconds = (now - self._last_flush).total_seconds()
         if seconds >= self.config.flush_seconds or len(self.writer) >= MAX_BUFFERED_ROWS:
@@ -170,6 +232,7 @@ class FeedRecorder:
                 "state": "connected",
                 "updated_at": self.clock().isoformat(),
                 "subscribed": len(self.instruments),
+                "connections": self.connections,
                 "market_status": self.market_status,
                 "last_tick_at": self.last_tick.isoformat() if self.last_tick else None,
                 "rows_written": self.writer.rows_written,
@@ -177,7 +240,8 @@ class FeedRecorder:
         )
 
     def close(self) -> None:
-        self.writer.flush()
+        with self._lock:
+            self.writer.flush()
 
 
 def write_status(data_dir: Path, status: dict) -> None:
@@ -208,6 +272,9 @@ def _live_side(row) -> dict:
         "ltp": _positive(row.ltp),
         "iv": iv,
         "delta": float(row.delta) if iv is not None else None,
+        "gamma": float(row.gamma) if iv is not None else None,
+        "theta": float(row.theta) if iv is not None else None,
+        "vega": float(row.vega) if iv is not None else None,
         "oi": float(row.oi) if pd.notna(row.oi) else None,
         "volume": float(row.vtt) if pd.notna(row.vtt) else None,
     }
@@ -267,19 +334,56 @@ class StreamService:
 
     def _connect_once(self) -> int:
         instruments = self.subscribe(self.clock())
-        recorder = FeedRecorder(self.data_dir, self.config, instruments, self.clock)
+        groups = split_connections(instruments, self.config)
+        recorder = FeedRecorder(
+            self.data_dir,
+            self.config,
+            instruments,
+            self.clock,
+            [{"mode": mode, "instruments": len(keys)} for mode, keys in groups],
+        )
+        ended = threading.Event()
+
+        def should_stop() -> bool:
+            return ended.is_set() or self.stop.is_set() or not self.is_session(self.clock())
+
+        def stream(mode: str, keys: list[str]) -> None:
+            self.feed.run(keys, mode, recorder.on_message, recorder.on_idle, should_stop)
+
         try:
-            self.feed.run(
-                list(instruments),
-                self.config.mode,
-                recorder.on_message,
-                recorder.on_idle,
-                lambda: self.stop.is_set() or not self.is_session(self.clock()),
-            )
+            if len(groups) == 1:
+                stream(*groups[0])
+            else:
+                self._stream_together(groups, stream, ended)
         finally:
             recorder.close()
             self.messages = recorder.messages
         return recorder.messages
+
+    @staticmethod
+    def _stream_together(groups, stream, ended: threading.Event) -> None:
+        """One thread per connection. When one ends or fails, the others close, so the
+        service reconnects them all together with a fresh subscription."""
+        failures: list[BaseException] = []
+
+        def worker(mode: str, keys: list[str]) -> None:
+            try:
+                stream(mode, keys)
+            except BaseException as exc:  # Passed back to the service thread below.
+                failures.append(exc)
+            finally:
+                ended.set()
+
+        threads = [
+            threading.Thread(target=worker, args=group, name=f"feed-{group[0]}", daemon=True)
+            for group in groups
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        if failures:
+            raise failures[0]
 
     def run(self) -> None:
         backoff = 1.0

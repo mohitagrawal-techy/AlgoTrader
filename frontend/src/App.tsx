@@ -15,7 +15,7 @@ import { BacktestsView } from "./views/Backtests";
 import { ForwardView } from "./views/Forward";
 import { IdeasView } from "./views/Ideas";
 import { LabView } from "./views/Lab";
-import { MarketView } from "./views/Market";
+import { MarketView, readSavedMarket, saveMarket } from "./views/Market";
 import { OverviewView } from "./views/Overview";
 import { PaperView } from "./views/Paper";
 import { RiskView } from "./views/Risk";
@@ -127,6 +127,9 @@ export function App() {
   const route = useMemo(() => editorRoute(path), [path.join("/")]); // eslint-disable-line react-hooks/exhaustive-deps
   const [data, setData] = useState<Data | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Until the server answers, Options shows the chains this browser saved last time.
+  const [savedMarket] = useState(readSavedMarket);
+  const shownMarket = data?.market ?? savedMarket;
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const toggleTheme = useTheme();
@@ -152,6 +155,7 @@ export function App() {
         api.forward(),
       ]);
       setData({ health, ideas, market, portfolio, backtests, forward });
+      saveMarket(market);
       setLoadError(null);
     } catch {
       setLoadError("Cannot reach the AlgoVerse server. Is `algoverse serve` running?");
@@ -307,10 +311,16 @@ export function App() {
       )}
 
       <main>
-        {!data && !loadError && <Empty title="Loading…" />}
-        {data && tab === "overview" && <OverviewView />}
+        {!data && !loadError && tab !== "overview" && !(tab === "market" && shownMarket) && (
+          <Empty title="Loading…" />
+        )}
+        {/* The overview loads its own data and can show this browser's saved copy offline. */}
+        {tab === "overview" && <OverviewView />}
         {data && tab === "ideas" && <IdeasView ideas={data.ideas.ideas} />}
-        {data && tab === "market" && <MarketView market={data.market} />}
+        {/* Options also falls back to the chains this browser saved, so it works offline. */}
+        {tab === "market" && shownMarket && (
+          <MarketView market={shownMarket} offline={!data && !!loadError} />
+        )}
         {data && tab === "paper" && <PaperView portfolio={data.portfolio} />}
         {data && tab === "risk" && <RiskView portfolio={data.portfolio} />}
         {data && tab === "lab" && route && <StrategyEditor key={path.join("/")} route={route} />}

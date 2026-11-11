@@ -111,6 +111,9 @@ export interface QuoteSide {
   ltp: number | null;
   iv: number | null;
   delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
   oi: number | null;
   oi_change: number | null;
   volume: number | null;
@@ -151,6 +154,9 @@ export interface LiveSide {
   ltp: number | null;
   iv: number | null;
   delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
   oi: number | null;
   volume: number | null;
 }
@@ -411,6 +417,35 @@ export interface OverviewHistory {
   name: string;
   label: string;
   candles: Candle[];
+}
+
+export interface OverviewIntraday {
+  name: string;
+  label: string;
+  status: string;
+  session: string | null;
+  live?: boolean;
+  updated_at?: string | null;
+  previous_close: number | null;
+  candles: Candle[];
+}
+
+export interface IntradaySeries {
+  name: string;
+  label: string;
+  session: string;
+  previous_close: number | null;
+  times: string[];
+  closes: number[];
+}
+
+export interface OverviewIntradayComparison {
+  status: string;
+  live?: boolean;
+  updated_at?: string | null;
+  session: string | null;
+  series: IntradaySeries[];
+  volatility: IntradaySeries | null;
 }
 
 export interface OverviewComparison {
@@ -760,6 +795,10 @@ export const api = {
   overviewHistory: (name: string) =>
     getJson<OverviewHistory>(`/api/overview/history?name=${encodeURIComponent(name)}`),
   overviewComparison: () => getJson<OverviewComparison>("/api/overview/comparison"),
+  overviewIntraday: (name: string) =>
+    getJson<OverviewIntraday>(`/api/overview/intraday?name=${encodeURIComponent(name)}`),
+  overviewIntradayComparison: () =>
+    getJson<OverviewIntradayComparison>("/api/overview/intraday-comparison"),
   overviewInstitutions: () => getJson<OverviewInstitutions>("/api/overview/institutions"),
   overviewDetails: (name: string) =>
     getJson<IndexDetails>(`/api/overview/details?name=${encodeURIComponent(name)}`),

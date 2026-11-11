@@ -30,7 +30,10 @@ class Settings(BaseSettings):
 class Universe(BaseModel):
     underlyings: list[str]
     reference_indices: dict[str, str] = Field(default_factory=dict)
+    # Expiries the dashboard analyses and ideas are built from.
     expiries_per_underlying: int = Field(default=3, ge=1)
+    # Save every listed expiry, not only the analysed ones, so the whole chain is kept on disk.
+    save_all_expiries: bool = True
     snapshot_interval_minutes: int = Field(default=5, ge=1)
 
 

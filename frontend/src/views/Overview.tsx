@@ -5,7 +5,9 @@ import {
   type IndexRow,
   type MoverRow,
   type OverviewComparison,
+  type IntradaySeries,
   type OverviewHistory,
+  type OverviewIntradayComparison,
   type OverviewInstitutions,
   type OverviewPayload,
 } from "../api";
@@ -24,6 +26,7 @@ import { ResizableGrid, useGridLayout, type Card } from "../layout";
 import { IndexHoverLayer } from "./IndexHover";
 import { compact, dateTimeIst, fraction, inrCompact, num, shortDate, timeIst } from "../format";
 import { Empty, Panel, Select, Status, Tile, type Tone } from "../ui";
+import { savedStore } from "../saved";
 
 const POLL_MS = 30000;
 const LAYOUT_KEY = "algoverse.overview.layout.v1";
@@ -32,8 +35,73 @@ const CHART_POLL_MS = 60000;
 const INSTITUTIONS_POLL_MS = 300000;
 const FII_COLOR = "var(--series-1)";
 const DII_COLOR = "var(--series-2)";
-const RANGES = { "1M": 21, "3M": 63, "6M": 126, "1Y": 252 } as const;
+// 1D shows the latest session in five-minute candles. The others count daily sessions.
+const RANGES = { "1D": 0, "1M": 21, "3M": 63, "6M": 126, "1Y": 252 } as const;
 type Range = keyof typeof RANGES;
+const INTRADAY = "1D";
+
+function clockLabel(x: number): string {
+  return timeIst(new Date(x).toISOString());
+}
+
+function sessionLabel(session: string | null | undefined): string {
+  if (!session) return "";
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  return session === today ? "today" : shortDate(session);
+}
+
+const LIVE_POLL_MS = 5000;
+const saved = savedStore("algoverse.overview.v1.");
+const readSaved = saved.read;
+const writeSaved = saved.write;
+
+/**
+ * Fetches on a timer and keeps the latest copy in local storage. A payload marked `live`
+ * refreshes every few seconds, anything else once a minute. Hidden tabs do not fetch.
+ */
+function useSavedPoll<T>(key: string, fetcher: () => Promise<T>, enabled = true): T | null {
+  const [value, setValue] = useState<T | null>(() => (enabled ? readSaved<T>(key) : null));
+  useEffect(() => {
+    if (!enabled) return;
+    setValue(readSaved<T>(key));
+    let active = true;
+    let timer: number | undefined;
+    const run = async () => {
+      let next = CHART_POLL_MS;
+      if (document.visibilityState === "visible") {
+        try {
+          const body = await fetcher();
+          if (!active) return;
+          setValue(body);
+          writeSaved(key, body);
+          if ((body as { live?: boolean } | null)?.live) next = LIVE_POLL_MS;
+        } catch {
+          // Keep showing the last data. The next attempt follows on the normal schedule.
+        }
+      } else {
+        next = LIVE_POLL_MS;
+      }
+      if (active) timer = window.setTimeout(run, next);
+    };
+    run();
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+    // The fetcher changes with `key`, so `key` alone decides when to reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, key]);
+  return enabled ? value : null;
+}
+
+function updatedLabel(payload: { live?: boolean; updated_at?: string | null } | null): string {
+  if (!payload?.live || !payload.updated_at) return "";
+  return ` Live, updated ${new Date(payload.updated_at).toLocaleTimeString("en-IN", {
+    hour12: false,
+    timeZone: "Asia/Kolkata",
+  })}.`;
+}
+
 const COMPARE_COLORS = [
   "var(--series-1)",
   "var(--series-2)",
@@ -360,27 +428,19 @@ function HeatCell({ value, period }: { value: number | null; period: string }) {
 
 function PriceChart({ names, range }: { names: { value: string; label: string }[]; range: Range }) {
   const [name, setName] = useState("Nifty 50");
-  const [history, setHistory] = useState<OverviewHistory | null>(null);
-  useEffect(() => {
-    let active = true;
-    const load = () =>
-      api
-        .overviewHistory(name)
-        .then((body) => active && setHistory(body))
-        .catch(() => undefined);
-    load();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") load();
-    }, CHART_POLL_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [name]);
-  const candles = history?.name === name ? history.candles.slice(-RANGES[range]) : [];
+  const history = useSavedPoll<OverviewHistory>(`history-${name}`, () => api.overviewHistory(name));
+  const isIntraday = range === INTRADAY;
+  const intraday = useSavedPoll(`intraday-${name}`, () => api.overviewIntraday(name), isIntraday);
+  const candles = isIntraday
+    ? intraday?.name === name
+      ? intraday.candles
+      : []
+    : history?.name === name
+      ? history.candles.slice(-RANGES[range])
+      : [];
   return (
     <Panel
-      title="Price chart"
+      title={isIntraday && intraday?.session ? `Price chart, ${sessionLabel(intraday.session)}` : "Price chart"}
       ai={{ component: "price_chart", title: `${history?.label ?? "Index"} price chart, ${range}`, params: { name, range } }}
       aside={
         <span className="chart-controls">
@@ -397,14 +457,27 @@ function PriceChart({ names, range }: { names: { value: string; label: string }[
       }
     >
       {candles.length < 2 ? (
-        <Empty title="Price history is still loading" />
+        <Empty title={isIntraday ? "Today's candles are still loading" : "Price history is still loading"}>
+          {isIntraday && intraday?.status === "session_expired" ? "Log in to Upstox to load them." : undefined}
+        </Empty>
       ) : (
         <Candles
           data={candles}
-          label={`Daily candles with 20 and 50 session moving averages for ${history?.label}`}
-          formatDate={shortDate}
+          label={
+            isIntraday
+              ? `Five-minute candles for ${intraday?.label}, with 20 and 50 candle moving averages`
+              : `Daily candles with 20 and 50 session moving averages for ${history?.label}`
+          }
+          formatDate={isIntraday ? timeIst : shortDate}
           formatPrice={(value) => num(value)}
         />
+      )}
+      {isIntraday && candles.length >= 2 && (
+        <p className="panel-note">
+          Five-minute candles. The moving averages count candles, not days
+          {intraday?.previous_close ? `. Previous close ${num(intraday.previous_close, 2)}.` : "."}
+          {updatedLabel(intraday)}
+        </p>
       )}
     </Panel>
   );
@@ -567,9 +640,34 @@ function InstitutionSegments({ data }: { data: OverviewInstitutions | null }) {
   );
 }
 
-function CompareChart({ data, range }: { data: OverviewComparison | null; range: Range }) {
+function intradayPoints(item: IntradaySeries, relative: boolean) {
+  return item.closes.map((close, i) => ({
+    x: Date.parse(item.times[i]),
+    y: relative && item.previous_close ? (close / item.previous_close - 1) * 100 : close,
+  }));
+}
+
+function CompareChart({
+  data,
+  intraday,
+  range,
+}: {
+  data: OverviewComparison | null;
+  intraday: OverviewIntradayComparison | null;
+  range: Range;
+}) {
+  const isIntraday = range === INTRADAY;
   const count = RANGES[range];
   const series = useMemo(() => {
+    if (isIntraday) {
+      return (intraday?.series ?? [])
+        .filter((item) => item.previous_close)
+        .map((item, index) => ({
+          name: item.label,
+          color: COMPARE_COLORS[index % COMPARE_COLORS.length],
+          points: intradayPoints(item, true),
+        }));
+    }
     if (!data) return [];
     const dates = data.dates.slice(-count);
     return data.series.map((item, index) => {
@@ -583,34 +681,59 @@ function CompareChart({ data, range }: { data: OverviewComparison | null; range:
         })),
       };
     });
-  }, [data, count]);
+  }, [data, intraday, count, isIntraday]);
+  const title = isIntraday
+    ? `Index comparison, ${sessionLabel(intraday?.session) || "latest session"}`
+    : `Index comparison, ${range} return`;
   return (
     <Panel
-      title={`Index comparison, ${range} return`}
-      ai={{ component: "comparison", title: `Index comparison over ${range}`, params: { range } }}
+      title={title}
+      ai={{ component: "comparison", title, params: { range } }}
       aside={<Legend items={series.map(({ name, color }) => ({ name, color }))} />}
     >
       {series.length === 0 || series[0].points.length < 2 ? (
-        <Empty title="Index history is still loading" />
+        <Empty title={isIntraday ? "Today's moves are still loading" : "Index history is still loading"} />
       ) : (
         <LineChart
           series={series}
           height={280}
           includeZero
           tickX={timeTicks}
-          label={`Index returns over ${range}, all starting from zero`}
-          formatX={dayLabel}
-          formatY={(y) => `${y.toFixed(0)}%`}
+          label={
+            isIntraday
+              ? "Each index's move from its previous close, through the session"
+              : `Index returns over ${range}, all starting from zero`
+          }
+          formatX={isIntraday ? clockLabel : dayLabel}
+          formatY={(y) => `${y.toFixed(isIntraday ? 1 : 0)}%`}
           formatTipY={(y) => signedPct(y)}
         />
+      )}
+      {isIntraday && series.length > 0 && (
+        <p className="panel-note">
+          Change from each index's previous close, in five-minute steps.{updatedLabel(intraday)}
+        </p>
       )}
     </Panel>
   );
 }
 
-function VixChart({ data, range }: { data: OverviewComparison | null; range: Range }) {
+function VixChart({
+  data,
+  intraday,
+  range,
+}: {
+  data: OverviewComparison | null;
+  intraday: OverviewIntradayComparison | null;
+  range: Range;
+}) {
+  const isIntraday = range === INTRADAY;
   const count = RANGES[range];
   const series = useMemo(() => {
+    if (isIntraday) {
+      const vix = intraday?.volatility;
+      return vix ? [{ name: "India VIX", color: "var(--series-1)", points: intradayPoints(vix, false) }] : [];
+    }
     if (!data) return [];
     const dates = data.volatility.dates.slice(-count);
     const closes = data.volatility.closes.slice(-count);
@@ -621,23 +744,31 @@ function VixChart({ data, range }: { data: OverviewComparison | null; range: Ran
         points: closes.map((close, i) => ({ x: dateMs(dates[i]), y: close })),
       },
     ];
-  }, [data, count]);
+  }, [data, intraday, count, isIntraday]);
+  const previous = intraday?.volatility?.previous_close;
+  const title = isIntraday ? `India VIX, ${sessionLabel(intraday?.volatility?.session) || "latest session"}` : "India VIX";
   return (
-    <Panel title="India VIX" ai={{ component: "vix", title: `India VIX over ${range}`, params: { range } }}>
+    <Panel title={title} ai={{ component: "vix", title: `India VIX over ${range}`, params: { range } }}>
       {series.length === 0 || series[0].points.length < 2 ? (
         <Empty title="VIX history is still loading" />
       ) : (
         <LineChart
           series={series}
           height={280}
-          minSpan={2}
+          minSpan={isIntraday ? 0.5 : 2}
           tickX={timeTicks}
-          label={`India VIX over ${range}`}
-          formatX={dayLabel}
-          formatY={(y) => y.toFixed(0)}
+          label={isIntraday ? "India VIX through the session" : `India VIX over ${range}`}
+          formatX={isIntraday ? clockLabel : dayLabel}
+          formatY={(y) => y.toFixed(isIntraday ? 1 : 0)}
           formatTipY={(y) => y.toFixed(2)}
+          markers={[]}
         />
       )}
+      {isIntraday && previous ? (
+        <p className="panel-note">
+          Previous close {previous.toFixed(2)}.{updatedLabel(intraday)}
+        </p>
+      ) : null}
     </Panel>
   );
 }
@@ -907,18 +1038,28 @@ function HeatLegend() {
 }
 
 export function OverviewView() {
-  const [data, setData] = useState<OverviewPayload | null>(null);
+  const [data, setData] = useState<OverviewPayload | null>(() => readSaved("snapshot"));
   const [failed, setFailed] = useState(false);
   const [period, setPeriod] = useState<Period>("1D");
-  const [range, setRange] = useState<Range>("3M");
-  const [comparison, setComparison] = useState<OverviewComparison | null>(null);
+  const [range, setRangeState] = useState<Range>(() => {
+    const saved = readSaved<string>("range");
+    return saved && saved in RANGES ? (saved as Range) : "3M";
+  });
+  const setRange = (next: Range) => {
+    setRangeState(next);
+    writeSaved("range", next);
+  };
+  const intradayMoves = useSavedPoll("intraday-moves", api.overviewIntradayComparison, range === INTRADAY);
+  const comparison = useSavedPoll<OverviewComparison>("comparison", api.overviewComparison);
   const { layout, setLayout, save, reset, customised } = useGridLayout(LAYOUT_KEY);
   const [institutions, setInstitutions] = useState<OverviewInstitutions | null>(null);
   const [arranging, setArranging] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      setData(await api.overview());
+      const body = await api.overview();
+      setData(body);
+      writeSaved("snapshot", body);
       setFailed(false);
     } catch {
       setFailed(true);
@@ -933,22 +1074,6 @@ export function OverviewView() {
     return () => window.clearInterval(timer);
   }, [load]);
 
-  useEffect(() => {
-    let active = true;
-    const load = () =>
-      api
-        .overviewComparison()
-        .then((body) => active && setComparison(body))
-        .catch(() => undefined);
-    load();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") load();
-    }, CHART_POLL_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1004,12 +1129,12 @@ export function OverviewView() {
         />
       ),
     },
-    { id: "vix", title: "India VIX", span: 4, node: <VixChart data={comparison} range={range} /> },
+    { id: "vix", title: "India VIX", span: 4, node: <VixChart data={comparison} intraday={intradayMoves} range={range} /> },
     {
       id: "compare",
       title: "Index comparison",
       span: 8,
-      node: <CompareChart data={comparison} range={range} />,
+      node: <CompareChart data={comparison} intraday={intradayMoves} range={range} />,
     },
     ...(data.has_sector_list
       ? [{ id: "breadth", title: "Market breadth", span: 4, node: <BreadthPanel data={data} /> }]
@@ -1172,7 +1297,11 @@ export function OverviewView() {
   return (
     <IndexHoverLayer>
       <div className="filters overview-head">
-        <Status tone={status.tone}>{status.label}</Status>
+        {failed ? (
+          <Status tone="warning">Server unreachable, showing data saved in this browser</Status>
+        ) : (
+          <Status tone={status.tone}>{status.label}</Status>
+        )}
         <span className="muted">
           {data.last_trade_at ? `Last trade ${dateTimeIst(data.last_trade_at)}` : ""}
           {data.fetched_at ? `, fetched ${timeIst(data.fetched_at)}` : ""}

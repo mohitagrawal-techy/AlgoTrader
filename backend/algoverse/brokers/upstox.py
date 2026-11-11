@@ -135,6 +135,18 @@ class UpstoxMarketData:
         data = self._get(f"/v3/historical-candle/{key}/days/1/{end}/{start}")
         return parse_candles(data["candles"])
 
+    def intraday_candles(self, instrument_key: str, minutes: int) -> pd.DataFrame:
+        """Today's candles so far, oldest first."""
+        key = quote(instrument_key, safe="")
+        data = self._get(f"/v3/historical-candle/intraday/{key}/minutes/{minutes}")
+        return parse_candles(data["candles"])
+
+    def minute_candles(self, instrument_key: str, day: date, minutes: int) -> pd.DataFrame:
+        """One past session's candles, oldest first."""
+        key = quote(instrument_key, safe="")
+        data = self._get(f"/v3/historical-candle/{key}/minutes/{minutes}/{day}/{day}")
+        return parse_candles(data["candles"])
+
     def institutional_flows(
         self, category: str, data_types: list[str], interval: str
     ) -> dict[str, list[dict]]:

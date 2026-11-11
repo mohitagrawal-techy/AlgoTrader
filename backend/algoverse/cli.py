@@ -17,13 +17,6 @@ from algoverse.backtest.bhavcopy import import_files, load_lot_sizes
 from algoverse.backtest.config import load_backtest_config
 from algoverse.backtest.engine import ReplaySpec
 from algoverse.backtest.fills import fit_spread_model
-from algoverse.backtest.s3_history import (
-    S3AccessError,
-    load_s3_config,
-    make_client,
-    pull_history,
-    stored_sessions,
-)
 from algoverse.backtest.upstox_history import (
     CaptureRefused,
     capture_session,
@@ -265,6 +258,15 @@ def cmd_stream_status(_: argparse.Namespace) -> None:
 
 
 def cmd_history_s3(args: argparse.Namespace) -> None:
+    # Imported here so other commands do not need the AWS library.
+    from algoverse.backtest.s3_history import (
+        S3AccessError,
+        load_s3_config,
+        make_client,
+        pull_history,
+        stored_sessions,
+    )
+
     settings = get_settings()
     config = load_backtest_config(settings.config_dir)
     s3 = load_s3_config(settings.config_dir)

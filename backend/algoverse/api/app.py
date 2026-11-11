@@ -232,6 +232,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "Unknown index")
         return result
 
+    @app.get("/api/overview/intraday")
+    def overview_intraday(name: str) -> dict:
+        result = runtime.overview.intraday(name, datetime.now(IST))
+        if result is None:
+            raise HTTPException(404, "Unknown index")
+        return result
+
+    @app.get("/api/overview/intraday-comparison")
+    def overview_intraday_comparison() -> dict:
+        return runtime.overview.intraday_comparison(datetime.now(IST))
+
     @app.get("/api/overview/comparison")
     def overview_comparison() -> dict:
         return runtime.overview.comparison(datetime.now(IST))

@@ -339,7 +339,10 @@ class FakeMarket:
 
 
 UNIVERSE = Universe(
-    underlyings=["NIFTY"], reference_indices={"VIX": "V"}, expiries_per_underlying=2
+    underlyings=["NIFTY"],
+    reference_indices={"VIX": "V"},
+    expiries_per_underlying=2,
+    save_all_expiries=False,
 )
 
 
@@ -352,10 +355,26 @@ def test_collector_isolates_failures(tmp_path):
 
 
 def test_collector_reports_unknown_symbol(tmp_path):
-    universe = Universe(underlyings=["NIFTY", "NOPE"], expiries_per_underlying=1)
+    universe = Universe(
+        underlyings=["NIFTY", "NOPE"], expiries_per_underlying=1, save_all_expiries=False
+    )
     result = collect_snapshots(FakeMarket(), SnapshotStore(tmp_path), universe, contracts(), NOW)
     assert result.saved == 1
     assert "NOPE" in result.failures
+
+
+def test_collector_saves_every_expiry_but_analyses_the_nearest(tmp_path):
+    store = SnapshotStore(tmp_path)
+    universe = UNIVERSE.model_copy(update={"expiries_per_underlying": 1, "save_all_expiries": True})
+    result = collect_snapshots(FakeMarket(), store, universe, contracts(), NOW)
+    assert result.saved == 3
+    saved = store.read_chains("NIFTY", NOW.date(), NOW.date())
+    assert len(saved) == 3
+    assert len(result.chains["NIFTY"]) == 1
+
+
+def test_nearest_expiries_without_a_count_lists_them_all():
+    assert len(nearest_expiries(contracts(), "NIFTY", date(2026, 11, 12), None)) == 3
 
 
 def test_collector_stops_on_expired_session(tmp_path):

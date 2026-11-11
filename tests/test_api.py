@@ -78,6 +78,8 @@ def test_market_payload(settings):
     assert len(nifty["expiries"]) == 3
     expiry = nifty["expiries"][0]
     assert expiry["rows"] and expiry["rows"][0]["ce"]["oi_change"] is not None
+    side = expiry["rows"][len(expiry["rows"]) // 2]["ce"]
+    assert side["gamma"] > 0 and side["theta"] < 0 and side["vega"] > 0
     strikes = [row["strike"] for row in expiry["rows"]]
     assert strikes == sorted(strikes)
 

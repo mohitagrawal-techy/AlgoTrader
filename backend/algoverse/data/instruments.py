@@ -90,7 +90,8 @@ def underlying_key(contracts: pd.DataFrame, symbol: str) -> str:
 
 
 def nearest_expiries(
-    contracts: pd.DataFrame, symbol: str, today: date, count: int
+    contracts: pd.DataFrame, symbol: str, today: date, count: int | None
 ) -> list[date]:
+    """Listed expiries from today on, nearest first. A count of None returns all of them."""
     expiries = contracts.loc[contracts["underlying_symbol"] == symbol, "expiry"].unique()
     return sorted(e for e in expiries if e >= today)[:count]

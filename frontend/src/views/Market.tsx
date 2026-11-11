@@ -12,6 +12,7 @@ import {
 } from "../api";
 import { Legend, LineChart, PairedColumns } from "../charts";
 import { compact, dateTimeIst, fraction, num, pct, shortDate } from "../format";
+import { savedStore } from "../saved";
 import { Empty, Panel, Select, Status, Tile, type Tone } from "../ui";
 
 const CALLS = "var(--series-1)";
@@ -19,6 +20,16 @@ const PUTS = "var(--series-2)";
 const OI_CHART_STRIKES = 31;
 const FLAT_TERM_SLOPE = 0.0025;
 const LIVE_POLL_MS = 2000;
+const saved = savedStore("algoverse.options.v1.");
+
+/** The option chains this browser saved last, for showing while the server is unreachable. */
+export function readSavedMarket(): MarketPayload | null {
+  return saved.read<MarketPayload>("market");
+}
+
+export function saveMarket(market: MarketPayload): void {
+  saved.write("market", market);
+}
 
 function otmIv(rows: ChainRow[], forward: number) {
   return rows.map((row) => {
@@ -36,7 +47,26 @@ function trendStatus(trend: string | null): { tone: Tone; label: string } {
 
 type Moneyness = "ITM" | "ATM" | "OTM";
 
-const CHAIN_HEADS = ["OI", "OI chg", "Vol", "IV", "Delta", "Bid", "LTP", "Ask"];
+// Columns from the outside in. Puts show the same columns mirrored.
+const CHAIN_COLUMNS = [
+  "OI",
+  "OI chg",
+  "Vol",
+  "IV",
+  "Delta",
+  "Gamma",
+  "Theta",
+  "Vega",
+  "Bid",
+  "LTP",
+  "Ask",
+] as const;
+type ChainColumn = (typeof CHAIN_COLUMNS)[number];
+const CHAIN_VIEWS: Record<string, readonly ChainColumn[]> = {
+  All: CHAIN_COLUMNS,
+  "Prices and OI": ["OI", "OI chg", "Vol", "IV", "Delta", "Bid", "LTP", "Ask"],
+  Greeks: ["IV", "Delta", "Gamma", "Theta", "Vega", "LTP"],
+};
 
 function moneyness(strike: number, atm: number, isCall: boolean): Moneyness {
   if (strike === atm) return "ATM";
@@ -58,12 +88,14 @@ function Side({
   state,
   maxOi,
   peak,
+  columns,
 }: {
   side: QuoteSide | null;
   cls: "call" | "put";
   state: Moneyness;
   maxOi: number;
   peak: boolean;
+  columns: readonly ChainColumn[];
 }) {
   const oiShare = side?.oi && maxOi > 0 ? (side.oi / maxOi) * 100 : 0;
   const cells = [
@@ -77,11 +109,15 @@ function Side({
     { head: "Vol", text: side ? compact(side.volume) : "–" },
     { head: "IV", text: side?.iv == null ? "–" : (side.iv * 100).toFixed(1) },
     { head: "Delta", text: side ? num(side.delta, 2) : "–" },
+    { head: "Gamma", text: side ? num(side.gamma, 4) : "–" },
+    { head: "Theta", text: side ? num(side.theta, 2) : "–" },
+    { head: "Vega", text: side ? num(side.vega, 2) : "–" },
     { head: "Bid", text: side ? num(side.bid, 2) : "–" },
     { head: "LTP", text: side ? num(side.ltp, 2) : "–", className: "chain-ltp" },
     { head: "Ask", text: side ? num(side.ask, 2) : "–" },
   ];
-  const ordered = cls === "call" ? cells : [...cells].reverse();
+  const shown = cells.filter((cell) => columns.includes(cell.head as ChainColumn));
+  const ordered = cls === "call" ? shown : [...shown].reverse();
   return (
     <>
       {ordered.map((cell) => (
@@ -97,7 +133,15 @@ function Tag({ state }: { state: Moneyness }) {
   return <span className={`moneyness ${state.toLowerCase()}`}>{state}</span>;
 }
 
-function ChainTable({ expiry, spot }: { expiry: ExpiryMarket; spot: number }) {
+function ChainTable({
+  expiry,
+  spot,
+  columns,
+}: {
+  expiry: ExpiryMarket;
+  spot: number;
+  columns: readonly ChainColumn[];
+}) {
   const wrap = useRef<HTMLDivElement>(null);
   const atm = expiry.rows.reduce(
     (best, row) => (Math.abs(row.strike - spot) < Math.abs(best - spot) ? row.strike : best),
@@ -122,7 +166,7 @@ function ChainTable({ expiry, spot }: { expiry: ExpiryMarket; spot: number }) {
 
   const spotRow = (
     <tr className="spot-row" key="spot">
-      <td colSpan={CHAIN_HEADS.length * 2 + 1}>
+      <td colSpan={columns.length * 2 + 1}>
         <span>Spot {num(spot, 2)}</span>
       </td>
     </tr>
@@ -132,22 +176,22 @@ function ChainTable({ expiry, spot }: { expiry: ExpiryMarket; spot: number }) {
       <table className="table table-chain">
         <thead>
           <tr className="band">
-            <th colSpan={CHAIN_HEADS.length} className="band-call">
+            <th colSpan={columns.length} className="band-call">
               Calls
             </th>
             <th />
-            <th colSpan={CHAIN_HEADS.length} className="band-put">
+            <th colSpan={columns.length} className="band-put">
               Puts
             </th>
           </tr>
           <tr>
-            {CHAIN_HEADS.map((head) => (
+            {columns.map((head) => (
               <th key={`c-${head}`} className="right">
                 {head}
               </th>
             ))}
             <th className="strike">Strike</th>
-            {[...CHAIN_HEADS].reverse().map((head) => (
+            {[...columns].reverse().map((head) => (
               <th key={`p-${head}`} className="right">
                 {head}
               </th>
@@ -165,6 +209,7 @@ function ChainTable({ expiry, spot }: { expiry: ExpiryMarket; spot: number }) {
                   cls="call"
                   state={callState}
                   maxOi={maxOi}
+                  columns={columns}
                   peak={peakCall > 0 && row.ce?.oi === peakCall}
                 />
                 <td className="strike">
@@ -179,6 +224,7 @@ function ChainTable({ expiry, spot }: { expiry: ExpiryMarket; spot: number }) {
                   cls="put"
                   state={putState}
                   maxOi={maxOi}
+                  columns={columns}
                   peak={peakPut > 0 && row.pe?.oi === peakPut}
                 />
               </tr>
@@ -283,17 +329,37 @@ function withLive(expiry: ExpiryMarket, live: LiveChain): ExpiryMarket {
   };
 }
 
-function useLiveChain(symbol: string, expiry: string | undefined): LiveChain | null {
-  const [live, setLive] = useState<LiveChain | null>(null);
+interface LiveState {
+  chain: LiveChain | null;
+  /** True when the server is unreachable and these prices are this browser's saved copy. */
+  saved: boolean;
+}
+
+/**
+ * Live prices for one expiry, refreshed every 2 seconds. Each update is saved in this browser,
+ * one copy per underlying and expiry, and the saved copy is shown when the server is down.
+ */
+function useLiveChain(symbol: string, expiry: string | undefined): LiveState {
+  const key = `live.${symbol}.${expiry}`;
+  const [state, setState] = useState<LiveState>({ chain: null, saved: false });
   useEffect(() => {
     if (!expiry) return;
     let active = true;
+    const fallback = () => {
+      const copy = saved.read<LiveChain>(key);
+      setState({ chain: copy, saved: copy != null });
+    };
+    fallback();
     const load = () => {
       if (document.visibilityState !== "visible") return;
       api
         .marketLive(symbol, expiry)
-        .then((body) => active && setLive(body))
-        .catch(() => active && setLive(null));
+        .then((body) => {
+          if (!active) return;
+          if (body.live) saved.write(key, body);
+          setState({ chain: body, saved: false });
+        })
+        .catch(() => active && fallback());
     };
     load();
     const timer = window.setInterval(load, LIVE_POLL_MS);
@@ -301,14 +367,37 @@ function useLiveChain(symbol: string, expiry: string | undefined): LiveChain | n
       active = false;
       window.clearInterval(timer);
     };
-  }, [symbol, expiry]);
-  return live?.live && live.symbol === symbol && live.expiry === expiry ? live : null;
+  }, [symbol, expiry, key]);
+  const chain = state.chain;
+  const usable = chain?.live && chain.symbol === symbol && chain.expiry === expiry;
+  return { chain: usable ? chain : null, saved: !!usable && state.saved };
+}
+
+const CHAIN_VIEW_KEY = "algoverse-chain-view";
+
+function readChainView(): string {
+  try {
+    const saved = localStorage.getItem(CHAIN_VIEW_KEY);
+    return saved && saved in CHAIN_VIEWS ? saved : "All";
+  } catch {
+    return "All";
+  }
 }
 
 function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: string }) {
   const expiry = market.expiries.find((e) => e.expiry === expiryKey) ?? market.expiries[0];
-  const live = useLiveChain(market.symbol, expiry?.expiry);
+  const liveState = useLiveChain(market.symbol, expiry?.expiry);
+  const live = liveState.chain;
   const chain = useMemo(() => (expiry && live ? withLive(expiry, live) : expiry), [expiry, live]);
+  const [view, setView] = useState(readChainView);
+  const chooseView = (next: string) => {
+    setView(next);
+    try {
+      localStorage.setItem(CHAIN_VIEW_KEY, next);
+    } catch {
+      // The choice still applies for this visit when storage is blocked.
+    }
+  };
   const smile = useMemo(
     () => [
       {
@@ -441,7 +530,17 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
                 { name: "ATM", color: "var(--ink)" },
               ]}
             />
-            {live ? (
+            <Select
+              label="Columns"
+              value={view}
+              onChange={chooseView}
+              options={Object.keys(CHAIN_VIEWS).map((name) => ({ value: name, label: name }))}
+            />
+            {live && liveState.saved ? (
+              <Status tone="warning">
+                Saved {live.as_of ? dateTimeIst(live.as_of) : "copy"}
+              </Status>
+            ) : live ? (
               <Status tone="good">Live</Status>
             ) : (
               <span className="muted">Snapshot, every 5 min</span>
@@ -453,10 +552,13 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
           key={`${market.symbol}-${expiry.expiry}`}
           expiry={chain ?? expiry}
           spot={live?.spot ?? market.spot}
+          columns={CHAIN_VIEWS[view] ?? CHAIN_COLUMNS}
         />
         <p className="panel-note">
           ITM, ATM and OTM are measured against spot, and ATM is the nearest strike. Bars show open
           interest on one scale for both sides, and bold marks the largest on each side. IV is in %.
+          Theta is rupees per unit per day, vega is rupees per unit per volatility point, and gamma
+          is the change in delta for a one-point move.
           Strikes within 6% of the forward.
         </p>
       </Panel>
@@ -464,7 +566,7 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
   );
 }
 
-export function MarketView({ market }: { market: MarketPayload }) {
+export function MarketView({ market, offline = false }: { market: MarketPayload; offline?: boolean }) {
   const symbols = Object.keys(market.symbols);
   const [choice, setChoice] = useState<string>("");
   const [expiry, setExpiry] = useState<string>("");
@@ -482,6 +584,13 @@ export function MarketView({ market }: { market: MarketPayload }) {
     : (current.expiries[0]?.expiry ?? "");
   return (
     <>
+      {offline && (
+        <div className="banner banner-warning">
+          <Status tone="warning">Offline</Status> The server is unreachable. Showing the option
+          chains this browser saved
+          {market.generated_at ? ` at ${dateTimeIst(market.generated_at)}` : ""}.
+        </div>
+      )}
       <div className="filters">
         <Select
           label="Underlying"

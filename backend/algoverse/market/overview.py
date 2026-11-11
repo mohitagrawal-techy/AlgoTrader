@@ -18,6 +18,7 @@ import yaml
 from algoverse.analytics.regime import ema
 from algoverse.brokers.base import AuthExpiredError, MarketDataError
 from algoverse.dashboard import MARKET_FILE, clean, read_published
+from algoverse.data.stream import live_dir, read_status
 from algoverse.market.index_details import build_details, load_constituents
 from algoverse.market.institutions import empty_institutions, fetch_institutions
 from algoverse.market.sectors import load_sector_list
@@ -26,6 +27,12 @@ log = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 OPEN_TTL_SECONDS = 20.0
 CLOSED_TTL_SECONDS = 300.0
+INTRADAY_MINUTES = 5
+FETCH_MINUTES = 1
+INTRADAY_OPEN_TTL_SECONDS = 10.0
+LIVE_PRICE_MAX_AGE_SECONDS = 15.0
+INTRADAY_CLOSED_TTL_SECONDS = 600.0
+SESSION_LOOKBACK_DAYS = 10
 INSTITUTIONS_TTL_SECONDS = 1800.0
 HISTORY_DAYS = 520
 CHART_SESSIONS = 252
@@ -270,6 +277,49 @@ def options_snapshot(data_dir: Path) -> list[dict]:
     return rows
 
 
+def resample_candles(frame: pd.DataFrame, minutes: int) -> pd.DataFrame:
+    """Combine one-minute candles into longer ones, labelled by their start time."""
+    ordered = frame.assign(ts=pd.to_datetime(frame["ts"])).sort_values("ts")
+    bucket = ordered["ts"].dt.floor(f"{minutes}min")
+    grouped = ordered.groupby(bucket)
+    return pd.DataFrame(
+        {
+            "ts": grouped["ts"].first().index,
+            "open": grouped["open"].first().to_numpy(float),
+            "high": grouped["high"].max().to_numpy(float),
+            "low": grouped["low"].min().to_numpy(float),
+            "close": grouped["close"].last().to_numpy(float),
+        }
+    ).reset_index(drop=True)
+
+
+def with_live_price(
+    bars: pd.DataFrame, price: float | None, now: datetime, minutes: int
+) -> pd.DataFrame:
+    """Fold the latest price into the forming candle, starting it if Upstox has not yet."""
+    if price is None or bars.empty:
+        return bars
+    bucket = pd.Timestamp(now.astimezone(IST)).floor(f"{minutes}min")
+    last = bars.iloc[-1]
+    if pd.Timestamp(last["ts"]) == bucket:
+        updated = bars.copy()
+        index = updated.index[-1]
+        updated.loc[index, "close"] = price
+        updated.loc[index, "high"] = max(float(last["high"]), price)
+        updated.loc[index, "low"] = min(float(last["low"]), price)
+        return updated
+    if pd.Timestamp(last["ts"]) > bucket:
+        return bars
+    forming = {
+        "ts": bucket,
+        "open": float(last["close"]),
+        "high": max(float(last["close"]), price),
+        "low": min(float(last["close"]), price),
+        "close": price,
+    }
+    return pd.concat([bars, pd.DataFrame([forming])], ignore_index=True)
+
+
 class OverviewService:
     """Fetches at most once per cache period, however many browser tabs are polling."""
 
@@ -295,6 +345,8 @@ class OverviewService:
         self._institutions_lock = threading.Lock()
         self._institutions: dict | None = None
         self._institutions_at = float("-inf")
+        self._intraday_lock = threading.Lock()
+        self._intraday: dict[tuple[str, date], tuple[float, pd.DataFrame]] = {}
         self._member_quotes_lock = threading.Lock()
         self._member_quotes: dict[str, tuple[float, dict[str, dict] | None]] = {}
 
@@ -549,6 +601,207 @@ class OverviewService:
                 quotes,
                 name == volatility,
             )
+        )
+
+    def _sessions_back(self, now: datetime) -> list[date]:
+        """Today when its session has started, then earlier trading days, newest first."""
+        local = now.astimezone(IST)
+        days = []
+        for back in range(SESSION_LOOKBACK_DAYS):
+            day = local.date() - timedelta(days=back)
+            hours = self.calendar.session(day)
+            if hours is None or (back == 0 and local.time() < hours[0]):
+                continue
+            days.append(day)
+        return days
+
+    def _minute_path(self, name: str, day: date) -> Path:
+        return (
+            self.data_dir / "intraday" / f"date={day.isoformat()}" / f"{_series_name(name)}.parquet"
+        )
+
+    def _saved_minutes(self, name: str, day: date) -> pd.DataFrame | None:
+        path = self._minute_path(name, day)
+        return pd.read_parquet(path) if path.exists() else None
+
+    def _save_minutes(self, name: str, day: date, frame: pd.DataFrame) -> None:
+        path = self._minute_path(name, day)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        frame.to_parquet(tmp, index=False)
+        os.replace(tmp, path)
+
+    def _is_complete(self, frame: pd.DataFrame, day: date) -> bool:
+        hours = self.calendar.session(day)
+        if frame.empty or hours is None:
+            return False
+        last = pd.to_datetime(frame["ts"]).max().tz_convert(IST)
+        closing = datetime.combine(day, hours[1], tzinfo=IST) - timedelta(minutes=FETCH_MINUTES)
+        return last >= closing
+
+    def _minutes(self, name: str, day: date, now: datetime) -> pd.DataFrame:
+        """One-minute candles for a session, saved to disk as they arrive.
+
+        A finished session is read from disk. If Upstox cannot be reached, the saved copy is used.
+        """
+        today = now.astimezone(IST).date()
+        saved = self._saved_minutes(name, day)
+        if day != today and saved is not None and self._is_complete(saved, day):
+            return saved
+        live = day == today and self.calendar.is_open(now)
+        ttl = INTRADAY_OPEN_TTL_SECONDS if live else INTRADAY_CLOSED_TTL_SECONDS
+        with self._intraday_lock:
+            cached = self._intraday.get((name, day))
+        if cached is not None and self._clock() - cached[0] < ttl:
+            return cached[1]
+        key = index_key(name)
+        try:
+            frame = (
+                self.market.intraday_candles(key, FETCH_MINUTES)
+                if day == today
+                else self.market.minute_candles(key, day, FETCH_MINUTES)
+            )
+        except MarketDataError:
+            if saved is not None:
+                return saved
+            raise
+        if not frame.empty:
+            self._save_minutes(name, day, frame)
+        with self._intraday_lock:
+            self._intraday[(name, day)] = (self._clock(), frame)
+        return frame
+
+    def _live_price(self, name: str, now: datetime) -> float | None:
+        """The latest price: from the live feed when it is running, else the latest quote."""
+        status = read_status(self.data_dir) or {}
+        updated = status.get("updated_at")
+        path = live_dir(self.data_dir) / "latest.parquet"
+        fresh = (
+            status.get("state") == "connected"
+            and updated is not None
+            and (now - datetime.fromisoformat(updated)).total_seconds()
+            <= LIVE_PRICE_MAX_AGE_SECONDS
+        )
+        if fresh and path.exists():
+            latest = pd.read_parquet(path, columns=["instrument_key", "ltp"])
+            match = latest.loc[latest["instrument_key"] == index_key(name), "ltp"]
+            if not match.empty and match.iloc[0] > 0:
+                return float(match.iloc[0])
+        row = self._live_rows(now).get(name)
+        return float(row["last"]) if row and row.get("last") else None
+
+    def _session_candles(self, name: str, now: datetime) -> tuple[date | None, pd.DataFrame, bool]:
+        """Five-minute candles for the latest session with data, and whether they are live."""
+        today = now.astimezone(IST).date()
+        empty = pd.DataFrame(columns=["ts", "open", "high", "low", "close"])
+        for day in self._sessions_back(now)[:2]:
+            minutes = self._minutes(name, day, now)
+            if minutes.empty:
+                continue
+            bars = resample_candles(minutes, INTRADAY_MINUTES)
+            live = day == today and self.calendar.is_open(now)
+            if live:
+                bars = with_live_price(bars, self._live_price(name, now), now, INTRADAY_MINUTES)
+            return day, bars, live
+        return None, empty, False
+
+    def _previous_close(self, name: str, session: date | None, now: datetime) -> float | None:
+        if session is None:
+            return None
+        bars = self._bars(name, self._live_rows(now))
+        earlier = bars[bars["date"] < session]
+        return float(earlier["close"].iloc[-1]) if not earlier.empty else None
+
+    def intraday(self, name: str, now: datetime) -> dict | None:
+        """Five-minute candles for the latest session, or None for an unknown name."""
+        items, _ = self._index_items()
+        if name not in items:
+            return None
+        try:
+            session, frame, live = self._session_candles(name, now)
+        except AuthExpiredError:
+            return clean(
+                {
+                    "name": name,
+                    "label": items[name]["label"],
+                    "status": SESSION_EXPIRED,
+                    "session": None,
+                    "previous_close": None,
+                    "candles": [],
+                }
+            )
+        except MarketDataError as exc:
+            log.warning("Intraday candles failed for %s: %s", name, exc)
+            return clean(
+                {
+                    "name": name,
+                    "label": items[name]["label"],
+                    "status": UNAVAILABLE,
+                    "session": None,
+                    "previous_close": None,
+                    "candles": [],
+                }
+            )
+        closes = frame["close"].astype(float)
+        chart = frame.assign(
+            date=pd.to_datetime(frame["ts"]).map(lambda ts: ts.isoformat()),
+            ema20=ema(closes, 20),
+            ema50=ema(closes, 50),
+        )
+        return clean(
+            {
+                "name": name,
+                "label": items[name]["label"],
+                "status": "ok",
+                "session": session,
+                "live": live,
+                "updated_at": now,
+                "previous_close": self._previous_close(name, session, now),
+                "candles": chart[
+                    ["date", "open", "high", "low", "close", "ema20", "ema50"]
+                ].to_dict("records"),
+            }
+        )
+
+    def intraday_comparison(self, now: datetime) -> dict:
+        """The latest session's path for the main indices and India VIX."""
+        config = load_market_config(self.config_dir)
+        selected = [i for i in config["broad"] if i.get("compare", True)]
+        series, sessions, status = [], set(), "ok"
+        for item in [*selected, config["volatility"]]:
+            try:
+                session, frame, live = self._session_candles(item["name"], now)
+            except AuthExpiredError:
+                status = SESSION_EXPIRED
+                break
+            except MarketDataError as exc:
+                log.warning("Intraday candles failed for %s: %s", item["name"], exc)
+                status = UNAVAILABLE
+                continue
+            if session is None:
+                continue
+            sessions.add(session)
+            series.append(
+                {
+                    "name": item["name"],
+                    "label": item["label"],
+                    "session": session,
+                    "live": live,
+                    "previous_close": self._previous_close(item["name"], session, now),
+                    "times": [ts.isoformat() for ts in pd.to_datetime(frame["ts"])],
+                    "closes": frame["close"].astype(float).tolist(),
+                }
+            )
+        volatility_name = config["volatility"]["name"]
+        return clean(
+            {
+                "status": status,
+                "updated_at": now,
+                "live": any(item["live"] for item in series),
+                "session": max(sessions) if sessions else None,
+                "series": [s for s in series if s["name"] != volatility_name],
+                "volatility": next((s for s in series if s["name"] == volatility_name), None),
+            }
         )
 
     def comparison(self, now: datetime) -> dict:

@@ -31,13 +31,22 @@ def collect_snapshots(
     contracts: pd.DataFrame,
     now: datetime,
 ) -> CollectResult:
-    """Save nearest-expiry chains. One failing chain does not stop the others."""
+    """Save option chains. One failing chain does not stop the others.
+
+    Every listed expiry is saved when `save_all_expiries` is on, but only the nearest
+    `expiries_per_underlying` are returned for analysis, so ideas are unchanged.
+    """
     result = CollectResult()
     for symbol in universe.underlyings:
         try:
             key = underlying_key(contracts, symbol)
-            expiries = nearest_expiries(
+            analysed = nearest_expiries(
                 contracts, symbol, now.date(), universe.expiries_per_underlying
+            )
+            expiries = (
+                nearest_expiries(contracts, symbol, now.date(), None)
+                if universe.save_all_expiries
+                else analysed
             )
         except ValueError as exc:
             result.failures[symbol] = str(exc)
@@ -57,7 +66,8 @@ def collect_snapshots(
                 result.failures[f"{symbol}:{expiry}"] = "empty chain"
                 continue
             store.write_chain(symbol, now, chain, expiry.isoformat())
-            frames.append(chain)
+            if expiry in analysed:
+                frames.append(chain)
             result.saved += 1
         if frames:
             result.chains[symbol] = pd.concat(frames, ignore_index=True)

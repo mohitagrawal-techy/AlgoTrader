@@ -20,7 +20,8 @@ from algoverse.ai.schemas import OK, UNAVAILABLE, AiConfig
 from algoverse.dashboard import IDEAS_FILE, MARKET_FILE, read_published
 
 log = logging.getLogger(__name__)
-RANGES = {"1M": 21, "3M": 63, "6M": 126, "1Y": 252}
+INTRADAY = "1D"
+RANGES = {INTRADAY: 0, "1M": 21, "3M": 63, "6M": 126, "1Y": 252}
 PERIODS = ("1D", "1W", "1M", "3M", "1Y")
 MOVER_LISTS = ("gainers", "losers", "active")
 TEMPERATURE = 0.2
@@ -278,16 +279,66 @@ class AssistantService:
 
     def _price_chart(self, data, params, now) -> dict:
         choice = _range(params)
+        if choice == INTRADAY:
+            return self._as_of(data) | self._intraday_price(params.get("name", "Nifty 50"), now)
         history = self.overview.history(params.get("name", "Nifty 50"), now)
         if history is None:
             raise UnknownTarget("Unknown index.")
         return self._as_of(data) | price_summary(history["label"], history["candles"], choice)
 
+    def _intraday_price(self, name: str, now) -> dict:
+        intraday = self.overview.intraday(name, now)
+        if intraday is None:
+            raise UnknownTarget("Unknown index.")
+        candles = intraday["candles"]
+        if len(candles) < 2:
+            raise AssistantUnavailable("Today's candles are still loading.")
+        previous = intraday["previous_close"]
+        last = candles[-1]["close"]
+        high = max(candles, key=lambda row: row["high"])
+        low = min(candles, key=lambda row: row["low"])
+        return {
+            "index": intraday["label"],
+            "range": "one session, 5-minute candles",
+            "session": intraday["session"],
+            "open": candles[0]["open"],
+            "latest": last,
+            "previous_close": previous,
+            "change_from_previous_close_pct": (last / previous - 1) * 100 if previous else None,
+            "session_high": high["high"],
+            "session_high_at": high["date"],
+            "session_low": low["low"],
+            "session_low_at": low["date"],
+            "last_candles": [
+                {"time": row["date"], "close": row["close"]} for row in candles[-RECENT_SESSIONS:]
+            ],
+        }
+
+    def _intraday_moves(self, now) -> dict:
+        data = self.overview.intraday_comparison(now)
+        rows = [
+            {
+                "index": item["label"],
+                "change_from_previous_close_pct": (item["closes"][-1] / item["previous_close"] - 1)
+                * 100,
+            }
+            for item in data["series"]
+            if item["previous_close"] and item["closes"]
+        ]
+        _require(rows, "Today's candles are still loading.")
+        return {"session": data["session"], "range": "one session", "indices": rows}
+
     def _comparison(self, data, params, now) -> dict:
-        return self._as_of(data) | comparison_summary(self.overview.comparison(now), _range(params))
+        choice = _range(params)
+        if choice == INTRADAY:
+            return self._as_of(data) | self._intraday_moves(now)
+        return self._as_of(data) | comparison_summary(self.overview.comparison(now), choice)
 
     def _vix(self, data, params, now) -> dict:
-        return self._as_of(data) | vix_summary(self.overview.comparison(now), _range(params))
+        choice = _range(params)
+        if choice == INTRADAY:
+            return self._as_of(data) | self._intraday_price("India VIX", now)
+        return self._as_of(data) | vix_summary(self.overview.comparison(now), choice)
 
     def _breadth(self, data, params, now) -> dict:
         return self._as_of(data) | {"breadth": _require(data["breadth"], NEEDS_LIST)}
