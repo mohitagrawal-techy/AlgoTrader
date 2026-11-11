@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -240,4 +241,114 @@ def import_candle_files(
         result.written.append(session)
     if not dry_run:
         _save_written(data_dir, written)
+    return result
+
+
+# ---- Intraday option bars ------------------------------------------------------------------
+
+INTRADAY_DIR = "intraday"
+INTRADAY_MINUTES = 5
+
+
+def intraday_dir(data_dir: Path) -> Path:
+    return history_dir(data_dir) / INTRADAY_DIR
+
+
+@dataclass
+class IntradayImportResult:
+    expiries: int = 0
+    rows: int = 0
+    sessions: int = 0
+
+
+def import_intraday(
+    folder: Path,
+    data_dir: Path,
+    symbol: str,
+    minutes: int = INTRADAY_MINUTES,
+    progress: Callable[[str], None] = lambda _message: None,
+) -> IntradayImportResult:
+    """Write `minutes`-minute option bars per session under history/intraday/date=<day>/.
+
+    Only contracts already in that session's daily history are kept, so the same stray-bar,
+    strike-band and complete-expiry rules apply. Each bar is labelled by its start time; its
+    close is known at the start plus `minutes`.
+    """
+    folder, data_dir = Path(folder), Path(data_dir)
+    root = folder / MINUTES_DIR
+    daily_glob = str(history_dir(data_dir) / "*.parquet")
+    if not any(history_dir(data_dir).glob("*.parquet")):
+        raise ValueError("Import the daily sessions first (algoverse history-files).")
+    staging = history_dir(data_dir) / f".{INTRADAY_DIR}-staging"
+    staging.mkdir(parents=True, exist_ok=True)
+    result = IntradayImportResult()
+    query = f"""
+        COPY (
+            WITH minutes AS (
+                SELECT regexp_extract(filename, '([0-9.]+)_(CE|PE)\\.csv$', 1)::DOUBLE AS strike,
+                       regexp_extract(filename, '([0-9.]+)_(CE|PE)\\.csv$', 2) AS option_type,
+                       CAST(timestamp AS TIMESTAMPTZ) AS ts,
+                       open, high, low, close, volume, open_interest
+                FROM read_csv(?, filename = true,
+                              columns = {{'timestamp': 'VARCHAR', 'open': 'DOUBLE',
+                                         'high': 'DOUBLE', 'low': 'DOUBLE', 'close': 'DOUBLE',
+                                         'volume': 'DOUBLE', 'open_interest': 'DOUBLE'}})
+                WHERE close > 0
+            ),
+            keyed AS (
+                SELECT *, CAST(timezone('Asia/Kolkata', ts) AS DATE) AS date,
+                       time_bucket(INTERVAL '{int(minutes)} minutes', ts,
+                                   TIMESTAMPTZ '2000-01-03 09:15:00+05:30') AS bar
+                FROM minutes
+            ),
+            wanted AS (
+                SELECT DISTINCT date, strike, option_type FROM read_parquet(?)
+                WHERE instrument = 'OPT' AND symbol = ? AND expiry = ?
+            )
+            SELECT k.date, epoch_ms(k.bar) AS t, ?::DATE AS expiry, k.strike, k.option_type,
+                   arg_min(k.open, k.ts) AS open, max(k.high) AS high, min(k.low) AS low,
+                   arg_max(k.close, k.ts) AS close, sum(k.volume) AS volume,
+                   arg_max(k.open_interest, k.ts) AS oi
+            FROM keyed k JOIN wanted w USING (date, strike, option_type)
+            GROUP BY ALL
+        ) TO ? (FORMAT parquet, COMPRESSION zstd)
+    """
+    expiry_dirs = sorted(p for p in root.iterdir() if p.is_dir())
+    with duckdb.connect() as connection:
+        # Large writes spill to disk; keep that inside the data folder, which is writable.
+        connection.execute("SET temp_directory = ?", [str(staging / "spill")])
+        for number, expiry_dir in enumerate(expiry_dirs, start=1):
+            try:
+                expiry = date.fromisoformat(expiry_dir.name)
+            except ValueError:
+                continue
+            target = staging / f"{expiry_dir.name}.parquet"
+            connection.execute(
+                query,
+                [str(expiry_dir / "*.csv"), daily_glob, symbol, expiry, expiry, str(target)],
+            )
+            rows = connection.execute(
+                "SELECT count(*) FROM read_parquet(?)", [str(target)]
+            ).fetchone()[0]
+            if rows:
+                result.expiries += 1
+                result.rows += rows
+            else:
+                target.unlink()
+            progress(f"[{number}/{len(expiry_dirs)}] {expiry}: {rows} bars")
+        out = intraday_dir(data_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        if any(staging.glob("*.parquet")):
+            connection.execute(
+                f"""
+                COPY (
+                    SELECT ? AS symbol, * FROM read_parquet(?)
+                    ORDER BY date, expiry, strike, option_type, t
+                ) TO ? (FORMAT parquet, COMPRESSION zstd, PARTITION_BY (date),
+                        OVERWRITE_OR_IGNORE true, FILENAME_PATTERN '{symbol.lower()}_{{i}}')
+                """,
+                [symbol, str(staging / "*.parquet"), str(out)],
+            )
+    result.sessions = len(list(intraday_dir(data_dir).glob("date=*")))
+    shutil.rmtree(staging, ignore_errors=True)
     return result

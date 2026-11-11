@@ -138,7 +138,7 @@ class LabService:
         spec = draft.model_copy(
             update={"id": spec_id, "source": "user", "created_at": now.isoformat()}
         )
-        _write(self._spec_path(spec.id), spec.model_dump())
+        _write(self._spec_path(spec.id), spec.model_dump(mode="json"))
         return spec
 
     def delete(self, spec_id: str) -> None:
@@ -158,7 +158,7 @@ class LabService:
         for spec in self.specs():
             rows.append(
                 {
-                    "spec": spec.model_dump(),
+                    "spec": spec.model_dump(mode="json"),
                     "legs_text": describe_legs(spec),
                     "undefined_risk": has_undefined_risk(spec),
                     "level": complexity_level(spec),
@@ -225,7 +225,7 @@ class LabService:
                 ]
         return clean(
             {
-                "spec": spec.model_dump(),
+                "spec": spec.model_dump(mode="json"),
                 "legs_text": describe_legs(spec),
                 "entry_text": describe_entry(spec),
                 "undefined_risk": has_undefined_risk(spec),
@@ -274,7 +274,7 @@ class LabService:
         if winner is not None:
             note(f"Final test on the one winner: {winner.name}")
             stored = winner.model_copy(update={"created_at": now.isoformat()})
-            _write(self._spec_path(stored.id), stored.model_dump())
+            _write(self._spec_path(stored.id), stored.model_dump(mode="json"))
             trials = self._tested_count() + outcome["trials"]
             result = self.run_backtest([stored.id], now, note, trials)[0]
             report["final"] = {
@@ -383,7 +383,7 @@ class LabService:
                 note(f"Round {number}: no new valid strategies were proposed")
                 continue
             for spec in new:
-                _write(self._spec_path(spec.id), spec.model_dump())
+                _write(self._spec_path(spec.id), spec.model_dump(mode="json"))
             self.run_backtest([spec.id for spec in new], now, note)
             created += [spec.id for spec in new]
         return {"created": created, "dropped": dropped}

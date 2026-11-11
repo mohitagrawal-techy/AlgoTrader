@@ -304,17 +304,25 @@ function OperandEditor({
   );
 }
 
+export const MINUTE_FRAMES = ["5m", "15m", "1h"];
+
 export function TechRulesEditor({
   catalog,
   rules,
   problems,
+  intraday,
   onChange,
 }: {
   catalog: TechCatalog;
   rules: TechRule[];
   problems: Record<string, string>;
+  /** Minute timeframes are offered only to strategies that decide during the day. */
+  intraday: boolean;
   onChange: (rules: TechRule[]) => void;
 }) {
+  const frames = catalog.timeframes.filter(
+    (frame) => intraday || !MINUTE_FRAMES.includes(frame.value) || rules.some((r) => r.timeframe === frame.value),
+  );
   const update = (index: number, rule: TechRule) => onChange(rules.map((item, i) => (i === index ? rule : item)));
   const setTimeframe = (index: number, timeframe: TechTimeframe) => update(index, { ...rules[index], timeframe });
   const setType = (index: number, type: TechRule["type"]) =>
@@ -351,7 +359,7 @@ export function TechRulesEditor({
               value={rule.timeframe}
               onChange={(event) => setTimeframe(index, event.target.value as TechTimeframe)}
             >
-              {catalog.timeframes.map((frame) => (
+              {frames.map((frame) => (
                 <option key={frame.value} value={frame.value}>
                   {frame.label} candles
                 </option>

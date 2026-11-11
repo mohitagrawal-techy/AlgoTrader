@@ -198,6 +198,56 @@ def cmd_history_files(args: argparse.Namespace) -> None:
         )
     for name, reason in result.problems.items():
         print(f"Skipped expiry {name}: {reason}")
+    if args.intraday and not args.dry_run:
+        from algoverse.backtest.candle_files import import_intraday
+
+        print("Building 5-minute option bars for the intraday backtester.")
+        intraday = import_intraday(args.folder, settings.data_dir, args.symbol, progress=print)
+        print(
+            f"Wrote {intraday.rows:,} bars from {intraday.expiries} expiries; "
+            f"{intraday.sessions} sessions have intraday bars."
+        )
+
+
+def _backfill_minutes(rt: Runtime, start: date, progress=print, include_today: bool = False):
+    from algoverse.data.minute_history import backfill_minutes
+
+    config = load_backtest_config(rt.settings.config_dir)
+    names = [*config.symbols, *rt.universe.reference_indices]
+    keys = {name: rt.store.aliases[name] for name in names if name in rt.store.aliases}
+    market = UpstoxMarketData(rt.tokens, limiter=RateLimiter(IMPORT_LIMITS))
+
+    def sessions_between(first, last) -> int:
+        days = (first + timedelta(days=i) for i in range((last - first).days + 1))
+        return sum(1 for day in days if rt.calendar.is_trading_day(day))
+
+    today = datetime.now(IST).date()
+    # Minutes are fetched up to the day before `today`; after the close today is complete too.
+    if include_today:
+        today += timedelta(days=1)
+    return keys, backfill_minutes(
+        market, rt.store.candles, keys, start, today, sessions_between, progress=progress
+    )
+
+
+def cmd_backfill_minutes(args: argparse.Namespace) -> None:
+    from algoverse.backtest.dataview import History
+
+    rt = Runtime()
+    if args.start:
+        start = args.start
+    else:
+        sessions = History(rt.settings.data_dir).sessions
+        first = sessions[0] if sessions else datetime.now(IST).date()
+        # Indicators on minute candles need some history before the first tested session.
+        start = first - timedelta(days=60)
+    print(f"Fetching one-minute candles from {start}.")
+    keys, result = _backfill_minutes(rt, start)
+    for name in keys:
+        fetched, kept = result.fetched.get(name, 0), result.kept.get(name, 0)
+        print(f"{name}: fetched {fetched} months, {kept} already complete.")
+    for label, reason in result.failed.items():
+        print(f"Failed {label}: {reason}")
 
 
 def _capture(rt: Runtime, now: datetime):
@@ -516,6 +566,21 @@ def cmd_collect(_: argparse.Namespace) -> None:
             return
         log.info("Backfilled %s series. Failures: %s", result.saved, result.failures or "none")
 
+    def minutes_job() -> None:
+        now = datetime.now(IST)
+        if not rt.calendar.is_trading_day(now.date()):
+            return
+        try:
+            # The current month is unfinished, so it is fetched again with today's session.
+            _, result = _backfill_minutes(
+                rt, now.date() - timedelta(days=7), log.info, include_today=True
+            )
+        except AuthExpiredError:
+            log.error("Upstox session expired. Minute history not updated.")
+            return
+        if result.failed:
+            log.warning("Minute history failures: %s", result.failed)
+
     def history_capture_job() -> None:
         now = datetime.now(IST)
         if not rt.calendar.is_trading_day(now.date()):
@@ -547,6 +612,7 @@ def cmd_collect(_: argparse.Namespace) -> None:
     # Upstox drops a contract the day after it expires, so this cannot wait for the next day.
     scheduler.add_job(history_capture_job, "cron", hour=15, minute=45)
     scheduler.add_job(backfill_job, "cron", hour=16, minute=0)
+    scheduler.add_job(minutes_job, "cron", hour=16, minute=10)
 
     def archive_job() -> None:
         try:
@@ -669,6 +735,11 @@ def main() -> None:
     history = commands.add_parser("history-import", help="Import NSE files you downloaded")
     history.add_argument("paths", nargs="+", help="CSV or zip files, or folders of them")
     history.set_defaults(handler=cmd_history_import)
+    minutes = commands.add_parser(
+        "backfill-minutes", help="Fetch one-minute index history for intraday rules"
+    )
+    minutes.add_argument("--start", type=date.fromisoformat, help="First day (YYYY-MM-DD)")
+    minutes.set_defaults(handler=cmd_backfill_minutes)
     files = commands.add_parser(
         "history-files", help="Import option minute candles saved as files (one underlying)"
     )
@@ -677,6 +748,9 @@ def main() -> None:
     )
     files.add_argument("--symbol", default="NIFTY", help="Underlying the files are for")
     files.add_argument("--dry-run", action="store_true", help="Report without writing")
+    files.add_argument(
+        "--intraday", action="store_true", help="Also build 5-minute bars for intraday tests"
+    )
     files.set_defaults(handler=cmd_history_files)
     s3_pull = commands.add_parser("history-s3", help="Pull historical data from the S3 bucket")
     s3_pull.add_argument("--dry-run", action="store_true", help="List what would be imported")

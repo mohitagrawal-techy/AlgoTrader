@@ -127,6 +127,18 @@ class PaperBroker:
         report.halted = self._record_equity_and_halt(now, report)
         return report
 
+    def fill_exits(self, now: datetime, chains: dict[str, pd.DataFrame]) -> StepReport:
+        """Close positions whose exit was just triggered, at these quotes. Entries wait.
+
+        Intraday replays use this so a stop, target or square-off seen at a decision time is
+        acted on then, not at the next decision."""
+        quotes = _quote_book(chains)
+        report = StepReport()
+        for position in self.ledger.positions((EXITING,)):
+            self._try_exit(position, now, quotes, report)
+        self._record_equity_and_halt(now, report)
+        return report
+
     def check_intrabar(self, now: datetime, extremes, report: StepReport) -> None:
         """Trigger exits from a bar's extreme P&L. A stop wins when both levels were reachable.
 
@@ -335,6 +347,11 @@ class PaperBroker:
         self.ledger.log(now, position.id, "exit_triggered", reason)
         report.exits_triggered.append(position.id)
 
+    def _square_off_due(self, position: Position, now: datetime) -> bool:
+        rule = self.risk.exits.get(position.profile)
+        square_off = getattr(rule, "square_off", None)
+        return square_off is not None and now.time() >= square_off
+
     def _time_exit_due(self, position: Position, now: datetime) -> bool:
         exit_day = position.front_expiry - timedelta(days=position.exit_dte)
         today = now.date()
@@ -365,5 +382,7 @@ class PaperBroker:
             self._begin_exit(position, now, "target", report)
         elif not stale and position.unrealized_pnl <= position.stop_pnl:
             self._begin_exit(position, now, "stop", report)
+        elif self._square_off_due(position, now):
+            self._begin_exit(position, now, "square_off", report)
         elif self._time_exit_due(position, now):
             self._begin_exit(position, now, "time", report)

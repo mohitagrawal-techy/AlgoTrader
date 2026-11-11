@@ -19,6 +19,7 @@ const EXIT_REASONS: Record<string, string> = {
   daily_loss_halt: "Daily loss limit",
   end_of_test: "End of the test window",
   end_of_test_at_last_mark: "End of the test window",
+  square_off: "Square-off time",
 };
 const WINDOWS = {
   test: "Test (unseen)",
@@ -74,6 +75,20 @@ function priceText(trade: LabTrade): string {
 function runningRows<T extends { value: number }>(periods: T[]): (T & { total: number })[] {
   let total = 0;
   return periods.map((p) => ({ ...p, total: (total += p.value) })).reverse();
+}
+
+/** "7 Apr" for daily strategies, "7 Apr 09:45" for intraday ones. */
+function when(trade: LabTrade, side: "opened" | "closed", intraday: boolean): string {
+  const at = side === "opened" ? trade.opened_at : trade.closed_at;
+  const day = shortDate(trade[side]);
+  if (!intraday || !at) return day;
+  const time = new Date(at).toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Kolkata",
+  });
+  return `${day} ${time}`;
 }
 
 function daysBetween(a: string, b: string): number {
@@ -209,6 +224,7 @@ export function LabBacktestView({ id }: { id: string }) {
     return all.filter((bar) => bar.day >= from && bar.day <= to);
   }, [data, shownSymbol, result, windowKey]);
   const closeOn = useMemo(() => new Map(bars.map((bar) => [bar.day, bar.close])), [bars]);
+  const intradayTimes = (data?.spec.decide_every ?? "day") !== "day";
   const chartTrades: ChartTrade[] = useMemo(
     () =>
       trades
@@ -219,7 +235,7 @@ export function LabBacktestView({ id }: { id: string }) {
           opened: trade.opened,
           closed: trade.closed,
           pnl: trade.net_pnl,
-          title: `${shortDate(trade.opened)} → ${shortDate(trade.closed)}: ${signedInr(trade.net_pnl)}`,
+          title: `${when(trade, "opened", intradayTimes)} → ${when(trade, "closed", intradayTimes)}: ${signedInr(trade.net_pnl)}`,
           lines: [
             legText(trade),
             `${EXIT_REASONS[trade.exit_reason ?? ""] ?? trade.exit_reason ?? "–"}, ${daysBetween(trade.opened, trade.closed)} days`,
@@ -227,12 +243,13 @@ export function LabBacktestView({ id }: { id: string }) {
             `Trend ${trade.trend}, IV ${trade.iv_regime}`,
           ],
         })),
-    [trades, shownSymbol, closeOn],
+    [trades, shownSymbol, closeOn, intradayTimes],
   );
 
   if (error) return <Empty title="Could not load this backtest">{error}</Empty>;
   if (!data) return <Empty title="Loading…" />;
   const { spec } = data;
+  const intraday = (spec.decide_every ?? "day") !== "day";
   const back = `#lab/view/${encodeURIComponent(spec.id ?? id)}`;
   const verdict = result ? VERDICTS[result.verdict] : null;
 
@@ -461,8 +478,8 @@ export function LabBacktestView({ id }: { id: string }) {
                           onMouseEnter={() => trade.symbol === shownSymbol && setHighlight(i)}
                           onMouseLeave={() => setHighlight(null)}
                         >
-                          <td>{shortDate(trade.opened)}</td>
-                          <td>{shortDate(trade.closed)}</td>
+                          <td>{when(trade, "opened", intraday)}</td>
+                          <td>{when(trade, "closed", intraday)}</td>
                           <td className="right">{daysBetween(trade.opened, trade.closed)}</td>
                           <td className="right">
                             {num(closeOn.get(trade.opened), 0)} → {num(closeOn.get(trade.closed), 0)}

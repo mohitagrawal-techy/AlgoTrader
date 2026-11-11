@@ -188,6 +188,8 @@ def trade_details(ledger: Ledger, labels: dict[int, dict]) -> list[dict]:
                 "lots": position.lots,
                 "opened": datetime.fromisoformat(position.opened_at).date().isoformat(),
                 "closed": datetime.fromisoformat(position.closed_at).date().isoformat(),
+                "opened_at": position.opened_at,
+                "closed_at": position.closed_at,
                 "exit_reason": position.exit_reason,
                 "net_pnl": float(position.realized_pnl or 0.0),
                 "costs": float(position.entry_costs + position.exit_costs),

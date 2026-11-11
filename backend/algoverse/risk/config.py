@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import time
 from pathlib import Path
 
 import yaml
@@ -24,6 +25,8 @@ class ExitRule(BaseModel):
     target_frac: float = Field(gt=0)
     stop_frac: float = Field(gt=0)
     exit_dte: int = Field(ge=0)
+    # Intraday strategies close every position by this time each day. None holds overnight.
+    square_off: time | None = None
 
 
 class PaperConfig(BaseModel):

@@ -369,7 +369,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/lab/strategies")
     def lab_save(body: dict, x_algoverse_client: str | None = Header(default=None)) -> dict:
         _require_dashboard(x_algoverse_client)
-        return _lab(lambda: runtime.lab.save(body, datetime.now(IST)).model_dump())
+        return _lab(lambda: runtime.lab.save(body, datetime.now(IST)).model_dump(mode="json"))
 
     @app.delete("/api/lab/strategies/{spec_id}")
     def lab_delete(spec_id: str, x_algoverse_client: str | None = Header(default=None)) -> dict:

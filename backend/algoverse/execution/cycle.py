@@ -38,6 +38,8 @@ class CycleDeps:
     custom: object | None = None
     # The current session's candle per symbol, for rules that read candles. None when unknown.
     today_bars: Callable[[str], dict | None] | None = None
+    # One-minute candles that ended by the decision, per symbol, for 5m/15m/1h rules.
+    intraday_bars: Callable[[str], pd.DataFrame] | None = None
 
 
 @dataclass
@@ -46,6 +48,8 @@ class CycleResult:
     report: StepReport | None = None
     submitted: list[int] = field(default_factory=list)
     contexts: dict = field(default_factory=dict)
+    # The enriched chains this cycle used, by symbol.
+    chains: dict = field(default_factory=dict)
 
 
 def _iv_series_name(symbol: str) -> str:
@@ -90,7 +94,7 @@ def run_cycle(
 ) -> CycleResult:
     """Process fills and exits, rank ideas, then queue the best for the next snapshot."""
     chains = prepare_chains(raw_chains, contracts, now, deps.scoring.risk_free_rate)
-    result = CycleResult()
+    result = CycleResult(chains=chains)
     if trade:
         result.report = deps.broker.step(now, chains)
     portfolio = deps.broker.portfolio_state(now)
@@ -109,6 +113,7 @@ def run_cycle(
             deps.events,
             deps.scoring.risk_free_rate,
             deps.today_bars(symbol) if deps.today_bars else None,
+            deps.intraday_bars(symbol) if deps.intraday_bars else None,
         )
         ideas = generate_ideas(
             context, chain, deps.scoring, deps.risk, deps.costs, portfolio, deps.custom

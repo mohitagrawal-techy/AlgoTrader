@@ -22,6 +22,7 @@ from algoverse.data.store import SnapshotStore
 from algoverse.evaluation.config import EventCalendar, load_scoring_config
 from algoverse.execution.cycle import CycleDeps
 from algoverse.execution.ledger import Ledger
+from algoverse.execution.live_candles import LiveCandles
 from algoverse.execution.paper import PaperBroker
 from algoverse.forward.runs import ForwardManager
 from algoverse.lab.service import LabService
@@ -78,6 +79,10 @@ class Runtime:
             events=self.live_events(datetime.now(IST).date()),
             ai=build_ai_service(ai_config, self.settings.data_dir) if ai_on else None,
         )
+        # Rules on today's candle and on minute candles read these during live paper trading.
+        self.candles = LiveCandles(self.market, self.store)
+        self.deps.today_bars = self.candles.today_bar
+        self.deps.intraday_bars = self.candles.minutes
 
     @cached_property
     def overview(self) -> OverviewService:
@@ -105,7 +110,7 @@ class Runtime:
 
     @cached_property
     def forward(self) -> ForwardManager:
-        return ForwardManager(self.settings, self.store)
+        return ForwardManager(self.settings, self.store, self.candles)
 
     def live_events(self, today: date) -> EventCalendar:
         return load_live_calendar(self.settings.config_dir, self.settings.data_dir, today)

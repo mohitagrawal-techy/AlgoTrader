@@ -27,8 +27,18 @@ from pydantic import BaseModel, Field, model_validator
 
 from algoverse.analytics.regime import rsi
 
-Timeframe = Literal["1d", "1w", "1mo"]
-TIMEFRAMES: dict[str, str] = {"1d": "Daily", "1w": "Weekly", "1mo": "Monthly"}
+Timeframe = Literal["5m", "15m", "1h", "1d", "1w", "1mo"]
+TIMEFRAMES: dict[str, str] = {
+    "5m": "5-minute",
+    "15m": "15-minute",
+    "1h": "Hourly",
+    "1d": "Daily",
+    "1w": "Weekly",
+    "1mo": "Monthly",
+}
+# Intraday candles start at the 09:15 open, so an hourly candle runs 09:15 to 10:15.
+INTRADAY_MINUTES = {"5m": 5, "15m": 15, "1h": 60}
+SESSION_START = pd.Timedelta(hours=9, minutes=15)
 MAX_BARS_AGO = 50
 
 
@@ -548,6 +558,44 @@ TechRule = Annotated[CompareRule | PatternRule, Field(discriminator="type")]
 # ---- Evaluation ----------------------------------------------------------------------------
 
 
+def needs_minutes(rules) -> bool:
+    return any(rule.timeframe in INTRADAY_MINUTES for rule in rules)
+
+
+def resample_intraday(minutes: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+    """5m, 15m or 1h candles from one-minute ones, each session starting at 09:15.
+
+    Only finished candles are returned: a candle still forming at the decision is left out,
+    so a signal never changes after it is acted on.
+    """
+    if minutes.empty:
+        return minutes
+    size = INTRADAY_MINUTES[timeframe]
+    times = pd.to_datetime(minutes["ts"])
+    local = times.dt.tz_convert("Asia/Kolkata") if times.dt.tz is not None else times
+    day = local.dt.normalize()
+    offset = ((local - day - SESSION_START) // pd.Timedelta(minutes=size)).astype(int)
+    start = day + SESSION_START + offset * pd.Timedelta(minutes=size)
+    grouped = minutes.groupby(start.to_numpy(), sort=True)
+    frame = pd.DataFrame(
+        {
+            "ts": grouped["ts"].first().to_numpy(),
+            "open": grouped["open"].first().to_numpy(float),
+            "high": grouped["high"].max().to_numpy(float),
+            "low": grouped["low"].min().to_numpy(float),
+            "close": grouped["close"].last().to_numpy(float),
+            "count": grouped["close"].size().to_numpy(int),
+        }
+    )
+    # The last candle is finished only when all its minutes have ended.
+    if len(frame) and frame["count"].iloc[-1] < size:
+        last_start = pd.Timestamp(grouped["ts"].first().index[-1])
+        session_end = last_start.normalize() + pd.Timedelta(hours=15, minutes=30)
+        if last_start + pd.Timedelta(minutes=size) < session_end:
+            frame = frame.iloc[:-1]
+    return frame.drop(columns="count").reset_index(drop=True)
+
+
 def resample(daily: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     """Daily candles, or weekly or monthly ones built from them. Expects a `ts` column."""
     if daily.empty or timeframe == "1d":
@@ -571,14 +619,19 @@ def resample(daily: pd.DataFrame, timeframe: str) -> pd.DataFrame:
 class Frames:
     """Candles per timeframe and indicator series, computed once per decision."""
 
-    def __init__(self, daily: pd.DataFrame):
+    def __init__(self, daily: pd.DataFrame, minutes: pd.DataFrame | None = None):
         self.daily = daily
+        self.minutes = minutes if minutes is not None else pd.DataFrame()
         self._frames: dict[str, pd.DataFrame] = {}
         self._series: dict[tuple, pd.Series] = {}
 
     def frame(self, timeframe: str) -> pd.DataFrame:
         if timeframe not in self._frames:
-            self._frames[timeframe] = resample(self.daily, timeframe)
+            self._frames[timeframe] = (
+                resample_intraday(self.minutes, timeframe)
+                if timeframe in INTRADAY_MINUTES
+                else resample(self.daily, timeframe)
+            )
         return self._frames[timeframe]
 
     def series(self, timeframe: str, operand: Operand) -> pd.Series:
@@ -641,7 +694,10 @@ def rule_text(rule: CompareRule | PatternRule) -> str:
 def rule_failure(rule: CompareRule | PatternRule, frames: Frames) -> str | None:
     """Why the rule does not hold now, or None when it holds."""
     label = f"entry rule: {rule_text(rule)}"
-    if frames.daily.empty:
+    if rule.timeframe in INTRADAY_MINUTES:
+        if frames.minutes.empty:
+            return f"{label} needs one-minute candles"
+    elif frames.daily.empty:
         return f"{label} has no price history"
     if isinstance(rule, PatternRule):
         candles = frames.frame(rule.timeframe)

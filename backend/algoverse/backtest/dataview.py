@@ -31,6 +31,18 @@ class History:
     def day(self, session: date) -> pd.DataFrame:
         return pd.read_parquet(self._files[session], columns=COLUMNS)
 
+    def intraday(self, session: date) -> pd.DataFrame:
+        """The session's 5-minute option bars, or an empty frame when none were imported."""
+        folder = self._folder / "intraday" / f"date={session.isoformat()}"
+        files = sorted(folder.glob("*.parquet"))
+        if not files:
+            return pd.DataFrame()
+        return pd.concat((pd.read_parquet(path) for path in files), ignore_index=True)
+
+    def has_intraday(self, session: date) -> bool:
+        folder = self._folder / "intraday" / f"date={session.isoformat()}"
+        return any(folder.glob("*.parquet"))
+
     def _build_bars(self) -> dict[str, pd.DataFrame]:
         """Continuous daily bars per symbol, from the nearest-expiry future on each day.
 
@@ -68,7 +80,8 @@ class DataView:
         self.as_of: date | None = None
         self.data_dir = Path(".")
         self._reference = {name: self._indexed(frame) for name, frame in reference.items()}
-        self._written: dict[str, list[pd.DataFrame]] = {}
+        # Series written during the replay, one value per timestamp; a later write replaces it.
+        self._written: dict[str, dict[pd.Timestamp, dict]] = {}
 
     @staticmethod
     def _indexed(frame: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
@@ -77,7 +90,8 @@ class DataView:
 
     def read_candles(self, symbol: str) -> pd.DataFrame:
         if symbol in self._written:
-            frame = pd.concat(self._written[symbol], ignore_index=True)
+            rows = self._written[symbol]
+            frame = pd.DataFrame(rows[ts] for ts in sorted(rows))
             return frame[pd.to_datetime(frame["ts"]).dt.date < self.as_of].reset_index(drop=True)
         if symbol not in self._reference:
             return pd.DataFrame()
@@ -86,4 +100,6 @@ class DataView:
         return frame.iloc[:cutoff]
 
     def upsert_candles(self, symbol: str, frame: pd.DataFrame) -> None:
-        self._written.setdefault(symbol, []).append(frame)
+        rows = self._written.setdefault(symbol, {})
+        for row in frame.to_dict("records"):
+            rows[pd.Timestamp(row["ts"])] = row

@@ -7,7 +7,7 @@ import json
 import re
 from collections import Counter
 from dataclasses import replace
-from datetime import date
+from datetime import date, time
 from typing import Literal
 
 import pandas as pd
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from algoverse.evaluation.config import Weight
 from algoverse.evaluation.context import MarketContext
-from algoverse.lab.technical import Frames, TechRule, rule_failure, rule_text
+from algoverse.lab.technical import Frames, TechRule, needs_minutes, rule_failure, rule_text
 from algoverse.risk.config import ExitRule
 from algoverse.strategies.base import BUY, SELL, Candidate, ExpiryView, make_leg
 
@@ -58,6 +58,10 @@ SIGNALS = {
     "gap_pct": "Latest session's opening gap, %",
     "range_pct": "Latest session's range, %",
 }
+DecideEvery = Literal["day", "5m", "15m", "1h"]
+DECIDE_MINUTES = {"5m": 5, "15m": 15, "1h": 60}
+SESSION_OPEN = time(9, 15)
+SESSION_LAST = time(15, 25)
 SIMPLE_MAX_FILTERS = 1
 MODERATE_MAX_FILTERS = 2
 
@@ -99,6 +103,9 @@ class EntryRules(BaseModel):
     # Indicator, candle-pattern and price-level rules on the underlying, each on its own
     # timeframe. Every rule must hold too.
     rules: list[TechRule] = Field(default_factory=list, max_length=8)
+    # Intraday strategies: only enter between these times. None means any time.
+    time_from: time | None = None
+    time_to: time | None = None
 
     @model_validator(mode="after")
     def _check_ranges(self) -> EntryRules:
@@ -110,6 +117,11 @@ class EntryRules(BaseModel):
             and self.iv_rank_min > self.iv_rank_max
         ):
             raise ValueError("iv_rank_min must not exceed iv_rank_max")
+        for moment in (self.time_from, self.time_to):
+            if moment is not None and not SESSION_OPEN <= moment <= SESSION_LAST:
+                raise ValueError("entry times must be between 09:15 and 15:25")
+        if self.time_from and self.time_to and self.time_from >= self.time_to:
+            raise ValueError("time_from must be before time_to")
         return self
 
 
@@ -119,6 +131,14 @@ class ExitRules(BaseModel):
     stop_frac: float = Field(default=0.5, ge=0.05, le=5)
     # Calendar days before the entry expiry for the 15:00 time exit.
     exit_dte: int = Field(default=1, ge=0, le=10)
+    # Intraday strategies: close by this time every day. None holds positions overnight.
+    square_off: time | None = None
+
+    @model_validator(mode="after")
+    def _in_session(self) -> ExitRules:
+        if self.square_off is not None and not SESSION_OPEN < self.square_off <= SESSION_LAST:
+            raise ValueError("square_off must be between 09:15 and 15:25")
+        return self
 
 
 class StrategySpec(BaseModel):
@@ -130,6 +150,9 @@ class StrategySpec(BaseModel):
     # Empty means every configured underlying.
     symbols: list[str] = Field(default_factory=list, max_length=10)
     legs: list[LegSpec] = Field(min_length=1, max_length=4)
+    # "day" decides once a day at the close. "5m", "15m" and "1h" decide through the session
+    # in the intraday backtester, entering at the next decision time.
+    decide_every: DecideEvery = "day"
     entry: EntryRules = Field(default_factory=EntryRules)
     exits: ExitRules = Field(default_factory=ExitRules)
     created_at: str | None = None
@@ -142,18 +165,40 @@ class StrategySpec(BaseModel):
     def _check_exit_window(self) -> StrategySpec:
         if self.entry.dte_min <= self.exits.exit_dte:
             raise ValueError("dte_min must be greater than exit_dte, or no trade can be entered")
+        intraday_only = (
+            self.entry.time_from or self.entry.time_to or self.exits.square_off
+        ) is not None
+        if self.decide_every == "day" and (intraday_only or needs_minutes(self.entry.rules)):
+            raise ValueError(
+                "entry times, square-off and 5m/15m/1h rules need a decision every 5, 15 or 60 "
+                "minutes"
+            )
         return self
 
 
 def signature(spec: StrategySpec) -> str:
     """Identifies the trading rules, ignoring the name and description."""
-    rules = spec.model_dump(include={"symbols", "legs", "entry", "exits", "bias"})
+    rules = spec.model_dump(
+        include={"symbols", "legs", "entry", "exits", "bias", "decide_every"}, mode="json"
+    )
     rules["legs"] = sorted(rules["legs"], key=lambda leg: json.dumps(leg, sort_keys=True))
     rules["symbols"] = sorted(rules["symbols"])
-    if not rules["entry"]["rules"]:
-        # Strategies saved before technical rules existed keep their results.
-        del rules["entry"]["rules"]
+    # Settings added later are left out at their defaults, so older strategies keep their
+    # results.
+    for section, key, default in LATER_SETTINGS:
+        holder = rules if section is None else rules[section]
+        if holder.get(key) == default:
+            del holder[key]
     return hashlib.sha256(json.dumps(rules, sort_keys=True).encode()).hexdigest()[:12]
+
+
+LATER_SETTINGS = (
+    ("entry", "rules", []),
+    ("entry", "time_from", None),
+    ("entry", "time_to", None),
+    ("exits", "square_off", None),
+    (None, "decide_every", "day"),
+)
 
 
 def make_id(name: str, spec_signature: str) -> str:
@@ -200,6 +245,12 @@ def describe_entry(spec: StrategySpec) -> str:
         parts.append(f"IV rank at most {entry.iv_rank_max:g}")
     parts += [f"{SIGNALS[c.signal]} {c.op} {c.value:g}" for c in entry.conditions]
     parts += [rule_text(rule) for rule in entry.rules]
+    if entry.time_from or entry.time_to:
+        start = f"{entry.time_from:%H:%M}" if entry.time_from else "09:15"
+        end = f"{entry.time_to:%H:%M}" if entry.time_to else "15:25"
+        parts.append(f"between {start} and {end}")
+    if spec.decide_every != "day":
+        parts.append(f"checked every {spec.decide_every}")
     return ", ".join(parts)
 
 
@@ -284,8 +335,16 @@ def entry_failures(
     spec: StrategySpec, ctx: MarketContext, front_expiry: date | None = None
 ) -> list[str]:
     rules, reasons = spec.entry, []
+    if (rules.time_from or rules.time_to or spec.exits.square_off) is not None:
+        moment = ctx.now.time()
+        if rules.time_from is not None and moment < rules.time_from:
+            reasons.append(f"entry rule: before {rules.time_from:%H:%M}")
+        if rules.time_to is not None and moment > rules.time_to:
+            reasons.append(f"entry rule: after {rules.time_to:%H:%M}")
+        if spec.exits.square_off is not None and moment >= spec.exits.square_off:
+            reasons.append("entry rule: past the square-off time")
     if rules.rules:
-        frames = Frames(ctx.bars)
+        frames = Frames(ctx.bars, getattr(ctx, "intraday", None))
         for rule in rules.rules:
             failure = rule_failure(rule, frames)
             if failure:

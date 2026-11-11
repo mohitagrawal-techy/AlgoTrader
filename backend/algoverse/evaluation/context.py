@@ -70,6 +70,8 @@ class MarketContext:
     events: EventCalendar
     # Daily candles up to the decision, including the session in progress when it is known.
     bars: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # One-minute candles that ended by the decision, for 5m/15m/1h rules. Empty when unknown.
+    intraday: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def completed_bars(bars: pd.DataFrame, today: date) -> pd.DataFrame:
@@ -184,6 +186,7 @@ def build_context(
     events: EventCalendar,
     r: float,
     today_bar: dict | None = None,
+    intraday: pd.DataFrame | None = None,
 ) -> MarketContext:
     """Assemble context. `chain` is enriched. All history is trimmed to before today.
 
@@ -232,4 +235,5 @@ def build_context(
         by_expiry=by_expiry,
         events=events,
         bars=decision_bars,
+        intraday=intraday if intraday is not None else pd.DataFrame(),
     )

@@ -1,7 +1,7 @@
 import "bootstrap/dist/css/bootstrap.min.css";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, type LabCondition, type LabLeg, type LabOverview, type LabSpec, type TechRule } from "../api";
-import { MAX_RULES, ruleProblems, ruleText, TechRulesEditor } from "./TechRules";
+import { MAX_RULES, MINUTE_FRAMES, ruleProblems, ruleText, TechRulesEditor } from "./TechRules";
 
 const MAX_LEGS = 4;
 const MAX_CONDITIONS = 6;
@@ -12,6 +12,18 @@ const BIASES = [
   { value: "neutral", label: "Neutral" },
   { value: "bearish", label: "Bearish" },
 ] as const;
+const DECISIONS = [
+  { value: "day", label: "Once a day, at the close" },
+  { value: "5m", label: "Every 5 minutes" },
+  { value: "15m", label: "Every 15 minutes" },
+  { value: "1h", label: "Every hour" },
+] as const;
+
+/** "09:30:00" from the server, "09:30" from an input: both shown as "09:30". */
+function hhmm(value: string | null | undefined): string {
+  return value ? value.slice(0, 5) : "";
+}
+
 const NEW_LEG: LabLeg = {
   action: "buy",
   option_type: "CE",
@@ -289,10 +301,39 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
   }, [route]);
 
   const rules: TechRule[] = spec.entry.rules ?? [];
-  const problems = useMemo(
-    () => ({ ...findProblems(spec), ...(lab ? ruleProblems(lab.technical, spec.entry.rules ?? []) : {}) }),
-    [spec, lab],
-  );
+  const intraday = (spec.decide_every ?? "day") !== "day";
+  const problems = useMemo(() => {
+    const found: Record<string, string> = {
+      ...findProblems(spec),
+      ...(lab ? ruleProblems(lab.technical, spec.entry.rules ?? []) : {}),
+    };
+    const daily = (spec.decide_every ?? "day") === "day";
+    (spec.entry.rules ?? []).forEach((rule, index) => {
+      if (daily && MINUTE_FRAMES.includes(rule.timeframe)) {
+        found[`rule-${index}-left`] = "Minute candles need a decision every 5, 15 or 60 minutes.";
+      }
+    });
+    const from = hhmm(spec.entry.time_from);
+    const to = hhmm(spec.entry.time_to);
+    const off = hhmm(spec.exits.square_off);
+    const inSession = (t: string) => !t || (t >= "09:15" && t <= "15:25");
+    if (!inSession(from)) found.time_from = "Use 09:15 to 15:25.";
+    if (!inSession(to)) found.time_to = "Use 09:15 to 15:25.";
+    if (from && to && from >= to) found.time_to = "Must be after the start.";
+    if (off && !(off > "09:15" && off <= "15:25")) found.square_off = "Use 09:20 to 15:25.";
+    return found;
+  }, [spec, lab]);
+  const setDecision = (value: LabSpec["decide_every"]) =>
+    setSpec((current) =>
+      value === "day"
+        ? {
+            ...current,
+            decide_every: value,
+            entry: { ...current.entry, time_from: null, time_to: null },
+            exits: { ...current.exits, square_off: null },
+          }
+        : { ...current, decide_every: value },
+    );
   const visible: Problems = attempted ? problems : { ...problems, name: "" };
   const conditions = spec.entry.conditions ?? [];
   const level = complexity(spec);
@@ -434,6 +475,30 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
                   </div>
                 ))}
                 <div className="form-text">None ticked means every index.</div>
+              </div>
+              <div className="col-12 col-md-7">
+                <Field
+                  id="decide"
+                  label="Decide when to trade"
+                  hint={
+                    intraday
+                      ? "Checked through the session; a trade enters at the next check. Uses minute data, NIFTY only for now."
+                      : "Rules are checked at the close and a trade enters at the next open."
+                  }
+                >
+                  <select
+                    id="decide"
+                    className="form-select"
+                    value={spec.decide_every ?? "day"}
+                    onChange={(event) => setDecision(event.target.value as LabSpec["decide_every"])}
+                  >
+                    {DECISIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
               </div>
               <div className="col-12">
                 <Field id="rationale" label="Why should this work?" hint={`${spec.rationale.length} of ${MAX_RATIONALE} characters. Optional.`}>
@@ -609,6 +674,32 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
                   <NumberInput id="dte-max" value={spec.entry.dte_max} invalid={!!visible.dte_max} onChange={(value) => setEntry({ dte_max: value as number })} />
                 </Field>
               </div>
+              {intraday && (
+                <>
+                  <div className="col-6 col-md-3">
+                    <Field id="time-from" label="Enter from" hint="Empty means 09:15." problem={visible.time_from}>
+                      <input
+                        id="time-from"
+                        type="time"
+                        className={`form-control${visible.time_from ? " is-invalid" : ""}`}
+                        value={hhmm(spec.entry.time_from)}
+                        onChange={(event) => setEntry({ time_from: event.target.value || null })}
+                      />
+                    </Field>
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <Field id="time-to" label="Enter until" hint="Empty means 15:25." problem={visible.time_to}>
+                      <input
+                        id="time-to"
+                        type="time"
+                        className={`form-control${visible.time_to ? " is-invalid" : ""}`}
+                        value={hhmm(spec.entry.time_to)}
+                        onChange={(event) => setEntry({ time_to: event.target.value || null })}
+                      />
+                    </Field>
+                  </div>
+                </>
+              )}
             </div>
 
             <hr />
@@ -699,14 +790,15 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
               </span>
             </div>
             <p className="form-text mt-0">
-              Indicators, candle patterns and price levels on the underlying, each on daily, weekly
-              or monthly candles. Rules read candles up to the decision at the close, and the trade
-              enters at the next open.
+              {intraday
+                ? "Indicators, candle patterns and price levels on the underlying, each on 5-minute to monthly candles. Minute candles count once finished; daily and longer ones include today so far. A trade enters at the next check."
+                : "Indicators, candle patterns and price levels on the underlying, each on daily, weekly or monthly candles. Rules read candles up to the decision at the close, and the trade enters at the next open. For 5-minute to hourly candles, decide every 5, 15 or 60 minutes."}
             </p>
             <TechRulesEditor
               catalog={lab.technical}
               rules={rules}
               problems={visible}
+              intraday={intraday}
               onChange={(next) => setEntry({ rules: next })}
             />
           </Section>
@@ -737,6 +829,24 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
                   </div>
                 </Field>
               </div>
+              {intraday && (
+                <div className="col-12 col-md-4">
+                  <Field
+                    id="square-off"
+                    label="Square off by"
+                    hint="Closes every position by this time each day. Empty holds overnight."
+                    problem={visible.square_off}
+                  >
+                    <input
+                      id="square-off"
+                      type="time"
+                      className={`form-control${visible.square_off ? " is-invalid" : ""}`}
+                      value={hhmm(spec.exits.square_off)}
+                      onChange={(event) => setExits({ square_off: event.target.value || null })}
+                    />
+                  </Field>
+                </div>
+              )}
             </div>
           </Section>
         </div>
@@ -773,6 +883,14 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
                 )}
                 <div>
                   <span className="text-body-secondary">Exits</span> profit {spec.exits.target_frac}×, loss {spec.exits.stop_frac}×, {spec.exits.exit_dte}d before expiry
+                  {spec.exits.square_off ? `, square off by ${hhmm(spec.exits.square_off)}` : ""}
+                </div>
+                <div>
+                  <span className="text-body-secondary">Decides</span>{" "}
+                  {DECISIONS.find((d) => d.value === (spec.decide_every ?? "day"))?.label.toLowerCase()}
+                  {spec.entry.time_from || spec.entry.time_to
+                    ? `, entering ${hhmm(spec.entry.time_from) || "09:15"}–${hhmm(spec.entry.time_to) || "15:25"}`
+                    : ""}
                 </div>
               </div>
               {sellsMoreThanBuys(spec) && (

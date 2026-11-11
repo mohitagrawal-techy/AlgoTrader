@@ -708,7 +708,8 @@ export interface LabCondition {
   value: number;
 }
 
-export type TechTimeframe = "1d" | "1w" | "1mo";
+export type TechTimeframe = "5m" | "15m" | "1h" | "1d" | "1w" | "1mo";
+export type DecideEvery = "day" | "5m" | "15m" | "1h";
 
 export interface TechOperand {
   kind: "value" | "indicator";
@@ -761,8 +762,19 @@ export interface LabSpec {
     conditions: LabCondition[];
     /** Indicator, candle-pattern and price-level rules, each on its own timeframe. */
     rules?: TechRule[];
+    /** Intraday strategies: enter only between these times ("HH:MM"). */
+    time_from?: string | null;
+    time_to?: string | null;
   };
-  exits: { target_frac: number; stop_frac: number; exit_dte: number };
+  exits: {
+    target_frac: number;
+    stop_frac: number;
+    exit_dte: number;
+    /** Intraday strategies: close by this time ("HH:MM") every day. */
+    square_off?: string | null;
+  };
+  /** "day" decides once at the close; the others decide through the session. */
+  decide_every?: DecideEvery;
   parent_id?: string | null;
   rung?: number;
   step?: string | null;
@@ -809,6 +821,9 @@ export interface LabTrade {
   symbol: string;
   opened: string;
   closed: string;
+  /** Exact fill times, ISO. */
+  opened_at?: string;
+  closed_at?: string;
   lots: number;
   exit_reason: string | null;
   net_pnl: number;

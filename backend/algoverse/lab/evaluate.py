@@ -10,16 +10,27 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+import pandas as pd
+
 from algoverse.backtest.config import BacktestConfig, config_hash
 from algoverse.backtest.dataview import History
 from algoverse.backtest.engine import ReplaySpec, reference_series, replay
+from algoverse.backtest.intraday import replay_intraday
 from algoverse.backtest.registry import Registry
 from algoverse.backtest.report import daily_stats, trade_stats
 from algoverse.backtest.walkforward import load_services
 from algoverse.dashboard import clean
+from algoverse.data.candles import MINUTE
 from algoverse.data.store import SnapshotStore
 from algoverse.lab.evidence import luck_adjusted_floor
-from algoverse.lab.spec import NO_CONTRACTS, CustomSet, StrategySpec, apply_specs, signature
+from algoverse.lab.spec import (
+    DECIDE_MINUTES,
+    NO_CONTRACTS,
+    CustomSet,
+    StrategySpec,
+    apply_specs,
+    signature,
+)
 
 HELD_UP = "held_up"
 UNPROVEN = "unproven"
@@ -62,6 +73,15 @@ def normalize_reason(reason: str) -> str:
     return re.sub(r"\d[\d,.]*%?", "N", text).strip()
 
 
+def _minutes(data_dir: str, symbols: list[str]) -> dict[str, pd.DataFrame]:
+    """One-minute index candles per underlying, read once per worker."""
+    key = ("minutes", data_dir)
+    if key not in _CACHE:
+        store = SnapshotStore(Path(data_dir))
+        _CACHE[key] = {symbol: store.read_candles(symbol, MINUTE) for symbol in symbols}
+    return _CACHE[key]
+
+
 def _run(task: tuple[str, str, str, date, date, float]) -> dict:
     data_dir, config_dir, spec_json, start, end, multiplier = task
     key = (data_dir, config_dir)
@@ -85,14 +105,20 @@ def _run(task: tuple[str, str, str, date, date, float]) -> dict:
                 reasons = idea.rejections or idea.risk.reasons
                 outcomes[normalize_reason(reasons[0])] += 1
 
-    result = replay(
-        history,
-        services,
-        ReplaySpec(start, end, 0.0, (), multiplier),
-        reference,
-        custom=custom,
-        on_cycle=on_cycle,
-    )
+    window = ReplaySpec(start, end, 0.0, (), multiplier)
+    if spec.decide_every == "day":
+        result = replay(history, services, window, reference, custom=custom, on_cycle=on_cycle)
+    else:
+        result = replay_intraday(
+            history,
+            services,
+            window,
+            _minutes(data_dir, services.backtest.symbols),
+            DECIDE_MINUTES[spec.decide_every],
+            reference,
+            custom=custom,
+            on_cycle=on_cycle,
+        )
     signals = outcomes.pop("signal", 0)
     if custom.no_contracts[spec.id]:
         outcomes[NO_CONTRACTS] = custom.no_contracts[spec.id]

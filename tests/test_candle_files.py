@@ -120,3 +120,31 @@ def test_dry_run_writes_nothing(tmp_path):
 def test_missing_folder_is_refused(tmp_path):
     with pytest.raises(ValueError):
         run(tmp_path, tmp_path / "data")
+
+
+def test_intraday_bars_follow_the_daily_sessions(tmp_path):
+    from algoverse.backtest.candle_files import import_intraday, intraday_dir
+
+    root, data = tmp_path / "files", tmp_path / "data"
+    write_folder(root, stray=True)
+    result = run(root, data)
+    intraday = import_intraday(root, data, "NIFTY")
+    assert intraday.rows > 0 and intraday.sessions == len(result.written)
+    bars = pd.read_parquet(intraday_dir(data))
+    # Two one-minute candles (09:15 and 09:16) make one 5-minute bar starting at 09:15.
+    first = bars.sort_values(["date", "t"]).iloc[0]
+    start = pd.Timestamp(int(first["t"]), unit="ms", tz="UTC").tz_convert(IST)
+    assert (start.hour, start.minute) == (9, 15)
+    assert (first["open"], first["close"], first["volume"]) == (100.0, 102.0, 150.0)
+    # Only sessions and contracts in the daily history, so stray bars stay out.
+    days = {d.date() if hasattr(d, "date") else d for d in pd.to_datetime(bars["date"])}
+    assert days <= set(History(data).sessions) and set(bars["symbol"]) == {"NIFTY"}
+
+
+def test_intraday_needs_daily_sessions_first(tmp_path):
+    from algoverse.backtest.candle_files import import_intraday
+
+    root = tmp_path / "files"
+    write_folder(root)
+    with pytest.raises(ValueError):
+        import_intraday(root, tmp_path / "data", "NIFTY")

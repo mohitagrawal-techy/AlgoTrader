@@ -252,9 +252,11 @@ class Live:
 
 
 class ForwardManager:
-    def __init__(self, settings: Settings, store: SnapshotStore):
+    def __init__(self, settings: Settings, store: SnapshotStore, candles=None):
         self.settings = settings
         self.market_store = store
+        # Live candles for rules, as paper trading uses. None in tests.
+        self.candles = candles
         self.store = ForwardStore(settings.data_dir)
         self.registry = Registry(settings.data_dir)
         self._code = code_fingerprint()
@@ -430,6 +432,8 @@ class ForwardManager:
             events=live.events,
             ai=live.ai,
             publish=False,
+            today_bars=self.candles.today_bar if self.candles else None,
+            intraday_bars=self.candles.minutes if self.candles else None,
         )
         result = run_cycle(deps, raw_chains, contracts, now)
         self._record_fills(run, broker, result, chains, live)
