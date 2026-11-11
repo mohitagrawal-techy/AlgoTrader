@@ -14,7 +14,7 @@ import { Legend, LineChart, PairedColumns } from "../charts";
 import { compact, dateTimeIst, fraction, num, pct, shortDate } from "../format";
 import { savedStore } from "../saved";
 import { Empty, Panel, Select, Status, Tile, type Tone } from "../ui";
-import { StrikeChart, type StrikeChoice } from "./StrikeChart";
+import { openStrike, type OptionSide } from "./StrikeChart";
 
 const CALLS = "var(--series-1)";
 const PUTS = "var(--series-2)";
@@ -90,7 +90,6 @@ function Side({
   maxOi,
   peak,
   columns,
-  picked,
   onPick,
 }: {
   side: QuoteSide | null;
@@ -99,8 +98,7 @@ function Side({
   maxOi: number;
   peak: boolean;
   columns: readonly ChainColumn[];
-  picked: boolean;
-  onPick: () => void;
+  onPick: (newTab: boolean) => void;
 }) {
   const oiShare = side?.oi && maxOi > 0 ? (side.oi / maxOi) * 100 : 0;
   const cells = [
@@ -128,10 +126,10 @@ function Side({
       {ordered.map((cell) => (
         <td
           key={cell.head}
-          className={`right ${cls} ${state.toLowerCase()} pickable${picked ? " picked" : ""} ${cell.className ?? ""}`}
+          className={`right ${cls} ${state.toLowerCase()} pickable ${cell.className ?? ""}`}
           style={cell.style}
-          onClick={onPick}
-          title={`Chart this ${cls}`}
+          onClick={(event) => onPick(event.metaKey || event.ctrlKey)}
+          title={`Open the chart for this ${cls} (Ctrl or ⌘ for a new tab)`}
         >
           {cell.text}
         </td>
@@ -148,14 +146,12 @@ function ChainTable({
   expiry,
   spot,
   columns,
-  picked,
   onPick,
 }: {
   expiry: ExpiryMarket;
   spot: number;
   columns: readonly ChainColumn[];
-  picked: StrikeChoice;
-  onPick: (choice: StrikeChoice) => void;
+  onPick: (strike: number, type: OptionSide, newTab: boolean) => void;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const atm = expiry.rows.reduce(
@@ -226,8 +222,7 @@ function ChainTable({
                   maxOi={maxOi}
                   columns={columns}
                   peak={peakCall > 0 && row.ce?.oi === peakCall}
-                  picked={picked.strike === row.strike && picked.type === "CE"}
-                  onPick={() => onPick({ strike: row.strike, type: "CE" })}
+                  onPick={(newTab) => onPick(row.strike, "CE", newTab)}
                 />
                 <td className="strike">
                   <span className="strike-cell">
@@ -243,8 +238,7 @@ function ChainTable({
                   maxOi={maxOi}
                   columns={columns}
                   peak={peakPut > 0 && row.pe?.oi === peakPut}
-                  picked={picked.strike === row.strike && picked.type === "PE"}
-                  onPick={() => onPick({ strike: row.strike, type: "PE" })}
+                  onPick={(newTab) => onPick(row.strike, "PE", newTab)}
                 />
               </tr>
             );
@@ -409,26 +403,6 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
   const live = liveState.chain;
   const chain = useMemo(() => (expiry && live ? withLive(expiry, live) : expiry), [expiry, live]);
   const [view, setView] = useState(readChainView);
-  const [picked, setPicked] = useState<(StrikeChoice & { expiry: string }) | null>(null);
-  const chartRef = useRef<HTMLDivElement>(null);
-  const atmStrike = expiry
-    ? expiry.rows.reduce(
-        (best, row) =>
-          Math.abs(row.strike - market.spot) < Math.abs(best - market.spot) ? row.strike : best,
-        expiry.rows[0]?.strike ?? 0,
-      )
-    : 0;
-  // Each expiry opens on its at-the-money call until a strike is picked.
-  const choice: StrikeChoice =
-    picked && picked.expiry === expiry?.expiry
-      ? { strike: picked.strike, type: picked.type }
-      : { strike: atmStrike, type: "CE" };
-  const choose = (next: StrikeChoice) =>
-    setPicked({ ...next, expiry: expiry?.expiry ?? "" });
-  const pickFromChain = (next: StrikeChoice) => {
-    choose(next);
-    chartRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
   const chooseView = (next: string) => {
     setView(next);
     try {
@@ -592,37 +566,49 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
           expiry={chain ?? expiry}
           spot={live?.spot ?? market.spot}
           columns={CHAIN_VIEWS[view] ?? CHAIN_COLUMNS}
-          picked={choice}
-          onPick={pickFromChain}
+          onPick={(strike, type, newTab) =>
+            openStrike({ symbol: market.symbol, expiry: expiry.expiry, strike, type }, newTab)
+          }
         />
         <p className="panel-note">
           ITM, ATM and OTM are measured against spot, and ATM is the nearest strike. Bars show open
           interest on one scale for both sides, and bold marks the largest on each side. IV is in %.
           Theta is rupees per unit per day, vega is rupees per unit per volatility point, and gamma
           is the change in delta for a one-point move.
-          Strikes within 6% of the forward. Click a call or put to chart it below.
+          Strikes within 6% of the forward. Click a call or put to open its chart.
         </p>
       </Panel>
 
-      {expiry.rows.length > 0 && (
-        <StrikeChart
-          key={`${market.symbol}-${expiry.expiry}`}
-          ref={chartRef}
-          symbol={market.symbol}
-          expiry={expiry.expiry}
-          fallbackStrikes={expiry.rows.map((row) => row.strike)}
-          choice={choice}
-          onChoose={choose}
-        />
-      )}
     </>
   );
 }
 
+const CHAIN_PICK_KEY = "algoverse-chain";
+
+function useSessionState(key: string): [string, (value: string) => void] {
+  const [value, setValue] = useState(() => {
+    try {
+      return sessionStorage.getItem(key) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const update = (next: string) => {
+    setValue(next);
+    try {
+      sessionStorage.setItem(key, next);
+    } catch {
+      // The choice still applies until the page is left when storage is blocked.
+    }
+  };
+  return [value, update];
+}
+
 export function MarketView({ market, offline = false }: { market: MarketPayload; offline?: boolean }) {
   const symbols = Object.keys(market.symbols);
-  const [choice, setChoice] = useState<string>("");
-  const [expiry, setExpiry] = useState<string>("");
+  // Kept for this browser tab, so returning from a strike chart shows the same chain.
+  const [choice, setChoice] = useSessionState(`${CHAIN_PICK_KEY}.symbol`);
+  const [expiry, setExpiry] = useSessionState(`${CHAIN_PICK_KEY}.expiry`);
   const symbol = symbols.includes(choice) ? choice : symbols[0];
   if (!symbol) {
     return (

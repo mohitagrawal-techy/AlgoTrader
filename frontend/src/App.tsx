@@ -20,6 +20,7 @@ import { OverviewView } from "./views/Overview";
 import { PaperView } from "./views/Paper";
 import { RiskView } from "./views/Risk";
 import { StrategyEditor, type EditorRoute } from "./views/StrategyEditor";
+import { readStrikeRoute, StrikePage } from "./views/StrikeChart";
 
 const NAV_GROUPS = [
   {
@@ -124,6 +125,7 @@ interface Data {
 export function App() {
   const [tab, setTab] = useState<TabId>(tabFromHash);
   const [path, setPath] = useState<string[]>(labPath);
+  const [strikeRoute, setStrikeRoute] = useState(readStrikeRoute);
   const route = useMemo(() => editorRoute(path), [path.join("/")]); // eslint-disable-line react-hooks/exhaustive-deps
   const [data, setData] = useState<Data | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -172,6 +174,8 @@ export function App() {
     const onHash = () => {
       setTab(tabFromHash());
       setPath(labPath());
+      setStrikeRoute(readStrikeRoute());
+      window.scrollTo(0, 0);
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -251,7 +255,9 @@ export function App() {
             ? route.mode === "edit"
               ? "Edit strategy"
               : "New strategy"
-            : TABS.find((item) => item.id === tab)?.label}
+            : tab === "market" && strikeRoute
+              ? "Strike chart"
+              : TABS.find((item) => item.id === tab)?.label}
         </h1>
         <div className="topbar-status">
           {health && (
@@ -311,14 +317,17 @@ export function App() {
       )}
 
       <main>
-        {!data && !loadError && tab !== "overview" && !(tab === "market" && shownMarket) && (
+        {!data && !loadError && tab !== "overview" && !(tab === "market" && (shownMarket || strikeRoute)) && (
           <Empty title="Loading…" />
         )}
         {/* The overview loads its own data and can show this browser's saved copy offline. */}
         {tab === "overview" && <OverviewView />}
         {data && tab === "ideas" && <IdeasView ideas={data.ideas.ideas} />}
         {/* Options also falls back to the chains this browser saved, so it works offline. */}
-        {tab === "market" && shownMarket && (
+        {tab === "market" && strikeRoute && (
+          <StrikePage route={strikeRoute} market={shownMarket} />
+        )}
+        {tab === "market" && !strikeRoute && shownMarket && (
           <MarketView market={shownMarket} offline={!data && !!loadError} />
         )}
         {data && tab === "paper" && <PaperView portfolio={data.portfolio} />}
