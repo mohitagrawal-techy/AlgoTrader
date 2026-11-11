@@ -362,6 +362,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def lab_overview() -> dict:
         return runtime.lab.overview()
 
+    @app.get("/api/lab/strategies/{spec_id}/backtest")
+    def lab_backtest_detail(spec_id: str) -> dict:
+        return _lab(lambda: runtime.lab.backtest_detail(spec_id))
+
     @app.post("/api/lab/strategies")
     def lab_save(body: dict, x_algoverse_client: str | None = Header(default=None)) -> dict:
         _require_dashboard(x_algoverse_client)

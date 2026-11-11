@@ -104,10 +104,9 @@ def _run(task: tuple[str, str, str, date, date, float]) -> dict:
         "signals": signals,
         "blocked": dict(outcomes.most_common(TOP_REASONS)),
         "unfilled": result.unfilled,
-        "pnls": (
-            [] if result.trades.empty else [float(pnl) for pnl in result.trades["net_pnl"]]
-        ),
+        "pnls": ([] if result.trades.empty else [float(pnl) for pnl in result.trades["net_pnl"]]),
         "daily": {str(day): float(pnl) for day, pnl in zip(daily.index, daily, strict=True)},
+        "trades": result.details,
         "equity": [
             {"day": day, "pnl": float(pnl)}
             for day, pnl in zip(daily.index, daily.cumsum().to_numpy(float), strict=True)
@@ -224,6 +223,11 @@ def evaluate_specs(
                     None if evidence is None else evidence["floor"],
                 ),
                 "equity": test_run["equity"],
+                # Every trade and day of both windows, for the strategy's backtest page.
+                "detail": {
+                    "train": {"daily": train_run["daily"], "trades": train_run["trades"]},
+                    "test": {"daily": test_run["daily"], "trades": test_run["trades"]},
+                },
             }
         )
 

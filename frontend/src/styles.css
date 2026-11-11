@@ -2739,3 +2739,46 @@ main {
   margin: 0;
   accent-color: var(--series-1);
 }
+
+/* Backtest charts: gains and losses. */
+.bar-gain {
+  fill: var(--good);
+}
+
+.bar-loss {
+  fill: var(--critical);
+}
+
+.trade-win {
+  --trade: var(--good);
+}
+
+.trade-loss {
+  --trade: var(--critical);
+}
+
+.trade-path {
+  stroke: var(--trade);
+  stroke-width: 2;
+}
+
+.trade-open {
+  fill: var(--surface);
+  stroke: var(--trade);
+  stroke-width: 2;
+}
+
+.trade-close {
+  fill: var(--trade);
+  stroke: var(--surface);
+  stroke-width: 1;
+}
+
+.chart-span {
+  fill: var(--ink);
+  opacity: 0.04;
+}
+
+.table tr.row-active td {
+  background: var(--selected);
+}

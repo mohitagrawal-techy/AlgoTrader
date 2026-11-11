@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 from pydantic import ValidationError
 
 from algoverse.ai.budget import AiLog
@@ -45,6 +46,15 @@ log = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 DESIGN_TIMEOUT_SECONDS = 420
 MAX_STORED = 200
+
+
+def _without_detail(result: dict | None) -> dict | None:
+    """The list view leaves out per-trade detail, which only the backtest page needs."""
+    if result is None:
+        return None
+    return {key: value for key, value in result.items() if key != "detail"} | {
+        "has_detail": bool(result.get("detail"))
+    }
 
 
 class LabError(Exception):
@@ -152,7 +162,7 @@ class LabService:
                     "undefined_risk": has_undefined_risk(spec),
                     "level": complexity_level(spec),
                     "entry_text": describe_entry(spec),
-                    "result": self.result(spec),
+                    "result": _without_detail(self.result(spec)),
                 }
             )
         rows.sort(key=lambda row: rank_key(row["result"]))
@@ -177,6 +187,50 @@ class LabService:
                 "ladder": self._latest_ladder(),
                 "ladder_ready": ladder_windows(sessions, config) is not None,
                 "strategies": rows,
+            }
+        )
+
+    def backtest_detail(self, spec_id: str) -> dict:
+        """One strategy's latest result with every trade and day, and the daily bars of each
+        underlying it traded, for its backtest page."""
+        spec = self.spec(spec_id)
+        if spec is None:
+            raise LabError("That strategy no longer exists.")
+        result = self.result(spec)
+        history = History(self.data_dir)
+        bars = {}
+        if result and result.get("detail"):
+            traded = {
+                trade["symbol"]
+                for part in result["detail"].values()
+                for trade in part.get("trades", [])
+            }
+            windows = result.get("windows") or {}
+            start = str(windows.get("train_start") or "")
+            for symbol in sorted(traded):
+                frame = history.bars(symbol)
+                days = pd.to_datetime(frame["ts"]).dt.date.astype(str)
+                frame = frame.assign(day=days)[days >= start]
+                bars[symbol] = [
+                    {
+                        "day": row.day,
+                        "open": float(row.open),
+                        "high": float(row.high),
+                        "low": float(row.low),
+                        "close": float(row.close),
+                    }
+                    for row in frame.itertuples()
+                ]
+        return clean(
+            {
+                "spec": spec.model_dump(),
+                "legs_text": describe_legs(spec),
+                "entry_text": describe_entry(spec),
+                "undefined_risk": has_undefined_risk(spec),
+                "level": complexity_level(spec),
+                "capital": load_risk_config(self.config_dir).capital,
+                "result": result,
+                "bars": bars,
             }
         )
 

@@ -243,6 +243,11 @@ function Detail({
         <button type="button" className="button" disabled={busy} onClick={onTest}>
           {result ? "Test again" : "Test"}
         </button>
+        {result && spec.id && (
+          <a className="button" href={`#lab/backtest/${encodeURIComponent(spec.id)}`}>
+            Full backtest
+          </a>
+        )}
         {spec.source !== "template" ? (
           <>
             <button type="button" className="button ghost" onClick={onEdit}>

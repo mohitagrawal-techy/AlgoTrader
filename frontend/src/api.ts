@@ -751,6 +751,54 @@ export interface LabResult {
   test_2x: { trades: number | null; net_pnl: number | null; sharpe: number | null };
   equity: { day: string; pnl: number }[];
   evidence: { floor: number; prob_positive: number; trials: number } | null;
+  /** Only in the list: whether the backtest page has per-trade detail. */
+  has_detail?: boolean;
+  /** Only on the backtest page: every trade and day of each window. */
+  detail?: Record<"train" | "test", LabWindowDetail>;
+}
+
+export interface LabTradeLeg {
+  side: "buy" | "sell";
+  option_type: "CE" | "PE";
+  strike: number;
+  expiry: string;
+  units: number;
+  entry_price: number | null;
+  exit_price: number | null;
+}
+
+export interface LabTrade {
+  symbol: string;
+  opened: string;
+  closed: string;
+  lots: number;
+  exit_reason: string | null;
+  net_pnl: number;
+  costs: number;
+  planned_loss: number;
+  target_pnl: number;
+  settlement_estimated: boolean;
+  trend: string;
+  iv_regime: string;
+  legs: LabTradeLeg[];
+}
+
+export interface LabWindowDetail {
+  /** Net P&L by session date. */
+  daily: Record<string, number>;
+  trades: LabTrade[];
+}
+
+export interface LabBacktestPage {
+  spec: LabSpec;
+  legs_text: string;
+  entry_text: string;
+  undefined_risk: boolean;
+  level: "simple" | "moderate" | "complex";
+  capital: number;
+  result: LabResult | null;
+  /** Daily bars of each underlying the strategy traded. */
+  bars: Record<string, { day: string; open: number; high: number; low: number; close: number }[]>;
 }
 
 export interface LadderNode {
@@ -846,6 +894,8 @@ export const api = {
     getJson<UnderlyingView>(
       `/api/market/underlying?${new URLSearchParams({ symbol, expiry, ...(day ? { day } : {}) })}`,
     ),
+  labBacktestPage: (id: string) =>
+    getJson<LabBacktestPage>(`/api/lab/strategies/${encodeURIComponent(id)}/backtest`),
   portfolio: () => getJson<Portfolio>("/api/portfolio"),
   backtests: () => getJson<BacktestListing>("/api/backtests"),
   forward: () => getJson<ForwardOverview>("/api/forward"),

@@ -219,6 +219,17 @@ def test_backtest_stores_results_and_ranks(lab_dirs, tmp_path):
     assert overview["tested"] == 2 and overview["trials_logged"] == 4
     assert [bool(row["result"]) for row in overview["strategies"]][:2] == [True, True]
     json.dumps(overview, allow_nan=False)
+    # The list leaves out per-trade detail; the backtest page has it, with the index bars.
+    row = next(r for r in overview["strategies"] if r["spec"]["id"] == saved.id)
+    assert "detail" not in row["result"] and row["result"]["has_detail"]
+    page = lab.backtest_detail(saved.id)
+    trades = page["result"]["detail"]["train"]["trades"]
+    assert len(trades) == result["train"]["trades"]
+    assert sum(page["result"]["detail"]["test"]["daily"].values()) == pytest.approx(
+        result["test"]["net_pnl"]
+    )
+    assert set(page["bars"]) == {t["symbol"] for t in trades} and page["capital"] > 0
+    json.dumps(page, allow_nan=False)
 
 
 def test_editing_rules_invalidates_the_old_result(lab_dirs, tmp_path):
@@ -227,6 +238,14 @@ def test_editing_rules_invalidates_the_old_result(lab_dirs, tmp_path):
     lab.run_backtest([saved.id], NOW)
     edited = lab.save({**SPREAD, "id": saved.id, "exits": {"target_frac": 0.9, "exit_dte": 1}}, NOW)
     assert edited.id == saved.id and lab.result(edited) is None
+
+
+def test_backtest_page_for_unknown_or_untested_strategies(lab_dirs, tmp_path):
+    lab = fresh(lab_dirs, tmp_path)
+    with pytest.raises(LabError):
+        lab.backtest_detail("nope")
+    page = lab.backtest_detail("tpl_long_call")
+    assert page["result"] is None and page["bars"] == {}
 
 
 def test_save_delete_and_template_protection(lab_dirs, tmp_path):

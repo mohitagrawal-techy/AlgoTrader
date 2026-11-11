@@ -74,6 +74,8 @@ class ReplayResult:
     daily_pnl: pd.Series
     sessions: int
     unfilled: dict[str, int] = field(default_factory=dict)
+    # One entry per closed trade with its legs, for showing trades on a chart.
+    details: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -173,6 +175,41 @@ def trades_frame(ledger: Ledger, labels: dict[int, dict]) -> pd.DataFrame:
             | labels.get(position.id, {"trend": "unknown", "iv_regime": "unknown"})
         )
     return pd.DataFrame(rows)
+
+
+def trade_details(ledger: Ledger, labels: dict[int, dict]) -> list[dict]:
+    """Closed trades with their legs, in the order they opened."""
+    rows = []
+    for position in ledger.positions((CLOSED,)):
+        rows.append(
+            {
+                "symbol": position.symbol,
+                "strategy": position.strategy,
+                "lots": position.lots,
+                "opened": datetime.fromisoformat(position.opened_at).date().isoformat(),
+                "closed": datetime.fromisoformat(position.closed_at).date().isoformat(),
+                "exit_reason": position.exit_reason,
+                "net_pnl": float(position.realized_pnl or 0.0),
+                "costs": float(position.entry_costs + position.exit_costs),
+                "planned_loss": float(position.planned_loss),
+                "target_pnl": float(position.target_pnl),
+                "settlement_estimated": position.settlement_estimated,
+                "legs": [
+                    {
+                        "side": "buy" if leg.side > 0 else "sell",
+                        "option_type": leg.option_type,
+                        "strike": float(leg.strike),
+                        "expiry": leg.expiry,
+                        "units": int(leg.units),
+                        "entry_price": leg.entry_price,
+                        "exit_price": leg.exit_price,
+                    }
+                    for leg in position.legs
+                ],
+            }
+            | labels.get(position.id, {"trend": "unknown", "iv_regime": "unknown"})
+        )
+    return sorted(rows, key=lambda row: (row["opened"], row["closed"]))
 
 
 def daily_pnl_series(ledger: Ledger) -> pd.Series:
@@ -303,7 +340,14 @@ def replay(
         unfilled[reason] = unfilled.get(reason, 0) + 1
     daily = daily_pnl_series(ledger)
     daily = daily[[d >= spec.start for d in daily.index]] if len(daily) else daily
-    return ReplayResult(spec, trades_frame(ledger, labels), daily, traded_sessions, unfilled)
+    return ReplayResult(
+        spec,
+        trades_frame(ledger, labels),
+        daily,
+        traded_sessions,
+        unfilled,
+        trade_details(ledger, labels),
+    )
 
 
 def reference_series(store: SnapshotStore) -> dict[str, pd.DataFrame]:

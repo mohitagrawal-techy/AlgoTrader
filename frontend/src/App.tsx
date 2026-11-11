@@ -15,6 +15,7 @@ import { BacktestsView } from "./views/Backtests";
 import { ForwardView } from "./views/Forward";
 import { IdeasView } from "./views/Ideas";
 import { LabView } from "./views/Lab";
+import { LabBacktestView } from "./views/LabBacktest";
 import { MarketView, readSavedMarket, saveMarket } from "./views/Market";
 import { OverviewView } from "./views/Overview";
 import { PaperView } from "./views/Paper";
@@ -255,6 +256,8 @@ export function App() {
             ? route.mode === "edit"
               ? "Edit strategy"
               : "New strategy"
+            : tab === "lab" && path[0] === "backtest"
+              ? "Strategy backtest"
             : tab === "market" && strikeRoute
               ? "Strike chart"
               : TABS.find((item) => item.id === tab)?.label}
@@ -333,7 +336,8 @@ export function App() {
         {data && tab === "paper" && <PaperView portfolio={data.portfolio} />}
         {data && tab === "risk" && <RiskView portfolio={data.portfolio} />}
         {data && tab === "lab" && route && <StrategyEditor key={path.join("/")} route={route} />}
-        {data && tab === "lab" && !route && (
+        {tab === "lab" && path[0] === "backtest" && path[1] && <LabBacktestView id={path[1]} />}
+        {data && tab === "lab" && !route && path[0] !== "backtest" && (
           <LabView
             key={path.join("/")}
             initialSelected={path[0] === "view" && path[1] ? path[1] : null}

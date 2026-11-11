@@ -955,3 +955,273 @@ export function Histogram({
   );
 }
 
+
+interface ValueColumnsProps {
+  data: { key: string; value: number; note?: string }[];
+  height?: number;
+  label: string;
+  formatX: (key: string) => string;
+  formatY: (value: number) => string;
+  formatTip: (value: number) => string;
+}
+
+/** One column per period, up for gains and down for losses. */
+export function ValueColumns({
+  data,
+  height: preferredHeight = 220,
+  label,
+  formatX,
+  formatY,
+  formatTip,
+}: ValueColumnsProps) {
+  const [ref, width, height] = useSize(preferredHeight);
+  const [hover, setHover] = useState<number | null>(null);
+  const margin = { top: 12, right: 8, bottom: 26, left: 64 };
+  const bottom = height - margin.bottom;
+  const plotWidth = Math.max(width - margin.left - margin.right, 0);
+  const band = data.length ? plotWidth / data.length : 0;
+  const barWidth = Math.max(Math.min(band - 2, 28), 1);
+  const values = data.map((d) => d.value);
+  const low = Math.min(0, ...values);
+  const high = Math.max(0, ...values);
+  const padding = (high - low || 1) * 0.06;
+  const domain: [number, number] = [low - (low < 0 ? padding : 0), high + (high > 0 ? padding : 0)];
+  const y = linear(domain, [bottom, margin.top]);
+  const zero = y(0);
+  const every = Math.max(1, Math.ceil(70 / (band || 1)));
+  const hovered = hover !== null ? data[hover] : null;
+  return (
+    <div className="chart" ref={ref} style={chartStyle(preferredHeight)}>
+      {width > 0 && (
+        <svg width={width} height={height} role="img" aria-label={label}>
+          {niceTicks(domain[0], domain[1], 4).map((tick) => (
+            <g key={tick}>
+              <line
+                x1={margin.left}
+                x2={width - margin.right}
+                y1={y(tick)}
+                y2={y(tick)}
+                className={tick === 0 ? "axis-line" : "grid-line"}
+              />
+              <text x={margin.left - 8} y={y(tick) + 4} textAnchor="end" className="tick">
+                {formatY(tick)}
+              </text>
+            </g>
+          ))}
+          {data.map((d, index) => {
+            const x = margin.left + band * index + (band - barWidth) / 2;
+            const top = Math.min(y(d.value), zero);
+            const size = Math.max(Math.abs(y(d.value) - zero), d.value === 0 ? 0 : 1);
+            return (
+              <g key={d.key}>
+                <rect
+                  x={x}
+                  y={top}
+                  width={barWidth}
+                  height={size}
+                  rx={Math.min(3, barWidth / 3)}
+                  className={d.value >= 0 ? "bar-gain" : "bar-loss"}
+                  opacity={hover === null || hover === index ? 1 : 0.45}
+                />
+                {index % every === 0 && (
+                  <text x={x + barWidth / 2} y={height - 8} textAnchor="middle" className="tick">
+                    {formatX(d.key)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+          <rect
+            x={margin.left}
+            y={margin.top}
+            width={plotWidth}
+            height={Math.max(bottom - margin.top, 0)}
+            fill="transparent"
+            onPointerMove={(event) => {
+              const px = event.clientX - event.currentTarget.getBoundingClientRect().left;
+              const index = Math.floor(px / (band || 1));
+              setHover(index >= 0 && index < data.length ? index : null);
+            }}
+            onPointerLeave={() => setHover(null)}
+          />
+        </svg>
+      )}
+      {hovered && hover !== null && (
+        <Tooltip x={margin.left + band * (hover + 0.5)} width={width}>
+          <strong>{formatX(hovered.key)}</strong>
+          <div className="tip-row">
+            <span>P&amp;L</span>
+            <b>{formatTip(hovered.value)}</b>
+          </div>
+          {hovered.note && <div className="tip-row">{hovered.note}</div>}
+        </Tooltip>
+      )}
+    </div>
+  );
+}
+
+export interface ChartTrade {
+  id: number;
+  opened: string;
+  closed: string;
+  pnl: number;
+  title: string;
+  lines: string[];
+}
+
+interface TradeChartProps {
+  bars: { day: string; close: number }[];
+  trades: ChartTrade[];
+  highlight?: number | null;
+  onHighlight?: (id: number | null) => void;
+  height?: number;
+  label: string;
+  formatY: (value: number) => string;
+  formatDay: (day: string) => string;
+  /** Shaded spans, such as the training and test windows. */
+  spans?: { from: string; to: string; label: string }[];
+}
+
+/**
+ * The underlying's daily close with every trade on it: a hollow dot where it opened, a solid
+ * dot where it closed, joined by a line, green for a gain and red for a loss.
+ */
+export function TradeChart({
+  bars,
+  trades,
+  highlight = null,
+  onHighlight,
+  height: preferredHeight = 360,
+  label,
+  formatY,
+  formatDay,
+  spans = [],
+}: TradeChartProps) {
+  const [ref, width, height] = useSize(preferredHeight);
+  const [hoverDay, setHoverDay] = useState<number | null>(null);
+  const index = useMemo(() => new Map(bars.map((bar, i) => [bar.day, i])), [bars]);
+  // A trade on a day without a bar sits on the nearest earlier bar.
+  const at = (day: string) => {
+    if (index.has(day)) return index.get(day) as number;
+    let found = -1;
+    for (let i = 0; i < bars.length && bars[i].day <= day; i += 1) found = i;
+    return Math.max(found, 0);
+  };
+  if (!bars.length) return <div className="chart" ref={ref} style={chartStyle(preferredHeight)} />;
+  const closes = bars.map((bar) => bar.close);
+  const low = Math.min(...closes);
+  const high = Math.max(...closes);
+  const padding = (high - low || 1) * 0.06;
+  const right = width - MARGIN.right;
+  const bottom = height - MARGIN.bottom;
+  const x = linear([0, Math.max(bars.length - 1, 1)], [MARGIN.left, right]);
+  const y = linear([low - padding, high + padding], [bottom, MARGIN.top]);
+  const path = bars.map((bar, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(bar.close).toFixed(1)}`).join("");
+  const tickEvery = Math.max(1, Math.ceil(bars.length / Math.max(2, Math.floor(width / 90))));
+  const placed = trades.map((trade) => {
+    const from = at(trade.opened);
+    const to = at(trade.closed);
+    return { trade, from, to };
+  });
+  const active =
+    highlight !== null
+      ? placed.find((p) => p.trade.id === highlight)
+      : hoverDay !== null
+        ? placed.find((p) => p.from <= hoverDay && hoverDay <= p.to)
+        : undefined;
+  return (
+    <div className="chart" ref={ref} style={chartStyle(preferredHeight)}>
+      {width > 0 && (
+        <svg width={width} height={height} role="img" aria-label={label}>
+          {spans.map((span) => {
+            const from = x(at(span.from));
+            const to = x(at(span.to));
+            return (
+              <g key={span.label}>
+                <rect x={from} y={MARGIN.top} width={Math.max(to - from, 0)} height={bottom - MARGIN.top} className="chart-span" />
+                <text x={from + 6} y={MARGIN.top + 12} className="marker-label" textAnchor="start">
+                  {span.label}
+                </text>
+              </g>
+            );
+          })}
+          {niceTicks(low - padding, high + padding, 4).map((tick) => (
+            <g key={tick}>
+              <line x1={MARGIN.left} x2={right} y1={y(tick)} y2={y(tick)} className="grid-line" />
+              <text x={MARGIN.left - 8} y={y(tick) + 4} textAnchor="end" className="tick">
+                {formatY(tick)}
+              </text>
+            </g>
+          ))}
+          {bars.map((bar, i) =>
+            i % tickEvery === 0 ? (
+              <text key={bar.day} x={x(i)} y={height - 8} textAnchor="middle" className="tick">
+                {formatDay(bar.day)}
+              </text>
+            ) : null,
+          )}
+          <path d={path} className="line" style={{ stroke: "var(--ink-3)" }} />
+          {placed.map(({ trade, from, to }) => {
+            const tone = trade.pnl >= 0 ? "trade-win" : "trade-loss";
+            const dim = active && active.trade.id !== trade.id;
+            return (
+              <g key={trade.id} className={tone} opacity={dim ? 0.3 : 1}>
+                <line x1={x(from)} y1={y(bars[from].close)} x2={x(to)} y2={y(bars[to].close)} className="trade-path" />
+                <circle cx={x(from)} cy={y(bars[from].close)} r={4.5} className="trade-open" />
+                <circle cx={x(to)} cy={y(bars[to].close)} r={4.5} className="trade-close" />
+              </g>
+            );
+          })}
+          {active && (
+            <line
+              x1={x(active.from)}
+              x2={x(active.from)}
+              y1={MARGIN.top}
+              y2={bottom}
+              className="crosshair"
+            />
+          )}
+          <rect
+            x={MARGIN.left}
+            y={MARGIN.top}
+            width={Math.max(right - MARGIN.left, 0)}
+            height={Math.max(bottom - MARGIN.top, 0)}
+            fill="transparent"
+            onPointerMove={(event) => {
+              const px = event.clientX - event.currentTarget.getBoundingClientRect().left;
+              const day = Math.round((px / Math.max(right - MARGIN.left, 1)) * (bars.length - 1));
+              setHoverDay(Math.min(Math.max(day, 0), bars.length - 1));
+            }}
+            onPointerLeave={() => {
+              setHoverDay(null);
+              onHighlight?.(null);
+            }}
+            onClick={() => active && onHighlight?.(active.trade.id)}
+          />
+        </svg>
+      )}
+      {width > 0 && (active || hoverDay !== null) && (
+        <Tooltip x={x(active ? active.from : (hoverDay as number))} width={width}>
+          {active ? (
+            <>
+              <strong>{active.trade.title}</strong>
+              {active.trade.lines.map((text) => (
+                <div key={text} className="tip-row">
+                  {text}
+                </div>
+              ))}
+            </>
+          ) : (
+            <>
+              <strong>{formatDay(bars[hoverDay as number].day)}</strong>
+              <div className="tip-row">
+                <span>Close</span>
+                <b>{formatY(bars[hoverDay as number].close)}</b>
+              </div>
+            </>
+          )}
+        </Tooltip>
+      )}
+    </div>
+  );
+}

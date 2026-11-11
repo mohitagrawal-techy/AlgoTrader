@@ -339,6 +339,14 @@ def test_replay_produces_trades_after_warmup_only(
     assert all(day >= start for day in result.daily_pnl.index)
     assert result.sessions == 31
     assert set(result.trades.columns) >= {"trend", "iv_regime", "dte_at_entry", "net_pnl"}
+    # Each closed trade is also listed with its legs, in the same total.
+    assert len(result.details) == len(result.trades)
+    assert sum(d["net_pnl"] for d in result.details) == pytest.approx(
+        result.trades["net_pnl"].sum()
+    )
+    first = result.details[0]
+    assert first["opened"] <= first["closed"] and first["legs"]
+    assert {"side", "option_type", "strike", "entry_price", "exit_price"} <= set(first["legs"][0])
 
 
 def test_changing_future_bars_leaves_earlier_decisions_unchanged(
