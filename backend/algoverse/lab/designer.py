@@ -21,6 +21,7 @@ from algoverse.lab.spec import (
     make_id,
     signature,
 )
+from algoverse.lab.technical import INDICATORS, PATTERNS
 
 log = logging.getLogger(__name__)
 MAX_GUIDANCE = 500
@@ -56,6 +57,30 @@ usually blocked.
 The user message lists strategies already tested, with results from the TRAINING period only. \
 Learn from them: build on what worked, fix what was blocked, and do not repeat a tested rule \
 set. Small samples are noise, so do not chase a result with few trades. Propose varied ideas."""
+
+
+def _rules_help() -> str:
+    indicators = "; ".join(
+        f"{name}"
+        + (f"({', '.join(p.name for p in i.params)})" if i.params else "")
+        + (f" fields {'/'.join(i.fields)}" if i.fields else "")
+        for name, i in INDICATORS.items()
+    )
+    return f"""
+
+entry.rules (optional, up to 8, all must hold) read the underlying's candles. Timeframe "1d", \
+"1w" or "1mo". Two kinds:
+- {{"type": "compare", "timeframe", "left", "op", "right"}} with op above, below, \
+crosses_above or crosses_below. An operand is {{"kind": "value", "value": number}} or \
+{{"kind": "indicator", "name", "params": {{...}}, "field" (only when listed), \
+"bars_ago" (0 = latest)}}. \
+The left operand must be an indicator. Indicators: {indicators}.
+- {{"type": "pattern", "timeframe", "pattern", "within" (1-20 candles), "present" (true/false)}}. \
+Patterns: {", ".join(PATTERNS)}.
+Daily candles include the decision day, and the trade enters at the next open."""
+
+
+SYSTEM += _rules_help()
 
 
 class DesignedStrategy(BaseModel):

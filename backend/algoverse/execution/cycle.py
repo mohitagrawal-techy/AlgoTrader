@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 
@@ -35,6 +36,8 @@ class CycleDeps:
     ai: AiService | None = None
     publish: bool = True
     custom: object | None = None
+    # The current session's candle per symbol, for rules that read candles. None when unknown.
+    today_bars: Callable[[str], dict | None] | None = None
 
 
 @dataclass
@@ -105,6 +108,7 @@ def run_cycle(
             _iv_history(deps.store, symbol, now),
             deps.events,
             deps.scoring.risk_free_rate,
+            deps.today_bars(symbol) if deps.today_bars else None,
         )
         ideas = generate_ideas(
             context, chain, deps.scoring, deps.risk, deps.costs, portfolio, deps.custom

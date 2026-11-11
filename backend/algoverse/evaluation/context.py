@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 
 import numpy as np
@@ -68,6 +68,8 @@ class MarketContext:
     term_slope: float | None
     by_expiry: dict[date, ExpiryStats]
     events: EventCalendar
+    # Daily candles up to the decision, including the session in progress when it is known.
+    bars: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def completed_bars(bars: pd.DataFrame, today: date) -> pd.DataFrame:
@@ -181,9 +183,24 @@ def build_context(
     iv_history: pd.Series,
     events: EventCalendar,
     r: float,
+    today_bar: dict | None = None,
 ) -> MarketContext:
-    """Assemble context. `chain` is enriched. All history is trimmed to before today."""
+    """Assemble context. `chain` is enriched. All history is trimmed to before today.
+
+    `today_bar` is the session's own candle so far (open, high, low, close). Only rules that
+    read candles use it; the other signals stay on completed sessions."""
     bars = completed_bars(bars, now.date())
+    decision_bars = bars[["ts", "open", "high", "low", "close"]] if not bars.empty else bars
+    if today_bar is not None and not bars.empty:
+        today = pd.DataFrame(
+            [
+                {
+                    "ts": pd.Timestamp(now.date()).tz_localize(pd.to_datetime(bars["ts"]).dt.tz),
+                    **{k: float(today_bar[k]) for k in ("open", "high", "low", "close")},
+                }
+            ]
+        )
+        decision_bars = pd.concat([decision_bars, today], ignore_index=True)
     vix_bars = completed_bars(vix_bars, now.date())
     live = chain[chain["T"] > 0]
     base_levels = _base_levels(bars)
@@ -214,4 +231,5 @@ def build_context(
         term_slope=term_slope(term_structure(live)) if not live.empty else None,
         by_expiry=by_expiry,
         events=events,
+        bars=decision_bars,
     )

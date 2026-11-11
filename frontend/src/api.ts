@@ -708,6 +708,42 @@ export interface LabCondition {
   value: number;
 }
 
+export type TechTimeframe = "1d" | "1w" | "1mo";
+
+export interface TechOperand {
+  kind: "value" | "indicator";
+  value?: number | null;
+  name?: string | null;
+  params?: Record<string, number>;
+  field?: string | null;
+  /** 0 is the latest candle. */
+  bars_ago?: number;
+}
+
+export type TechRule =
+  | {
+      type: "compare";
+      timeframe: TechTimeframe;
+      left: TechOperand;
+      op: "above" | "below" | "crosses_above" | "crosses_below";
+      right: TechOperand;
+    }
+  | { type: "pattern"; timeframe: TechTimeframe; pattern: string; within: number; present: boolean };
+
+export interface TechCatalog {
+  timeframes: { value: TechTimeframe; label: string }[];
+  operators: { value: string; label: string }[];
+  indicators: {
+    name: string;
+    label: string;
+    unit: string;
+    description: string;
+    params: { name: string; label: string; default: number; min: number; max: number; whole: boolean }[];
+    fields: { value: string; label: string }[];
+  }[];
+  patterns: { name: string; label: string; bias: "bullish" | "bearish" | "neutral"; description: string }[];
+}
+
 export interface LabSpec {
   id?: string;
   name: string;
@@ -723,6 +759,8 @@ export interface LabSpec {
     dte_min: number;
     dte_max: number;
     conditions: LabCondition[];
+    /** Indicator, candle-pattern and price-level rules, each on its own timeframe. */
+    rules?: TechRule[];
   };
   exits: { target_frac: number; stop_frac: number; exit_dte: number };
   parent_id?: string | null;
@@ -848,6 +886,7 @@ export interface LabOverview {
   job: { kind: string; state: "running" | "done" | "failed"; message: string } | null;
   symbols: string[];
   signals: { name: string; label: string }[];
+  technical: TechCatalog;
   ladder: LadderReport | null;
   ladder_ready: boolean;
   strategies: LabRow[];

@@ -1,6 +1,7 @@
 import "bootstrap/dist/css/bootstrap.min.css";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, type LabCondition, type LabLeg, type LabOverview, type LabSpec } from "../api";
+import { api, type LabCondition, type LabLeg, type LabOverview, type LabSpec, type TechRule } from "../api";
+import { MAX_RULES, ruleProblems, ruleText, TechRulesEditor } from "./TechRules";
 
 const MAX_LEGS = 4;
 const MAX_CONDITIONS = 6;
@@ -38,6 +39,7 @@ function blankSpec(): LabSpec {
       dte_min: 5,
       dte_max: 30,
       conditions: [],
+      rules: [],
     },
     exits: { target_frac: 0.5, stop_frac: 0.5, exit_dte: 1 },
   };
@@ -107,7 +109,8 @@ function legText(leg: LabLeg): string {
 function complexity(spec: LabSpec): { label: string; tone: string } {
   const { entry } = spec;
   const hasIv = entry.iv_rank_min !== null || entry.iv_rank_max !== null;
-  const filters = Number(entry.trend.length > 0) + Number(hasIv) + (entry.conditions ?? []).length;
+  const filters =
+    Number(entry.trend.length > 0) + Number(hasIv) + (entry.conditions ?? []).length + (entry.rules ?? []).length;
   if (spec.legs.length >= 3 || filters > 2) return { label: "Complex", tone: "text-bg-primary" };
   if (spec.legs.length === 2 || filters > 1) return { label: "Moderate", tone: "text-bg-info" };
   return { label: "Simple", tone: "text-bg-secondary" };
@@ -285,7 +288,11 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
     };
   }, [route]);
 
-  const problems = useMemo(() => findProblems(spec), [spec]);
+  const rules: TechRule[] = spec.entry.rules ?? [];
+  const problems = useMemo(
+    () => ({ ...findProblems(spec), ...(lab ? ruleProblems(lab.technical, spec.entry.rules ?? []) : {}) }),
+    [spec, lab],
+  );
   const visible: Problems = attempted ? problems : { ...problems, name: "" };
   const conditions = spec.entry.conditions ?? [];
   const level = complexity(spec);
@@ -683,6 +690,25 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
                 Add a condition
               </button>
             )}
+
+            <hr />
+            <div className="d-flex justify-content-between align-items-center mb-1">
+              <strong className="small">Price and candle rules</strong>
+              <span className="badge text-bg-secondary">
+                {rules.length} of {MAX_RULES}
+              </span>
+            </div>
+            <p className="form-text mt-0">
+              Indicators, candle patterns and price levels on the underlying, each on daily, weekly
+              or monthly candles. Rules read candles up to the decision at the close, and the trade
+              enters at the next open.
+            </p>
+            <TechRulesEditor
+              catalog={lab.technical}
+              rules={rules}
+              problems={visible}
+              onChange={(next) => setEntry({ rules: next })}
+            />
           </Section>
 
           <Section title="Exit when" hint="The first of these to happen closes the trade.">
@@ -738,6 +764,13 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
                   {spec.entry.trend.length ? `, ${spec.entry.trend.join(" or ")} trend` : ""}
                   {conditions.length ? `, ${conditions.length} market condition${conditions.length > 1 ? "s" : ""}` : ""}
                 </div>
+                {rules.length > 0 && (
+                  <ul className="mb-0 ps-3">
+                    {rules.map((rule, index) => (
+                      <li key={index}>{ruleText(lab.technical, rule)}</li>
+                    ))}
+                  </ul>
+                )}
                 <div>
                   <span className="text-body-secondary">Exits</span> profit {spec.exits.target_frac}×, loss {spec.exits.stop_frac}×, {spec.exits.exit_dte}d before expiry
                 </div>

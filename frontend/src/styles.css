@@ -2782,3 +2782,32 @@ main {
 .table tr.row-active td {
   background: var(--selected);
 }
+
+/* Strategy editor: technical rules. */
+.tech-compare {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.tech-compare .tech-op {
+  width: auto;
+}
+
+.tech-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.tech-param {
+  width: 96px;
+}
+
+@media (max-width: 720px) {
+  .tech-compare {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

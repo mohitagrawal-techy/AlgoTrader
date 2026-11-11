@@ -264,6 +264,14 @@ def replay(
         symbol: {ts.date(): row for ts, (_, row) in zip(frame["ts"], frame.iterrows(), strict=True)}
         for symbol, frame in bars.items()
     }
+    # Decisions are made at the close, so the session's own candle is known to candle rules.
+    current: dict[str, date] = {}
+
+    def today_bar(symbol: str) -> dict | None:
+        bar = bar_by_day.get(symbol, {}).get(current.get("session"))
+        return None if bar is None else {k: float(bar[k]) for k in ("open", "high", "low", "close")}
+
+    deps.today_bars = today_bar
     r = services.scoring.risk_free_rate
     labels: dict[int, dict] = {}
     previous_day: pd.DataFrame | None = None
@@ -273,6 +281,7 @@ def replay(
     for session in sessions:
         day = history.day(session)
         view.as_of = session
+        current["session"] = session
         risk.paper.auto_trade = spec.start <= session
         open_chains, close_chains, lots = {}, {}, []
         open_at, close_at = _at(session, OPEN_TIME), _at(session, CLOSE_TIME)

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from algoverse.evaluation.config import Weight
 from algoverse.evaluation.context import MarketContext
+from algoverse.lab.technical import Frames, TechRule, rule_failure, rule_text
 from algoverse.risk.config import ExitRule
 from algoverse.strategies.base import BUY, SELL, Candidate, ExpiryView, make_leg
 
@@ -95,6 +96,9 @@ class EntryRules(BaseModel):
     dte_max: int = Field(default=30, ge=1, le=45)
     # Every condition must hold. Several together make a more selective strategy.
     conditions: list[Condition] = Field(default_factory=list, max_length=6)
+    # Indicator, candle-pattern and price-level rules on the underlying, each on its own
+    # timeframe. Every rule must hold too.
+    rules: list[TechRule] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="after")
     def _check_ranges(self) -> EntryRules:
@@ -146,6 +150,9 @@ def signature(spec: StrategySpec) -> str:
     rules = spec.model_dump(include={"symbols", "legs", "entry", "exits", "bias"})
     rules["legs"] = sorted(rules["legs"], key=lambda leg: json.dumps(leg, sort_keys=True))
     rules["symbols"] = sorted(rules["symbols"])
+    if not rules["entry"]["rules"]:
+        # Strategies saved before technical rules existed keep their results.
+        del rules["entry"]["rules"]
     return hashlib.sha256(json.dumps(rules, sort_keys=True).encode()).hexdigest()[:12]
 
 
@@ -169,7 +176,7 @@ def has_undefined_risk(spec: StrategySpec) -> bool:
 def _filter_count(spec: StrategySpec) -> int:
     entry = spec.entry
     has_iv_rule = entry.iv_rank_min is not None or entry.iv_rank_max is not None
-    return int(bool(entry.trend)) + int(has_iv_rule) + len(entry.conditions)
+    return int(bool(entry.trend)) + int(has_iv_rule) + len(entry.conditions) + len(entry.rules)
 
 
 def complexity_level(spec: StrategySpec) -> str:
@@ -192,6 +199,7 @@ def describe_entry(spec: StrategySpec) -> str:
     if entry.iv_rank_max is not None:
         parts.append(f"IV rank at most {entry.iv_rank_max:g}")
     parts += [f"{SIGNALS[c.signal]} {c.op} {c.value:g}" for c in entry.conditions]
+    parts += [rule_text(rule) for rule in entry.rules]
     return ", ".join(parts)
 
 
@@ -276,6 +284,12 @@ def entry_failures(
     spec: StrategySpec, ctx: MarketContext, front_expiry: date | None = None
 ) -> list[str]:
     rules, reasons = spec.entry, []
+    if rules.rules:
+        frames = Frames(ctx.bars)
+        for rule in rules.rules:
+            failure = rule_failure(rule, frames)
+            if failure:
+                reasons.append(failure)
     if rules.trend:
         trend = ctx.regime.trend if ctx.regime else None
         if trend not in rules.trend:

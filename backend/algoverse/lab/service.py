@@ -40,6 +40,7 @@ from algoverse.lab.spec import (
     make_id,
     signature,
 )
+from algoverse.lab.technical import catalog as technical_catalog
 from algoverse.risk.config import load_risk_config
 
 log = logging.getLogger(__name__)
@@ -184,6 +185,7 @@ class LabService:
                 "job": self._job,
                 "symbols": config.symbols,
                 "signals": [{"name": k, "label": v} for k, v in SIGNALS.items()],
+                "technical": technical_catalog(),
                 "ladder": self._latest_ladder(),
                 "ladder_ready": ladder_windows(sessions, config) is not None,
                 "strategies": rows,
