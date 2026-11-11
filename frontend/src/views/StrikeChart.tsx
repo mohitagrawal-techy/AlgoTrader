@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type MarketPayload, type StrikeHistory, type StrikePoint } from "../api";
 import { LineChart, timeTicks } from "../charts";
 import { compact, num, shortDate, timeIst } from "../format";
+import { atmStrike, strikePosition } from "../moneyness";
 import { Empty, Panel, Select, Status, Tile } from "../ui";
 
 const PRICE = "var(--series-1)";
@@ -169,14 +170,11 @@ export function StrikePage({ route, market }: { route: StrikeRoute; market: Mark
   const strikes = saved.includes(route.strike) ? saved : [...saved, route.strike].sort((a, b) => a - b);
   const side = route.type === "CE" ? "call" : "put";
   const name = `${route.symbol} ${num(route.strike)} ${route.type}`;
-  const moneyness =
-    spot == null
-      ? null
-      : Math.abs(route.strike - spot) / spot < 0.0025
-        ? "At the money"
-        : (route.type === "CE") === route.strike < spot
-          ? "In the money"
-          : "Out of the money";
+  // ATM is the listed strike nearest spot; others count strikes away from it, as in the chain.
+  const atm = spot == null || !strikes.length ? null : atmStrike(strikes, spot);
+  const position = (strike: number) =>
+    atm == null ? null : strikePosition(strikes, strike, atm, route.type === "CE");
+  const here = position(route.strike);
 
   return (
     <>
@@ -186,11 +184,13 @@ export function StrikePage({ route, market }: { route: StrikeRoute; market: Mark
         </a>
         <div>
           <h2 className="strike-page-title">
-            {name} <span className="muted">· {shortDate(route.expiry)} expiry</span>
+            {name}{" "}
+            {here && <span className={`moneyness moneyness-lg ${here.state.toLowerCase()}`}>{here.label}</span>}{" "}
+            <span className="muted">· {shortDate(route.expiry)} expiry</span>
           </h2>
           <span className="muted">
             {route.type === "CE" ? "Call" : "Put"}
-            {moneyness ? `, ${moneyness.toLowerCase()}` : ""}
+            {here ? `, ${here.label}` : ""}
             {spot != null ? ` (spot ${num(spot, 2)})` : ""}
           </span>
         </div>
@@ -217,7 +217,10 @@ export function StrikePage({ route, market }: { route: StrikeRoute; market: Mark
           label="Strike"
           value={String(route.strike)}
           onChange={(value) => go({ strike: Number(value) })}
-          options={strikes.map((s) => ({ value: String(s), label: num(s) }))}
+          options={strikes.map((s) => {
+            const at = position(s);
+            return { value: String(s), label: at ? `${num(s)} · ${at.label}` : num(s) };
+          })}
         />
         <Select
           label="Side"

@@ -14,6 +14,7 @@ import { Legend, LineChart, PairedColumns } from "../charts";
 import { compact, dateTimeIst, fraction, num, pct, shortDate } from "../format";
 import { savedStore } from "../saved";
 import { Empty, Panel, Select, Status, Tile, type Tone } from "../ui";
+import { atmStrike, strikePosition, type Moneyness, type StrikePosition } from "../moneyness";
 import { openStrike, type OptionSide } from "./StrikeChart";
 
 const CALLS = "var(--series-1)";
@@ -46,7 +47,6 @@ function trendStatus(trend: string | null): { tone: Tone; label: string } {
   return { tone: "neutral", label: "Not enough history" };
 }
 
-type Moneyness = "ITM" | "ATM" | "OTM";
 
 // Columns from the outside in. Puts show the same columns mirrored.
 const CHAIN_COLUMNS = [
@@ -69,10 +69,6 @@ const CHAIN_VIEWS: Record<string, readonly ChainColumn[]> = {
   Greeks: ["IV", "Delta", "Gamma", "Theta", "Vega", "LTP"],
 };
 
-function moneyness(strike: number, atm: number, isCall: boolean): Moneyness {
-  if (strike === atm) return "ATM";
-  return strike < atm === isCall ? "ITM" : "OTM";
-}
 
 function signedCompact(value: number | null | undefined): string {
   if (value === null || value === undefined) return "–";
@@ -138,8 +134,8 @@ function Side({
   );
 }
 
-function Tag({ state }: { state: Moneyness }) {
-  return <span className={`moneyness ${state.toLowerCase()}`}>{state}</span>;
+function Tag({ position }: { position: StrikePosition }) {
+  return <span className={`moneyness ${position.state.toLowerCase()}`}>{position.label}</span>;
 }
 
 function ChainTable({
@@ -154,10 +150,8 @@ function ChainTable({
   onPick: (strike: number, type: OptionSide, newTab: boolean) => void;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
-  const atm = expiry.rows.reduce(
-    (best, row) => (Math.abs(row.strike - spot) < Math.abs(best - spot) ? row.strike : best),
-    expiry.rows[0]?.strike ?? 0,
-  );
+  const strikes = expiry.rows.map((row) => row.strike);
+  const atm = atmStrike(strikes, spot);
   const allOi = expiry.rows.flatMap((row) => [row.ce?.oi ?? 0, row.pe?.oi ?? 0]);
   const maxOi = Math.max(...allOi, 0);
   const peakCall = Math.max(...expiry.rows.map((row) => row.ce?.oi ?? 0), 0);
@@ -211,8 +205,10 @@ function ChainTable({
         </thead>
         <tbody>
           {expiry.rows.flatMap((row, index) => {
-            const callState = moneyness(row.strike, atm, true);
-            const putState = moneyness(row.strike, atm, false);
+            const callPosition = strikePosition(strikes, row.strike, atm, true);
+            const putPosition = strikePosition(strikes, row.strike, atm, false);
+            const callState = callPosition.state;
+            const putState = putPosition.state;
             const line = (
               <tr key={row.strike} className={row.strike === atm ? "atm" : ""}>
                 <Side
@@ -226,9 +222,9 @@ function ChainTable({
                 />
                 <td className="strike">
                   <span className="strike-cell">
-                    <Tag state={callState} />
+                    <Tag position={callPosition} />
                     <b>{num(row.strike)}</b>
-                    <Tag state={putState} />
+                    <Tag position={putPosition} />
                   </span>
                 </td>
                 <Side
