@@ -427,6 +427,34 @@ INDICATORS: dict[str, Indicator] = {
 }
 
 
+# On a chart, drawn over the candles because they are prices. Anything else gets its own pane.
+CHART_OVERLAY = {
+    "close",
+    "open",
+    "high",
+    "low",
+    "prev_close",
+    "prev_high",
+    "prev_low",
+    "sma",
+    "ema",
+    "wma",
+    "bbands",
+    "supertrend",
+    "donchian",
+    "prior_high",
+    "prior_low",
+    "opening_range",
+    "pivots",
+}
+# Fields of overlay indicators that are not prices.
+CHART_SEPARATE_FIELDS = {
+    ("bbands", "width_pct"),
+    ("bbands", "percent_b"),
+    ("supertrend", "direction"),
+}
+
+
 # ---- Candle patterns -----------------------------------------------------------------------
 
 
@@ -900,6 +928,7 @@ def catalog() -> dict:
                 ],
                 "fields": [{"value": k, "label": v} for k, v in indicator.fields.items()],
                 "intraday_only": indicator.intraday_only,
+                "overlay": name in CHART_OVERLAY,
             }
             for name, indicator in INDICATORS.items()
         ],

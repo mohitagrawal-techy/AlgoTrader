@@ -4553,3 +4553,381 @@ main > .empty {
 .lab-tools > .panel + .lab-tools-grid {
   margin-top: 16px;
 }
+
+/* Index chart in the strategy builder. Prefixed with .index-chart so the scoped Bootstrap
+   reset inside the editor does not override it. */
+.index-chart {
+  display: grid;
+  gap: 10px;
+}
+
+.index-chart .chart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.index-chart .chart-group {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.index-chart .chart-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 13px/1 var(--font);
+  cursor: pointer;
+}
+
+.index-chart .chart-chip:hover {
+  background: var(--hover-wash);
+  color: var(--ink);
+}
+
+.index-chart .chart-chip[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.index-chart .chart-chip:focus-visible,
+.index-chart .chart-tool:focus-visible,
+.index-chart .chart-picker-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.index-chart .chart-add {
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.index-chart .chart-add[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+
+.index-chart .chart-symbol select {
+  min-height: 34px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: 600 14px/1 var(--font);
+}
+
+.index-chart .chart-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+  margin-left: auto;
+}
+
+.index-chart .chart-toggle input {
+  accent-color: var(--accent);
+}
+
+.index-chart .chart-picker {
+  position: relative;
+}
+
+.index-chart .chart-picker-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(360px, calc(100vw - 32px));
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+.index-chart .chart-picker-panel input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 400 14px var(--font);
+}
+
+.index-chart .chart-picker-list {
+  max-height: 340px;
+  overflow-y: auto;
+  margin-top: 6px;
+}
+
+.index-chart .chart-picker-group {
+  padding: 8px 8px 4px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.index-chart .chart-picker-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 500 14px/1.25 var(--font);
+  text-align: left;
+  cursor: pointer;
+}
+
+.index-chart .chart-picker-item small {
+  color: var(--ink-3);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.index-chart .chart-picker-item:hover {
+  background: var(--hover-wash);
+}
+
+.index-chart .chart-picker-empty {
+  padding: 8px;
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.index-chart .chart-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.index-chart .chart-settings label {
+  display: grid;
+  gap: 4px;
+  color: var(--ink-2);
+}
+
+.index-chart .chart-settings input {
+  width: 96px;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 14px var(--font);
+}
+
+.index-chart .chart-stage {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  /* clip, not hidden: focusing a legend button must never scroll the chart sideways. */
+  overflow: hidden;
+  overflow: clip;
+  background: var(--surface);
+}
+
+.index-chart .chart-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.index-chart .chart-legend {
+  position: absolute;
+  left: 8px;
+  z-index: 3;
+  display: grid;
+  gap: 1px;
+  max-width: calc(100% - 80px);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.index-chart .chart-legend-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-bottom: 2px;
+  color: var(--ink);
+}
+
+.index-chart .chart-legend-head strong {
+  font-size: 14px;
+}
+
+.index-chart .chart-ohlc {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.index-chart .chart-ohlc b {
+  color: var(--ink);
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.index-chart .chart-ohlc b.pnl-up {
+  color: var(--pnl-up);
+}
+
+.index-chart .chart-ohlc b.pnl-down {
+  color: var(--pnl-down);
+}
+
+.index-chart .chart-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  width: max-content;
+  max-width: 100%;
+  padding: 0 4px;
+  border-radius: var(--r-sm);
+  color: var(--ink-2);
+  pointer-events: auto;
+}
+
+.index-chart .chart-legend-row:hover,
+.index-chart .chart-legend-row:focus-within {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.index-chart .chart-legend-row.is-hidden .chart-legend-name {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+
+.index-chart .chart-swatch {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.index-chart .chart-legend-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.index-chart .chart-legend-values {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.index-chart .chart-legend-error {
+  color: var(--critical);
+}
+
+.index-chart .chart-legend-tools {
+  display: inline-flex;
+  gap: 1px;
+  opacity: 0.35;
+  transition: opacity 120ms ease;
+}
+
+.index-chart .chart-legend-row:hover .chart-legend-tools,
+.index-chart .chart-legend-row:focus-within .chart-legend-tools {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .index-chart .chart-legend-tools {
+    opacity: 1;
+  }
+}
+
+.index-chart .chart-tool {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.index-chart .chart-tool:hover {
+  background: var(--hover-wash);
+  color: var(--ink);
+}
+
+.index-chart .chart-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  color: var(--ink-3);
+  text-align: center;
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  z-index: 4;
+}
+
+.index-chart .chart-foot {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.index-chart .chart-signals {
+  display: grid;
+  gap: 2px;
+  color: var(--ink-2);
+}
+
+.index-chart .chart-signal-mark {
+  color: var(--accent);
+}
+
+.index-chart .chart-signal-rule {
+  margin-left: 10px;
+  color: var(--ink-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .index-chart .chart-legend-tools {
+    transition: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .index-chart .chart-toggle {
+    margin-left: 0;
+  }
+
+  .index-chart .chart-legend {
+    max-width: calc(100% - 64px);
+  }
+}

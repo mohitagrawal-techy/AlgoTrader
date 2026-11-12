@@ -26,6 +26,7 @@ from algoverse.data.collector import collect_snapshots
 from algoverse.data.stream import live_chain
 from algoverse.execution.cycle import run_cycle
 from algoverse.execution.ledger import CANCELLED, CLOSED, EXITING, LIVE_STATUSES, OPEN
+from algoverse.lab.chart import ChartRequest
 from algoverse.lab.service import LabBusy, LabError
 from algoverse.market.assistant import AssistantError, UnknownTarget
 from algoverse.market.index_details import save_constituents
@@ -457,6 +458,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 datetime.now(IST), body.rounds, body.per_round, body.guidance
             )
         )
+
+    @app.post("/api/lab/chart")
+    def lab_chart(body: ChartRequest) -> dict:
+        """Read-only: candles, indicator lines and where entry rules held."""
+        return _lab(lambda: runtime.lab.chart(body))
 
     @app.post("/api/lab/autopilot")
     def lab_autopilot(

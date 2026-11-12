@@ -1,4 +1,5 @@
 import "bootstrap/dist/css/bootstrap.min.css";
+import { IndexChart } from "./IndexChart";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   api,
@@ -516,6 +517,21 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
           </li>
         </ol>
       </nav>
+
+      <Section
+        title="Chart"
+        hint="The underlying with any indicators you add. Arrows mark candles where your entry rules held. Use + on an indicator to turn it into an entry rule."
+      >
+        <IndexChart
+          catalog={lab.technical}
+          symbols={lab.symbols}
+          rules={rules}
+          anyRules={anyRules}
+          onAddRule={
+            rules.length < MAX_RULES ? (rule) => setEntry({ rules: [...rules, rule] }) : undefined
+          }
+        />
+      </Section>
 
       <div className="row g-3">
         <div className="col-12 col-xl-8">

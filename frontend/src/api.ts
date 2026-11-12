@@ -781,6 +781,42 @@ export type TechRule =
       present: boolean;
     };
 
+export interface ChartStudyRequest {
+  id: string;
+  name: string;
+  params: Record<string, number>;
+}
+
+export interface ChartStudy {
+  id: string;
+  name: string;
+  label?: string;
+  unit?: string;
+  params?: Record<string, number>;
+  error?: string;
+  lines: { field: string | null; label: string; overlay: boolean; values: (number | null)[] }[];
+}
+
+export interface ChartData {
+  symbol: string;
+  timeframe: TechTimeframe;
+  empty?: string;
+  timeframe_label?: string;
+  source?: string;
+  time: number[];
+  open: (number | null)[];
+  high: (number | null)[];
+  low: (number | null)[];
+  close: (number | null)[];
+  studies: ChartStudy[];
+  signals: {
+    rules: { group: "all" | "any"; text: string; count: number }[];
+    other_timeframes: string[];
+    problems: string[];
+    hits: number[];
+  };
+}
+
 export interface TechCatalog {
   timeframes: { value: TechTimeframe; label: string }[];
   candle_types?: { value: CandleType; label: string }[];
@@ -792,6 +828,8 @@ export interface TechCatalog {
     description: string;
     params: { name: string; label: string; default: number; min: number; max: number; whole: boolean }[];
     fields: { value: string; label: string }[];
+    intraday_only?: boolean;
+    overlay?: boolean;
   }[];
   patterns: { name: string; label: string; bias: "bullish" | "bearish" | "neutral"; description: string }[];
 }
@@ -1081,9 +1119,10 @@ export interface LabOverview {
   strategies: LabRow[];
 }
 
-async function sendJson<T>(path: string, method: string, payload?: unknown): Promise<T> {
+async function sendJson<T>(path: string, method: string, payload?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {
     method,
+    signal,
     headers: { "Content-Type": "application/json", "X-AlgoVerse-Client": "dashboard" },
     body: payload === undefined ? undefined : JSON.stringify(payload),
   });
@@ -1178,6 +1217,18 @@ export const api = {
   }) => sendJson<unknown>("/api/lab/tune", "POST", body),
   labTuneSave: (sessionId: string, nodeId: string) =>
     sendJson<{ id: string }>(`/api/lab/tune/${encodeURIComponent(sessionId)}/save`, "POST", { node_id: nodeId }),
+  labChart: (
+    body: {
+      symbol: string;
+      timeframe: TechTimeframe;
+      candles: CandleType;
+      sessions?: number;
+      studies: ChartStudyRequest[];
+      rules: TechRule[];
+      any_rules: TechRule[];
+    },
+    signal?: AbortSignal,
+  ) => sendJson<ChartData>("/api/lab/chart", "POST", body, signal),
   labAutopilot: (body: AutopilotSettings) => sendJson<unknown>("/api/lab/autopilot", "POST", body),
   labAutopilotStop: () => sendJson<unknown>("/api/lab/autopilot/stop", "POST"),
   labGenerate: (guidance: string) => sendJson<unknown>("/api/lab/generate", "POST", { guidance }),

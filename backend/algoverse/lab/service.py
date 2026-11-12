@@ -23,6 +23,9 @@ from algoverse.backtest.dataview import History
 from algoverse.backtest.progress import set_progress
 from algoverse.backtest.registry import Registry
 from algoverse.dashboard import clean
+from algoverse.data.candles import MINUTE
+from algoverse.data.store import SnapshotStore
+from algoverse.lab.chart import ChartRequest, chart
 from algoverse.lab.designer import _rules_help, design_strategies, feedback_row
 from algoverse.lab.evaluate import (
     HELD_UP,
@@ -107,6 +110,7 @@ class LabService:
         self._lock = threading.Lock()
         self._job: dict | None = None
         self._stop = threading.Event()
+        self._bars: tuple[tuple, dict[str, pd.DataFrame]] | None = None
 
     # ---- Storage -------------------------------------------------------------------------
 
@@ -655,6 +659,32 @@ class LabService:
         job = self._start("tune", work)
         job["session_id"] = target
         return job
+
+    # ---- Chart ----------------------------------------------------------------------------
+
+    def _daily_bars(self, symbol: str) -> pd.DataFrame:
+        """Daily candles as the backtests read them, rebuilt only when history changes."""
+        history = History(self.data_dir)
+        sessions = history.sessions
+        key = (len(sessions), sessions[-1] if sessions else None)
+        if self._bars is None or self._bars[0] != key:
+            self._bars = (key, {})
+        cache = self._bars[1]
+        if symbol not in cache:
+            cache[symbol] = history.bars(symbol)
+        return cache[symbol]
+
+    def chart(self, request: ChartRequest) -> dict:
+        config = load_backtest_config(self.config_dir)
+        if request.symbol not in config.symbols:
+            raise LabError(f"Choose one of {', '.join(config.symbols)}.")
+        daily = self._daily_bars(request.symbol)
+        minutes = (
+            SnapshotStore(self.data_dir).read_candles(request.symbol, MINUTE)
+            if request.timeframe in ("5m", "15m", "1h")
+            else pd.DataFrame()
+        )
+        return clean(chart(daily, minutes, request))
 
     # ---- Autopilot ------------------------------------------------------------------------
 
