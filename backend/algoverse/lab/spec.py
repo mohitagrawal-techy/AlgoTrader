@@ -7,7 +7,7 @@ import json
 import re
 from collections import Counter
 from dataclasses import replace
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import Literal
 
 import pandas as pd
@@ -106,6 +106,10 @@ class EntryRules(BaseModel):
     # Intraday strategies: only enter between these times. None means any time.
     time_from: time | None = None
     time_to: time | None = None
+    # At most this many trades a day. None means no limit.
+    max_trades_per_day: int | None = Field(default=None, ge=1, le=50)
+    # False: after a stop-out, no new trade for the rest of the day.
+    reenter_after_stop: bool = True
 
     @model_validator(mode="after")
     def _check_ranges(self) -> EntryRules:
@@ -125,19 +129,50 @@ class EntryRules(BaseModel):
         return self
 
 
+ExitUnit = Literal["premium", "rupees", "points"]
+# Allowed amounts per unit: a fraction of the premium, rupees per lot, option points per lot.
+UNIT_RANGES = {"premium": (0.05, 5.0), "rupees": (1.0, 1_000_000.0), "points": (0.05, 10_000.0)}
+
+
+def _check_amount(name: str, value: float | None, unit: str) -> None:
+    if value is None:
+        return
+    low, high = UNIT_RANGES[unit]
+    if not low <= value <= high:
+        raise ValueError(f"{name} in {unit} must be between {low:g} and {high:g}")
+
+
 class ExitRules(BaseModel):
-    # Fractions of the premium paid or received.
-    target_frac: float = Field(default=0.5, ge=0.05, le=5)
-    stop_frac: float = Field(default=0.5, ge=0.05, le=5)
+    # Profit target and stop loss, each in its unit: "premium" is a fraction of the premium
+    # paid or received (0.5 is half), "rupees" is rupees per lot, "points" is option points.
+    target_frac: float = Field(default=0.5, gt=0)
+    stop_frac: float = Field(default=0.5, gt=0)
+    target_unit: ExitUnit = "premium"
+    stop_unit: ExitUnit = "premium"
     # Calendar days before the entry expiry for the 15:00 time exit.
     exit_dte: int = Field(default=1, ge=0, le=10)
     # Intraday strategies: close by this time every day. None holds positions overnight.
     square_off: time | None = None
+    # Trailing stop: once in profit, the stop follows the best P&L at this distance.
+    trail: float | None = None
+    trail_unit: ExitUnit = "premium"
+    # Move-to-cost: once the gain reaches this, the stop moves up to the entry price.
+    breakeven_at: float | None = None
+    breakeven_unit: ExitUnit = "premium"
+    # Exit when any of these indicator, pattern or price rules holds.
+    rules: list[TechRule] = Field(default_factory=list, max_length=8)
+    # Stop this strategy for the day once its P&L that day reaches either level, in rupees.
+    daily_stop: float | None = Field(default=None, gt=0)
+    daily_target: float | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def _in_session(self) -> ExitRules:
         if self.square_off is not None and not SESSION_OPEN < self.square_off <= SESSION_LAST:
             raise ValueError("square_off must be between 09:15 and 15:25")
+        _check_amount("target", self.target_frac, self.target_unit)
+        _check_amount("stop", self.stop_frac, self.stop_unit)
+        _check_amount("trail", self.trail, self.trail_unit)
+        _check_amount("breakeven_at", self.breakeven_at, self.breakeven_unit)
         return self
 
 
@@ -168,7 +203,8 @@ class StrategySpec(BaseModel):
         intraday_only = (
             self.entry.time_from or self.entry.time_to or self.exits.square_off
         ) is not None
-        if self.decide_every == "day" and (intraday_only or needs_minutes(self.entry.rules)):
+        minute_rules = needs_minutes(self.entry.rules) or needs_minutes(self.exits.rules)
+        if self.decide_every == "day" and (intraday_only or minute_rules):
             raise ValueError(
                 "entry times, square-off and 5m/15m/1h rules need a decision every 5, 15 or 60 "
                 "minutes"
@@ -197,6 +233,17 @@ LATER_SETTINGS = (
     ("entry", "time_from", None),
     ("entry", "time_to", None),
     ("exits", "square_off", None),
+    ("exits", "target_unit", "premium"),
+    ("exits", "stop_unit", "premium"),
+    ("exits", "trail", None),
+    ("exits", "trail_unit", "premium"),
+    ("exits", "breakeven_at", None),
+    ("exits", "breakeven_unit", "premium"),
+    ("exits", "rules", []),
+    ("exits", "daily_stop", None),
+    ("exits", "daily_target", None),
+    ("entry", "max_trades_per_day", None),
+    ("entry", "reenter_after_stop", True),
     (None, "decide_every", "day"),
 )
 
@@ -373,13 +420,90 @@ def entry_failures(
     return reasons
 
 
+STOPPED_OUT = {"stop", "trailing_stop", "stop_at_cost"}
+
+
+def _day(moment: str | None):
+    return None if moment is None else datetime.fromisoformat(moment).date()
+
+
 class CustomSet:
-    """Feeds custom strategies into the normal idea pipeline."""
+    """Feeds custom strategies into the normal idea pipeline, and enforces their exit rules
+    and daily limits on the positions they opened."""
 
     def __init__(self, specs: list[StrategySpec], only: bool = True):
         self.specs = specs
         self.only = only
         self.no_contracts: Counter = Counter()
+        # The broker whose positions the daily limits count. Set by the cycle.
+        self.broker = None
+
+    def _positions(self, spec: StrategySpec) -> list:
+        if self.broker is None:
+            return []
+        statuses = ("pending", "open", "exiting", "closed")
+        return [p for p in self.broker.ledger.positions(statuses) if p.strategy == spec.id]
+
+    def _day_pnl(self, positions: list, today) -> float:
+        total = 0.0
+        for position in positions:
+            if position.status == "closed" and _day(position.closed_at) == today:
+                total += position.realized_pnl or 0.0
+            elif position.status in ("open", "exiting"):
+                total += position.unrealized_pnl - position.entry_costs
+        return total
+
+    def limit_failures(self, spec: StrategySpec, today) -> list[str]:
+        """Why the strategy may not open another trade today."""
+        entry, exits = spec.entry, spec.exits
+        if (
+            entry.max_trades_per_day is None
+            and entry.reenter_after_stop
+            and exits.daily_stop is None
+            and exits.daily_target is None
+        ):
+            return []
+        positions = self._positions(spec)
+        reasons = []
+        today_trades = [p for p in positions if _day(p.created_at) == today]
+        if entry.max_trades_per_day is not None and len(today_trades) >= entry.max_trades_per_day:
+            reasons.append("entry rule: the day's trade limit is reached")
+        if not entry.reenter_after_stop and any(
+            p.status == "closed" and _day(p.closed_at) == today and p.exit_reason in STOPPED_OUT
+            for p in positions
+        ):
+            reasons.append("entry rule: no re-entry after a stop today")
+        pnl = self._day_pnl(positions, today)
+        if exits.daily_stop is not None and pnl <= -exits.daily_stop:
+            reasons.append("entry rule: the day's loss limit is reached")
+        if exits.daily_target is not None and pnl >= exits.daily_target:
+            reasons.append("entry rule: the day's profit target is reached")
+        return reasons
+
+    def exit_requests(self, ctx: MarketContext) -> list[tuple[int, str]]:
+        """Open positions of these strategies that their exit rules or daily limits close."""
+        requests = []
+        for spec in self.specs:
+            exits = spec.exits
+            if not (exits.rules or exits.daily_stop or exits.daily_target):
+                continue
+            positions = self._positions(spec)
+            mine = [p for p in positions if p.status == "open" and p.symbol == ctx.symbol]
+            if not mine:
+                continue
+            reason = None
+            pnl = self._day_pnl(positions, ctx.now.date())
+            if exits.daily_stop is not None and pnl <= -exits.daily_stop:
+                reason = "daily_stop"
+            elif exits.daily_target is not None and pnl >= exits.daily_target:
+                reason = "daily_target"
+            elif exits.rules:
+                frames = Frames(ctx.bars, getattr(ctx, "intraday", None))
+                if any(rule_failure(rule, frames) is None for rule in exits.rules):
+                    reason = "exit_rule"
+            if reason:
+                requests += [(position.id, reason) for position in mine]
+        return requests
 
     def candidates(
         self, ctx: MarketContext, chain: pd.DataFrame
@@ -394,7 +518,9 @@ class CustomSet:
             if candidate is None:
                 self.no_contracts[spec.id] += 1
             else:
-                found.append((candidate, entry_failures(spec, ctx, candidate.front_expiry)))
+                failures = entry_failures(spec, ctx, candidate.front_expiry)
+                failures += self.limit_failures(spec, ctx.now.date())
+                found.append((candidate, failures))
         return found
 
 
@@ -405,7 +531,7 @@ def apply_specs(services, specs: list[StrategySpec]):
     for spec in specs:
         key = profile_key(spec)
         scoring.profiles[key] = {name: Weight(w=w) for name, w in NEUTRAL_WEIGHTS.items()}
-        risk.exits[key] = ExitRule(**spec.exits.model_dump())
+        risk.exits[key] = ExitRule(**spec.exits.model_dump(exclude={"rules"}))
         if has_undefined_risk(spec):
             scoring.filters.block_on_high_events.append(key)
     risk.paper.max_new_per_cycle = max(len(services.backtest.symbols), 1)

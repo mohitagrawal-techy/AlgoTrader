@@ -44,6 +44,19 @@ class StepReport:
     halted: bool = False
 
 
+def effective_stop(position: Position) -> tuple[float, str]:
+    """The stop level now and its exit reason, after any trailing or move-to-cost.
+
+    Both only tighten the stop, and only once the position has been in profit."""
+    stop, reason = position.stop_pnl, "stop"
+    peak = position.peak_pnl
+    if position.breakeven_pnl is not None and peak >= position.breakeven_pnl and stop < 0:
+        stop, reason = 0.0, "stop_at_cost"
+    if position.trail_pnl is not None and peak > 0 and peak - position.trail_pnl > stop:
+        stop, reason = peak - position.trail_pnl, "trailing_stop"
+    return stop, reason
+
+
 def _settlement_moment(expiry: date) -> datetime:
     return datetime.combine(expiry, SETTLEMENT_TIME, tzinfo=IST)
 
@@ -105,6 +118,8 @@ class PaperBroker:
             expected_entry_debit=idea.structure.entry_debit * lots,
             last_spot=idea.ctx_spot,
             legs=legs,
+            trail_pnl=None if idea.plan.trail is None else idea.plan.trail * lots,
+            breakeven_pnl=None if idea.plan.breakeven_at is None else idea.plan.breakeven_at * lots,
         )
         position_id = self.ledger.save(position)
         self.ledger.log(now, position_id, "submitted", f"{position.strategy} x{lots}")
@@ -148,10 +163,19 @@ class PaperBroker:
             values = extremes(position)
             if values is None:
                 continue
-            if values[0] <= position.stop_pnl:
-                self._begin_exit(position, now, "stop", report)
+            stop, reason = effective_stop(position)
+            if values[0] <= stop:
+                self._begin_exit(position, now, reason, report)
             elif values[1] >= position.target_pnl:
                 self._begin_exit(position, now, "target", report)
+
+    def request_exit(self, position_id: int, now: datetime, reason: str) -> bool:
+        """Start closing an open position, for example when an exit rule fires."""
+        for position in self.ledger.positions((OPEN,)):
+            if position.id == position_id:
+                self._begin_exit(position, now, reason, StepReport())
+                return True
+        return False
 
     def flatten(self, now: datetime, chains: dict[str, pd.DataFrame]) -> StepReport:
         """Close everything at these quotes, for the end of a backtest."""
@@ -378,10 +402,14 @@ class PaperBroker:
         self.ledger.save(position)
         if position.status != OPEN:
             return
+        if not stale:
+            position.peak_pnl = max(position.peak_pnl, position.unrealized_pnl)
+            self.ledger.save(position)
+        stop, reason = effective_stop(position)
         if not stale and position.unrealized_pnl >= position.target_pnl:
             self._begin_exit(position, now, "target", report)
-        elif not stale and position.unrealized_pnl <= position.stop_pnl:
-            self._begin_exit(position, now, "stop", report)
+        elif not stale and position.unrealized_pnl <= stop:
+            self._begin_exit(position, now, reason, report)
         elif self._square_off_due(position, now):
             self._begin_exit(position, now, "square_off", report)
         elif self._time_exit_due(position, now):

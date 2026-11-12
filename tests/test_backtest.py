@@ -664,5 +664,12 @@ def test_backtest_api_empty_and_unknown_report(tmp_path):
     settings = Settings(_env_file=None, data_dir=tmp_path, ai_enabled=False)
     client = TestClient(create_app(settings))
     body = client.get("/api/backtests").json()
-    assert body == {"history": {"sessions": 0, "start": None, "end": None}, "reports": []}
+    assert body["history"] == {"sessions": 0, "start": None, "end": None}
+    assert body["reports"] == [] and body["job"] is None
+    assert body["options"]["walk_forward"]["ready"] is False
+    refused = client.post(
+        "/api/backtests/walk-forward", headers={"X-AlgoVerse-Client": "dashboard"}
+    )
+    assert refused.status_code == 400
+    assert client.post("/api/backtests/walk-forward").status_code == 403
     assert client.get("/api/backtests/not-a-report").status_code == 404

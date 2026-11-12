@@ -1,6 +1,14 @@
 import "bootstrap/dist/css/bootstrap.min.css";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, type LabCondition, type LabLeg, type LabOverview, type LabSpec, type TechRule } from "../api";
+import {
+  api,
+  type ExitUnit,
+  type LabCondition,
+  type LabLeg,
+  type LabOverview,
+  type LabSpec,
+  type TechRule,
+} from "../api";
 import { MAX_RULES, MINUTE_FRAMES, ruleProblems, ruleText, TechRulesEditor } from "./TechRules";
 
 const MAX_LEGS = 4;
@@ -22,6 +30,72 @@ const DECISIONS = [
 /** "09:30:00" from the server, "09:30" from an input: both shown as "09:30". */
 function hhmm(value: string | null | undefined): string {
   return value ? value.slice(0, 5) : "";
+}
+
+const UNITS: { value: ExitUnit; label: string }[] = [
+  { value: "premium", label: "× premium" },
+  { value: "rupees", label: "₹ per lot" },
+  { value: "points", label: "points" },
+];
+const UNIT_RANGES: Record<ExitUnit, [number, number]> = {
+  premium: [0.05, 5],
+  rupees: [1, 1_000_000],
+  points: [0.05, 10_000],
+};
+// A sensible starting amount when the unit changes.
+const UNIT_DEFAULTS: Record<ExitUnit, number> = { premium: 0.5, rupees: 2000, points: 20 };
+
+function amountText(value: number | null | undefined, unit: ExitUnit | undefined): string {
+  if (value === null || value === undefined) return "–";
+  if (unit === "rupees") return `₹${value.toLocaleString("en-IN")}/lot`;
+  if (unit === "points") return `${value} pts`;
+  return `${value}× premium`;
+}
+
+/** An amount with its unit picker, as one input group. */
+function AmountInput({
+  id,
+  value,
+  unit,
+  invalid,
+  optional,
+  onChange,
+}: {
+  id: string;
+  value: number | null | undefined;
+  unit: ExitUnit | undefined;
+  invalid: boolean;
+  optional?: boolean;
+  onChange: (value: number | null, unit: ExitUnit) => void;
+}) {
+  const current = unit ?? "premium";
+  return (
+    <div className="input-group">
+      <NumberInput
+        id={id}
+        value={value ?? null}
+        step={current === "premium" ? 0.05 : current === "points" ? 1 : 100}
+        placeholder={optional ? "Off" : undefined}
+        invalid={invalid}
+        onChange={(next) => onChange(next, current)}
+      />
+      <select
+        className="form-select flex-grow-0 w-auto"
+        aria-label="Unit"
+        value={current}
+        onChange={(event) => {
+          const next = event.target.value as ExitUnit;
+          onChange(value === null || value === undefined ? null : UNIT_DEFAULTS[next], next);
+        }}
+      >
+        {UNITS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 const NEW_LEG: LabLeg = {
@@ -97,8 +171,23 @@ function findProblems(spec: LabSpec): Problems {
   if (!problems.dte_min && !problems.dte_max && entry.dte_min > entry.dte_max) {
     problems.dte_max = "Must not be below the minimum.";
   }
-  if (!inRange(exits.target_frac, 0.05, 5)) problems.target_frac = "Use 0.05 to 5.";
-  if (!inRange(exits.stop_frac, 0.05, 5)) problems.stop_frac = "Use 0.05 to 5.";
+  const check = (key: string, value: number | null | undefined, unit: ExitUnit | undefined, optional = false) => {
+    if (optional && (value === null || value === undefined)) return;
+    const [low, high] = UNIT_RANGES[unit ?? "premium"];
+    if (!inRange(value ?? null, low, high)) problems[key] = `Use ${low} to ${high.toLocaleString("en-IN")}.`;
+  };
+  check("target_frac", exits.target_frac, exits.target_unit);
+  check("stop_frac", exits.stop_frac, exits.stop_unit);
+  check("trail", exits.trail, exits.trail_unit, true);
+  check("breakeven_at", exits.breakeven_at, exits.breakeven_unit, true);
+  for (const key of ["daily_stop", "daily_target"] as const) {
+    const value = exits[key];
+    if (value !== null && value !== undefined && !(value > 0)) problems[key] = "Use a positive amount, or leave empty.";
+  }
+  const trades = entry.max_trades_per_day;
+  if (trades !== null && trades !== undefined && !(Number.isInteger(trades) && trades >= 1 && trades <= 50)) {
+    problems.max_trades_per_day = "Use 1 to 50, or leave empty.";
+  }
   if (!inRange(exits.exit_dte, 0, 10)) problems.exit_dte = "Use 0 to 10 days.";
   if (!problems.dte_min && !problems.exit_dte && entry.dte_min <= exits.exit_dte) {
     problems.exit_dte = "Must be below the minimum days to expiry, or no trade can be entered.";
@@ -301,18 +390,22 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
   }, [route]);
 
   const rules: TechRule[] = spec.entry.rules ?? [];
+  const exitRules: TechRule[] = spec.exits.rules ?? [];
   const intraday = (spec.decide_every ?? "day") !== "day";
   const problems = useMemo(() => {
     const found: Record<string, string> = {
       ...findProblems(spec),
       ...(lab ? ruleProblems(lab.technical, spec.entry.rules ?? []) : {}),
+      ...(lab ? ruleProblems(lab.technical, spec.exits.rules ?? [], "exit-rule") : {}),
     };
     const daily = (spec.decide_every ?? "day") === "day";
-    (spec.entry.rules ?? []).forEach((rule, index) => {
-      if (daily && MINUTE_FRAMES.includes(rule.timeframe)) {
-        found[`rule-${index}-left`] = "Minute candles need a decision every 5, 15 or 60 minutes.";
-      }
-    });
+    for (const [prefix, list] of [["rule", spec.entry.rules ?? []], ["exit-rule", spec.exits.rules ?? []]] as const) {
+      list.forEach((rule, index) => {
+        if (daily && MINUTE_FRAMES.includes(rule.timeframe)) {
+          found[`${prefix}-${index}-left`] = "Minute candles need a decision every 5, 15 or 60 minutes.";
+        }
+      });
+    }
     const from = hhmm(spec.entry.time_from);
     const to = hhmm(spec.entry.time_to);
     const off = hhmm(spec.exits.square_off);
@@ -806,19 +899,25 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
           <Section title="Exit when" hint="The first of these to happen closes the trade.">
             <div className="row g-3">
               <div className="col-12 col-md-4">
-                <Field id="target" label="Take profit at" hint="0.5 means half the premium." problem={visible.target_frac}>
-                  <div className="input-group">
-                    <NumberInput id="target" value={spec.exits.target_frac} step={0.05} invalid={!!visible.target_frac} onChange={(value) => setExits({ target_frac: value as number })} />
-                    <span className="input-group-text">× premium</span>
-                  </div>
+                <Field id="target" label="Take profit at" hint="0.5× premium is half of it; ₹ and points are per lot." problem={visible.target_frac}>
+                  <AmountInput
+                    id="target"
+                    value={spec.exits.target_frac}
+                    unit={spec.exits.target_unit}
+                    invalid={!!visible.target_frac}
+                    onChange={(value, unit) => setExits({ target_frac: value as number, target_unit: unit })}
+                  />
                 </Field>
               </div>
               <div className="col-12 col-md-4">
                 <Field id="stop" label="Cut loss at" hint="A tighter stop fits the per-trade limit." problem={visible.stop_frac}>
-                  <div className="input-group">
-                    <NumberInput id="stop" value={spec.exits.stop_frac} step={0.05} invalid={!!visible.stop_frac} onChange={(value) => setExits({ stop_frac: value as number })} />
-                    <span className="input-group-text">× premium</span>
-                  </div>
+                  <AmountInput
+                    id="stop"
+                    value={spec.exits.stop_frac}
+                    unit={spec.exits.stop_unit}
+                    invalid={!!visible.stop_frac}
+                    onChange={(value, unit) => setExits({ stop_frac: value as number, stop_unit: unit })}
+                  />
                 </Field>
               </div>
               <div className="col-12 col-md-4">
@@ -847,6 +946,85 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
                   </Field>
                 </div>
               )}
+              <div className="col-12 col-md-4">
+                <Field id="trail" label="Trailing stop" hint="Once in profit, the stop follows the best P&L at this distance. Empty is off." problem={visible.trail}>
+                  <AmountInput
+                    id="trail"
+                    optional
+                    value={spec.exits.trail}
+                    unit={spec.exits.trail_unit}
+                    invalid={!!visible.trail}
+                    onChange={(value, unit) => setExits({ trail: value, trail_unit: unit })}
+                  />
+                </Field>
+              </div>
+              <div className="col-12 col-md-4">
+                <Field id="breakeven" label="Move stop to cost after" hint="Once the gain reaches this, the stop moves to the entry price. Empty is off." problem={visible.breakeven_at}>
+                  <AmountInput
+                    id="breakeven"
+                    optional
+                    value={spec.exits.breakeven_at}
+                    unit={spec.exits.breakeven_unit}
+                    invalid={!!visible.breakeven_at}
+                    onChange={(value, unit) => setExits({ breakeven_at: value, breakeven_unit: unit })}
+                  />
+                </Field>
+              </div>
+            </div>
+
+            <hr />
+            <div className="d-flex justify-content-between align-items-center mb-1">
+              <strong className="small">Exit rules</strong>
+              <span className="badge text-bg-secondary">
+                {exitRules.length} of {MAX_RULES}
+              </span>
+            </div>
+            <p className="form-text mt-0">
+              Close the trade when any of these holds, checked at each decision. For example, exit
+              when the 5-minute close crosses below EMA 20.
+            </p>
+            <TechRulesEditor
+              catalog={lab.technical}
+              rules={exitRules}
+              problems={visible}
+              intraday={intraday}
+              prefix="exit-rule"
+              addLabel="Add an exit rule"
+              onChange={(next) => setExits({ rules: next })}
+            />
+
+            <hr />
+            <strong className="small d-block mb-2">Daily limits</strong>
+            <div className="row g-3">
+              <div className="col-6 col-md-3">
+                <Field id="daily-stop" label="Daily stop loss" hint="₹, all trades of this strategy that day." problem={visible.daily_stop}>
+                  <NumberInput id="daily-stop" value={spec.exits.daily_stop ?? null} step={500} placeholder="Off" invalid={!!visible.daily_stop} onChange={(value) => setExits({ daily_stop: value })} />
+                </Field>
+              </div>
+              <div className="col-6 col-md-3">
+                <Field id="daily-target" label="Daily take profit" hint="₹; then no more trades that day." problem={visible.daily_target}>
+                  <NumberInput id="daily-target" value={spec.exits.daily_target ?? null} step={500} placeholder="Off" invalid={!!visible.daily_target} onChange={(value) => setExits({ daily_target: value })} />
+                </Field>
+              </div>
+              <div className="col-6 col-md-3">
+                <Field id="max-trades" label="Max trades per day" hint="Empty means no limit." problem={visible.max_trades_per_day}>
+                  <NumberInput id="max-trades" value={spec.entry.max_trades_per_day ?? null} placeholder="No limit" invalid={!!visible.max_trades_per_day} onChange={(value) => setEntry({ max_trades_per_day: value })} />
+                </Field>
+              </div>
+              <div className="col-6 col-md-3 d-flex align-items-end">
+                <div className="form-check mb-2">
+                  <input
+                    id="reenter"
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={spec.entry.reenter_after_stop ?? true}
+                    onChange={(event) => setEntry({ reenter_after_stop: event.target.checked })}
+                  />
+                  <label className="form-check-label" htmlFor="reenter">
+                    Re-enter after a stop
+                  </label>
+                </div>
+              </div>
             </div>
           </Section>
         </div>
@@ -882,9 +1060,32 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
                   </ul>
                 )}
                 <div>
-                  <span className="text-body-secondary">Exits</span> profit {spec.exits.target_frac}×, loss {spec.exits.stop_frac}×, {spec.exits.exit_dte}d before expiry
+                  <span className="text-body-secondary">Exits</span> profit {amountText(spec.exits.target_frac, spec.exits.target_unit)}, loss{" "}
+                  {amountText(spec.exits.stop_frac, spec.exits.stop_unit)}, {spec.exits.exit_dte}d before expiry
                   {spec.exits.square_off ? `, square off by ${hhmm(spec.exits.square_off)}` : ""}
+                  {spec.exits.trail ? `, trailing ${amountText(spec.exits.trail, spec.exits.trail_unit)}` : ""}
+                  {spec.exits.breakeven_at ? `, to cost after ${amountText(spec.exits.breakeven_at, spec.exits.breakeven_unit)}` : ""}
                 </div>
+                {exitRules.length > 0 && (
+                  <ul className="mb-0 ps-3">
+                    {exitRules.map((rule, index) => (
+                      <li key={index}>Exit: {ruleText(lab.technical, rule)}</li>
+                    ))}
+                  </ul>
+                )}
+                {(spec.exits.daily_stop || spec.exits.daily_target || spec.entry.max_trades_per_day || spec.entry.reenter_after_stop === false) && (
+                  <div>
+                    <span className="text-body-secondary">Each day</span>{" "}
+                    {[
+                      spec.exits.daily_stop ? `stop at −₹${spec.exits.daily_stop.toLocaleString("en-IN")}` : "",
+                      spec.exits.daily_target ? `stop at +₹${spec.exits.daily_target.toLocaleString("en-IN")}` : "",
+                      spec.entry.max_trades_per_day ? `at most ${spec.entry.max_trades_per_day} trades` : "",
+                      spec.entry.reenter_after_stop === false ? "no re-entry after a stop" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}
+                  </div>
+                )}
                 <div>
                   <span className="text-body-secondary">Decides</span>{" "}
                   {DECISIONS.find((d) => d.value === (spec.decide_every ?? "day"))?.label.toLowerCase()}

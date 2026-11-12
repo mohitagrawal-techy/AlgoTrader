@@ -6,7 +6,7 @@ import logging
 import secrets
 import threading
 from dataclasses import asdict
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from algoverse.backtest.dataview import History
+from algoverse.backtest.jobs import BacktestBusy, BacktestError
 from algoverse.backtest.registry import Registry
 from algoverse.brokers import auth
 from algoverse.brokers.base import AuthExpiredError, MarketDataError
@@ -106,6 +107,13 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=40)
+
+
+class SingleBacktestRequest(BaseModel):
+    start: date
+    end: date
+    min_score: float = Field(default=0.0, ge=0, le=100)
+    disabled_profiles: list[str] = Field(default_factory=list, max_length=20)
 
 
 class LabBacktestRequest(BaseModel):
@@ -231,7 +239,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "end": sessions[-1] if sessions else None,
                 },
                 "reports": Registry(config.data_dir).list_reports(),
+                "options": runtime.backtest_jobs.options(),
+                "job": runtime.backtest_jobs.job,
             }
+        )
+
+    def _backtest_job(action):
+        try:
+            return clean(action())
+        except BacktestBusy as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except BacktestError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/backtests/walk-forward")
+    def backtest_walk_forward(x_algoverse_client: str | None = Header(default=None)) -> dict:
+        _require_dashboard(x_algoverse_client)
+        return _backtest_job(runtime.backtest_jobs.start_walk_forward)
+
+    @app.post("/api/backtests/run")
+    def backtest_single(
+        body: SingleBacktestRequest, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        _require_dashboard(x_algoverse_client)
+        return _backtest_job(
+            lambda: runtime.backtest_jobs.start_single(
+                body.start, body.end, body.min_score, body.disabled_profiles
+            )
         )
 
     @app.get("/api/backtests/{report_id}")

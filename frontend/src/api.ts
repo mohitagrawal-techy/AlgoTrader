@@ -381,9 +381,33 @@ export interface BacktestReport {
   };
 }
 
+export interface BacktestJob {
+  kind: "walk_forward" | "backtest";
+  state: "running" | "done" | "failed";
+  message: string;
+  started_at: string;
+  finished_at: string | null;
+  report_id: string | null;
+}
+
+export interface BacktestOptions {
+  walk_forward: {
+    ready: boolean;
+    folds: number;
+    needed: number;
+    settings: number;
+    train_sessions: number;
+    test_sessions: number;
+    holdout_sessions: number;
+  };
+  single: { first: string | null; last: string | null; min_scores: number[]; profiles: string[] };
+}
+
 export interface BacktestListing {
   history: { sessions: number; start: string | null; end: string | null };
   reports: { id: string; kind: string; created_at: string; verdict: string | null }[];
+  options?: BacktestOptions;
+  job?: BacktestJob | null;
 }
 
 export interface DriftCheck {
@@ -710,6 +734,7 @@ export interface LabCondition {
 
 export type TechTimeframe = "5m" | "15m" | "1h" | "1d" | "1w" | "1mo";
 export type DecideEvery = "day" | "5m" | "15m" | "1h";
+export type ExitUnit = "premium" | "rupees" | "points";
 
 export interface TechOperand {
   kind: "value" | "indicator";
@@ -765,13 +790,27 @@ export interface LabSpec {
     /** Intraday strategies: enter only between these times ("HH:MM"). */
     time_from?: string | null;
     time_to?: string | null;
+    max_trades_per_day?: number | null;
+    reenter_after_stop?: boolean;
   };
   exits: {
+    /** Amounts in the unit beside each: a fraction of premium, rupees per lot, or points. */
     target_frac: number;
     stop_frac: number;
+    target_unit?: ExitUnit;
+    stop_unit?: ExitUnit;
     exit_dte: number;
     /** Intraday strategies: close by this time ("HH:MM") every day. */
     square_off?: string | null;
+    trail?: number | null;
+    trail_unit?: ExitUnit;
+    breakeven_at?: number | null;
+    breakeven_unit?: ExitUnit;
+    /** Exit when any of these holds. */
+    rules?: TechRule[];
+    /** Rupees: stop the strategy for the day at this loss or gain. */
+    daily_stop?: number | null;
+    daily_target?: number | null;
   };
   /** "day" decides once at the close; the others decide through the session. */
   decide_every?: DecideEvery;
@@ -952,6 +991,9 @@ export const api = {
     getJson<LabBacktestPage>(`/api/lab/strategies/${encodeURIComponent(id)}/backtest`),
   portfolio: () => getJson<Portfolio>("/api/portfolio"),
   backtests: () => getJson<BacktestListing>("/api/backtests"),
+  startWalkForward: () => sendJson<BacktestJob>("/api/backtests/walk-forward", "POST"),
+  startBacktest: (body: { start: string; end: string; min_score: number; disabled_profiles: string[] }) =>
+    sendJson<BacktestJob>("/api/backtests/run", "POST", body),
   forward: () => getJson<ForwardOverview>("/api/forward"),
   lab: () => getJson<LabOverview>("/api/lab"),
   labSave: (spec: LabSpec) => sendJson<LabSpec>("/api/lab/strategies", "POST", spec),

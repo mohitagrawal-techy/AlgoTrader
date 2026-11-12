@@ -19,6 +19,9 @@ class ExitPlan:
     stop_pnl: float
     exit_dte: int
     planned_loss: float
+    # Trailing distance and move-to-cost trigger, in rupees per lot. None when unused.
+    trail: float | None = None
+    breakeven_at: float | None = None
 
 
 @dataclass
@@ -54,14 +57,32 @@ def make_exit_plan(
 ) -> ExitPlan:
     rule = config.exits[candidate.profile]
     basis = abs(structure.entry_debit)
-    target = rule.target_frac * basis
-    stop = rule.stop_frac * basis
+    lot = candidate.legs[0].lot_size if candidate.legs else 1
+
+    def rupees(value: float | None, unit: str) -> float | None:
+        if value is None:
+            return None
+        if unit == "rupees":
+            return value
+        if unit == "points":
+            return value * lot
+        return value * basis
+
+    target = rupees(rule.target_frac, getattr(rule, "target_unit", "premium"))
+    stop = rupees(rule.stop_frac, getattr(rule, "stop_unit", "premium"))
     planned = stop * config.stop_gap_buffer
     if structure.bounded:
         target = min(target, max(structure.max_profit, 0.0))
         stop = min(stop, structure.max_loss)
         planned = min(planned, structure.max_loss)
-    return ExitPlan(target, -stop, rule.exit_dte, planned)
+    return ExitPlan(
+        target,
+        -stop,
+        rule.exit_dte,
+        planned,
+        rupees(getattr(rule, "trail", None), getattr(rule, "trail_unit", "premium")),
+        rupees(getattr(rule, "breakeven_at", None), getattr(rule, "breakeven_unit", "premium")),
+    )
 
 
 def _reject(reason: str, plan: ExitPlan, structure: StructureMetrics) -> RiskDecision:

@@ -87,6 +87,11 @@ class Position:
     unrealized_pnl: float = 0.0
     stale: bool = False
     settlement_estimated: bool = False
+    # Trailing distance and move-to-cost trigger in rupees for the whole position, and the best
+    # P&L seen so far. None when the strategy does not use them.
+    trail_pnl: float | None = None
+    breakeven_pnl: float | None = None
+    peak_pnl: float = 0.0
 
     @property
     def front_expiry(self) -> date:

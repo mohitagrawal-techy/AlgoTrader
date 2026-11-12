@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import time
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -21,10 +22,24 @@ class MarginConfig(BaseModel):
     calendar_pct_of_notional: float
 
 
+# How an exit amount is measured: a fraction of the premium, rupees per lot, or points of the
+# option price (net premium) per lot.
+ExitUnit = Literal["premium", "rupees", "points"]
+
+
 class ExitRule(BaseModel):
+    # Amounts in the unit beside each one. The names keep their old meaning for "premium".
     target_frac: float = Field(gt=0)
     stop_frac: float = Field(gt=0)
     exit_dte: int = Field(ge=0)
+    target_unit: ExitUnit = "premium"
+    stop_unit: ExitUnit = "premium"
+    # Trailing stop: once in profit, the stop follows the best P&L at this distance.
+    trail: float | None = Field(default=None, gt=0)
+    trail_unit: ExitUnit = "premium"
+    # Move-to-cost: once the gain reaches this, the stop moves up to the entry price.
+    breakeven_at: float | None = Field(default=None, gt=0)
+    breakeven_unit: ExitUnit = "premium"
     # Intraday strategies close every position by this time each day. None holds overnight.
     square_off: time | None = None
 

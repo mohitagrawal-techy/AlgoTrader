@@ -2811,3 +2811,9 @@ main {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.run-profiles {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 30px;
+}

@@ -12,6 +12,7 @@ import pandas as pd
 from algoverse.ai.event_store import load_live_calendar
 from algoverse.ai.schemas import load_ai_config
 from algoverse.ai.service import build_ai_service
+from algoverse.backtest.jobs import BacktestJobs
 from algoverse.brokers.auth import token_store
 from algoverse.brokers.upstox import UpstoxMarketData
 from algoverse.data.calendar import BrokerCalendar
@@ -101,6 +102,10 @@ class Runtime:
             self.settings.data_dir,
             think=chosen.get("think"),
         )
+
+    @cached_property
+    def backtest_jobs(self) -> BacktestJobs:
+        return BacktestJobs(self.settings.data_dir, self.settings.config_dir)
 
     @cached_property
     def lab(self) -> LabService:

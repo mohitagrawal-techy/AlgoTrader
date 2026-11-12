@@ -99,6 +99,8 @@ def run_cycle(
         result.report = deps.broker.step(now, chains)
     portfolio = deps.broker.portfolio_state(now)
     vix = deps.store.read_candles(VIX_SYMBOL)
+    if deps.custom is not None and hasattr(deps.custom, "broker"):
+        deps.custom.broker = deps.broker
     markets = {}
     for symbol, chain in chains.items():
         if chain.empty:
@@ -123,6 +125,11 @@ def run_cycle(
         result.contexts[symbol] = context
         if trade:
             store_reference_iv(deps.store, symbol, chain, now)
+    # Custom strategies may close their own positions: exit rules and daily limits.
+    if trade and deps.custom is not None and hasattr(deps.custom, "exit_requests"):
+        for context, _ in markets.values():
+            for position_id, reason in deps.custom.exit_requests(context):
+                deps.broker.request_exit(position_id, now, reason)
     result.ideas.sort(key=rank_key)
     briefs: dict[str, dict | None] = {}
     if deps.ai is not None and markets:

@@ -20,6 +20,11 @@ const EXIT_REASONS: Record<string, string> = {
   end_of_test: "End of the test window",
   end_of_test_at_last_mark: "End of the test window",
   square_off: "Square-off time",
+  exit_rule: "Exit rule",
+  trailing_stop: "Trailing stop",
+  stop_at_cost: "Stop at cost",
+  daily_stop: "Daily stop loss",
+  daily_target: "Daily take profit",
 };
 const WINDOWS = {
   test: "Test (unseen)",

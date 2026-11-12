@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import secrets
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime
@@ -50,13 +51,27 @@ def _run_in_worker(task: tuple[str, str, ReplaySpec]) -> ReplayResult:
 
 
 def _run_all(
-    specs: list[ReplaySpec], data_dir: Path, config_dir: Path, workers: int
+    specs: list[ReplaySpec],
+    data_dir: Path,
+    config_dir: Path,
+    workers: int,
+    progress: Callable[[int, int], None] | None = None,
 ) -> list[ReplayResult]:
+    """Replay every spec, in order. `progress(done, total)` is called as replays finish."""
     tasks = [(str(data_dir), str(config_dir), spec) for spec in specs]
+    results = []
     if workers <= 1 or len(tasks) <= 1:
-        return [_run_in_worker(task) for task in tasks]
+        for task in tasks:
+            results.append(_run_in_worker(task))
+            if progress:
+                progress(len(results), len(tasks))
+        return results
     with ProcessPoolExecutor(max_workers=workers) as pool:
-        return list(pool.map(_run_in_worker, tasks))
+        for result in pool.map(_run_in_worker, tasks):
+            results.append(result)
+            if progress:
+                progress(len(results), len(tasks))
+    return results
 
 
 @dataclass(frozen=True)
@@ -144,17 +159,28 @@ def _stitch(results: list[ReplayResult]) -> tuple[pd.DataFrame, pd.Series]:
     return trades, daily
 
 
+def size_text(count: int) -> str:
+    return f"{count} setting{'s' if count != 1 else ''}"
+
+
 def _report_id(kind: str, now: datetime) -> str:
     return f"{kind}-{now.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
 
 
 def run_backtest(
-    data_dir: Path, config_dir: Path, now: datetime, spec: ReplaySpec, kind: str = "backtest"
+    data_dir: Path,
+    config_dir: Path,
+    now: datetime,
+    spec: ReplaySpec,
+    kind: str = "backtest",
+    note: Callable[[str], None] | None = None,
 ) -> dict:
     """One configuration over one window. Useful for inspection, not for judging an edge."""
     services = load_services(config_dir)
     digest = config_hash(config_dir)
     registry = Registry(data_dir)
+    if note:
+        note(f"Replaying {spec.start} to {spec.end}")
     result = _run_all([spec], data_dir, config_dir, 1)[0]
     _log(registry, now, kind, digest, result, services.risk.capital)
     summary = summarize(result.trades, result.daily_pnl, services.backtest, services.risk.capital)
@@ -174,7 +200,9 @@ def run_backtest(
     return report
 
 
-def run_walk_forward(data_dir: Path, config_dir: Path, now: datetime) -> dict:
+def run_walk_forward(
+    data_dir: Path, config_dir: Path, now: datetime, note: Callable[[str], None] | None = None
+) -> dict:
     services = load_services(config_dir)
     config = services.backtest
     settings = config.walk_forward
@@ -194,7 +222,15 @@ def run_walk_forward(data_dir: Path, config_dir: Path, now: datetime) -> dict:
         for fold in folds
         for score, disabled in grid
     ]
-    train_results = _run_all(train_specs, data_dir, config_dir, settings.workers)
+
+    def stage(label: str):
+        if note is None:
+            return None
+        return lambda done, total: note(f"{label}: {done} of {total} replays")
+
+    if note:
+        note(f"Training {size_text(len(grid))} on {len(folds)} folds")
+    train_results = _run_all(train_specs, data_dir, config_dir, settings.workers, stage("Training"))
     for result in train_results:
         _log(registry, now, "walk_forward_train", digest, result, capital)
 
@@ -227,7 +263,13 @@ def run_walk_forward(data_dir: Path, config_dir: Path, now: datetime) -> dict:
         fold_rows.append(row)
 
     stressed_specs = [replace(spec, spread_multiplier=2.0) for spec in test_specs]
-    tests = _run_all(test_specs + stressed_specs, data_dir, config_dir, settings.workers)
+    tests = _run_all(
+        test_specs + stressed_specs,
+        data_dir,
+        config_dir,
+        settings.workers,
+        stage("Testing on unseen windows"),
+    )
     normal, stressed = tests[: len(test_specs)], tests[len(test_specs) :]
     for result in tests:
         _log(registry, now, "walk_forward_test", digest, result, capital)

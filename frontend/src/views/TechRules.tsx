@@ -138,7 +138,11 @@ export function ruleText(catalog: TechCatalog, rule: TechRule): string {
 }
 
 /** Problems keyed by field id, matching the editor's other checks. */
-export function ruleProblems(catalog: TechCatalog, rules: TechRule[]): Record<string, string> {
+export function ruleProblems(
+  catalog: TechCatalog,
+  rules: TechRule[],
+  prefix = "rule",
+): Record<string, string> {
   const problems: Record<string, string> = {};
   const checkOperand = (id: string, operand: TechOperand) => {
     if (operand.kind === "value") {
@@ -160,13 +164,13 @@ export function ruleProblems(catalog: TechCatalog, rules: TechRule[]): Record<st
   };
   rules.forEach((rule, index) => {
     if (rule.type === "pattern") {
-      if (!Number.isInteger(rule.within) || rule.within < 1 || rule.within > 20) problems[`rule-${index}-within`] = "1 to 20.";
+      if (!Number.isInteger(rule.within) || rule.within < 1 || rule.within > 20) problems[`${prefix}-${index}-within`] = "1 to 20.";
       return;
     }
-    checkOperand(`rule-${index}-left`, rule.left);
-    checkOperand(`rule-${index}-right`, rule.right);
+    checkOperand(`${prefix}-${index}-left`, rule.left);
+    checkOperand(`${prefix}-${index}-right`, rule.right);
     if (rule.left.kind === "value" && rule.right.kind === "value") {
-      problems[`rule-${index}-right`] = "Compare at least one indicator.";
+      problems[`${prefix}-${index}-right`] = "Compare at least one indicator.";
     }
   });
   return problems;
@@ -312,6 +316,8 @@ export function TechRulesEditor({
   problems,
   intraday,
   onChange,
+  prefix = "rule",
+  addLabel = "Add a rule",
 }: {
   catalog: TechCatalog;
   rules: TechRule[];
@@ -319,6 +325,9 @@ export function TechRulesEditor({
   /** Minute timeframes are offered only to strategies that decide during the day. */
   intraday: boolean;
   onChange: (rules: TechRule[]) => void;
+  /** Field ids start with this, so entry and exit rules do not collide. */
+  prefix?: string;
+  addLabel?: string;
 }) {
   const frames = catalog.timeframes.filter(
     (frame) => intraday || !MINUTE_FRAMES.includes(frame.value) || rules.some((r) => r.timeframe === frame.value),
@@ -377,7 +386,7 @@ export function TechRulesEditor({
           {rule.type === "compare" ? (
             <div className="tech-compare mt-2">
               <OperandEditor
-                id={`rule-${index}-left`}
+                id={`${prefix}-${index}-left`}
                 catalog={catalog}
                 operand={rule.left}
                 allowNumber={false}
@@ -397,7 +406,7 @@ export function TechRulesEditor({
                 ))}
               </select>
               <OperandEditor
-                id={`rule-${index}-right`}
+                id={`${prefix}-${index}-right`}
                 catalog={catalog}
                 operand={rule.right}
                 allowNumber
@@ -435,10 +444,10 @@ export function TechRulesEditor({
                 ))}
               </select>
               <SmallNumber
-                id={`rule-${index}-within`}
+                id={`${prefix}-${index}-within`}
                 label="Within the last N candles"
                 value={rule.within}
-                invalid={!!problems[`rule-${index}-within`]}
+                invalid={!!problems[`${prefix}-${index}-within`]}
                 onChange={(value) => update(index, { ...rule, within: value ?? 1 })}
               />
               <div className="form-text w-100">
@@ -469,7 +478,7 @@ export function TechRulesEditor({
               ])
             }
           >
-            Add a rule
+            {addLabel}
           </button>
           <select
             className="form-select form-select-sm w-auto"
