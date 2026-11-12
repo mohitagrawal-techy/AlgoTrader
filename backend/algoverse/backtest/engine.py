@@ -264,6 +264,7 @@ def replay(
         ai=None,
         publish=False,
         custom=custom,
+        entry_block=lambda symbol: history.entry_block(view.as_of, symbol),
     )
     bar_by_day = {
         symbol: {ts.date(): row for ts, (_, row) in zip(frame["ts"], frame.iterrows(), strict=True)}

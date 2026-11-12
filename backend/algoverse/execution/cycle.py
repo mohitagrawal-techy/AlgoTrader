@@ -40,6 +40,8 @@ class CycleDeps:
     today_bars: Callable[[str], dict | None] | None = None
     # One-minute candles that ended by the decision, per symbol, for 5m/15m/1h rules.
     intraday_bars: Callable[[str], pd.DataFrame] | None = None
+    # Backtests: why no new trade may open on a symbol now, such as incomplete history.
+    entry_block: Callable[[str], str | None] | None = None
 
 
 @dataclass
@@ -120,6 +122,9 @@ def run_cycle(
         ideas = generate_ideas(
             context, chain, deps.scoring, deps.risk, deps.costs, portfolio, deps.custom
         )
+        blocked = deps.entry_block(symbol) if deps.entry_block else None
+        if blocked:
+            ideas = [replace(idea, rejections=(blocked, *idea.rejections)) for idea in ideas]
         result.ideas += [replace(idea, ctx_spot=context.spot) for idea in ideas]
         markets[symbol] = (context, chain)
         result.contexts[symbol] = context

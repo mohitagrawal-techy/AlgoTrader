@@ -8,7 +8,11 @@ import {
   LineSeries,
   LineStyle,
   type IChartApi,
+  type IPrimitivePaneRenderer,
+  type IPrimitivePaneView,
   type ISeriesApi,
+  type ISeriesPrimitive,
+  type SeriesAttachedParameter,
   type SeriesType,
   type Time,
   type UTCTimestamp,
@@ -138,7 +142,95 @@ function priceText(value: number | null | undefined): string {
 }
 
 function dashed(field: string | null): boolean {
-  return field === "middle" || field === "mid" || field === "signal" || field === "d" || field === "p";
+  return field === "mid" || field === "signal" || field === "d" || field === "p";
+}
+
+// Channels drawn as two edges with a shaded fill and a solid middle line.
+const BANDS: Record<string, { upper: string; lower: string; middle: string }> = {
+  bbands: { upper: "upper", lower: "lower", middle: "middle" },
+  donchian: { upper: "upper", lower: "lower", middle: "middle" },
+};
+
+function withAlpha(colour: string, alpha: number): string {
+  const hex = colour.match(/^#([0-9a-f]{6})$/i);
+  if (hex) {
+    const n = parseInt(hex[1], 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+  }
+  const rgb = colour.match(/^rgba?\(([^)]+)\)$/i);
+  if (rgb) {
+    const [r, g, b] = rgb[1].split(",").map((part) => part.trim());
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return colour;
+}
+
+/** Shades the area between two lines, such as Bollinger Bands, under the candles. */
+class BandFill implements ISeriesPrimitive<Time> {
+  private attachedTo: SeriesAttachedParameter<Time> | null = null;
+  private readonly view: IPrimitivePaneView;
+
+  constructor(
+    private readonly times: Time[],
+    private readonly upper: (number | null)[],
+    private readonly lower: (number | null)[],
+    private readonly colour: string,
+  ) {
+    const renderer: IPrimitivePaneRenderer = {
+      draw: (target) => {
+        const attached = this.attachedTo;
+        if (!attached) return;
+        const scale = attached.chart.timeScale();
+        const range = scale.getVisibleLogicalRange();
+        if (!range) return;
+        const from = Math.max(0, Math.floor(range.from) - 1);
+        const to = Math.min(this.times.length - 1, Math.ceil(range.to) + 1);
+        target.useBitmapCoordinateSpace(({ context, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
+          context.fillStyle = this.colour;
+          let top: [number, number][] = [];
+          let bottom: [number, number][] = [];
+          const flush = () => {
+            if (top.length > 1) {
+              context.beginPath();
+              top.forEach(([x, y], i) => (i ? context.lineTo(x, y) : context.moveTo(x, y)));
+              for (let i = bottom.length - 1; i >= 0; i--) context.lineTo(bottom[i][0], bottom[i][1]);
+              context.closePath();
+              context.fill();
+            }
+            top = [];
+            bottom = [];
+          };
+          for (let i = from; i <= to; i++) {
+            const high = this.upper[i];
+            const low = this.lower[i];
+            const x = scale.timeToCoordinate(this.times[i]);
+            const yHigh = high === null ? null : attached.series.priceToCoordinate(high);
+            const yLow = low === null ? null : attached.series.priceToCoordinate(low);
+            if (x === null || yHigh === null || yLow === null) {
+              flush();
+              continue;
+            }
+            top.push([x * hr, yHigh * vr]);
+            bottom.push([x * hr, yLow * vr]);
+          }
+          flush();
+        });
+      },
+    };
+    this.view = { zOrder: () => "bottom", renderer: () => renderer };
+  }
+
+  attached(param: SeriesAttachedParameter<Time>): void {
+    this.attachedTo = param;
+  }
+
+  detached(): void {
+    this.attachedTo = null;
+  }
+
+  paneViews(): readonly IPrimitivePaneView[] {
+    return [this.view];
+  }
 }
 
 function newId(): string {
@@ -387,8 +479,12 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule }: Pro
       const colour = css(colours.get(study.id) ?? PALETTE[0]);
       const pane = panes.get(study.id) ?? 0;
       let levelsDrawn = false;
+      const band = BANDS[study.name];
+      const middleColour = css(colours.get(study.id) === "--series-2" ? "--series-1" : "--series-2");
+      const single = study.lines.length === 1;
       study.lines.forEach((line, index) => {
         const paneIndex = line.overlay ? 0 : pane;
+        const isMiddle = band && line.field === band.middle;
         const points = times.map((time, i) => {
           const value = line.values[i];
           return value === null ? { time } : { time, value };
@@ -410,16 +506,20 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule }: Pro
         const series = chart.addSeries(
           LineSeries,
           {
-            color: colour,
-            lineWidth: index === 0 ? 2 : 1,
-            lineStyle: dashed(line.field) ? LineStyle.Dashed : LineStyle.Solid,
+            color: isMiddle ? middleColour : colour,
+            lineWidth: single ? 2 : 1,
+            lineStyle: !band && dashed(line.field) ? LineStyle.Dashed : LineStyle.Solid,
             priceLineVisible: false,
-            lastValueVisible: index === 0,
+            lastValueVisible: band ? Boolean(isMiddle) : index === 0,
             crosshairMarkerVisible: false,
           },
           paneIndex,
         );
         series.setData(points);
+        if (band && line.field === band.upper) {
+          const lower = study.lines.find((other) => other.field === band.lower);
+          if (lower) series.attachPrimitive(new BandFill(times, line.values, lower.values, withAlpha(colour, 0.09)));
+        }
         if (paneIndex > 0 && !levelsDrawn) {
           for (const level of LEVELS[study.name] ?? []) {
             series.createPriceLine({

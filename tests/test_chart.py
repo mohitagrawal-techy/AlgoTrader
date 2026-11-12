@@ -95,13 +95,7 @@ def test_studies_split_into_price_overlays_and_their_own_panes():
     assert ema["label"] == "Exponential moving average (9)" and ema["lines"][0]["overlay"]
     assert len(ema["lines"][0]["values"]) == 200 and ema["lines"][0]["values"][0] is None
     overlays = {line["field"]: line["overlay"] for line in bands["lines"]}
-    assert overlays == {
-        "upper": True,
-        "middle": True,
-        "lower": True,
-        "width_pct": False,
-        "percent_b": False,
-    }
+    assert overlays == {"upper": True, "middle": True, "lower": True}
     assert not rsi["lines"][0]["overlay"]
     assert "needs 5-minute" in orb["error"] and "between 2 and 400" in bad["error"]
 

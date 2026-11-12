@@ -290,6 +290,38 @@ def cmd_history_upstox(_: argparse.Namespace) -> None:
         print(f"Incomplete {name}: {reason}. Run the command again to retry.")
 
 
+def cmd_history_fill(_: argparse.Namespace) -> None:
+    from algoverse.backtest.upstox_gaps import fill_gaps
+
+    rt = Runtime()
+    now = datetime.now(IST)
+    config = load_backtest_config(rt.settings.config_dir)
+    market = UpstoxMarketData(rt.tokens, limiter=RateLimiter(IMPORT_LIMITS))
+    futures = parse_future_contracts(download_master(), set(config.symbols))
+    try:
+        result = fill_gaps(
+            market, rt.settings.data_dir, config, rt.contracts(now), futures, now.date(), print
+        )
+    except AuthExpiredError as exc:
+        raise SystemExit(
+            "Upstox session expired. Log in from the dashboard and run again."
+        ) from exc
+    if not result.days and not result.intraday and not result.failed:
+        print("No missing sessions in the last quarter.")
+        return
+    for name, reason in result.failed.items():
+        print(f"Failed {name}: {reason}. Nothing was written; run again to retry.")
+    if result.written:
+        print(f"Wrote {len(result.written)} sessions, {result.written[0]} to {result.written[-1]}.")
+    if result.kept_existing:
+        print(f"Kept {len(result.kept_existing)} sessions already imported from other sources.")
+    if result.intraday:
+        print(f"Wrote 5-minute option bars for {len(result.intraday)} sessions.")
+    for day, gaps in sorted(result.incomplete.items()):
+        lost = "; ".join(f"{symbol} {', '.join(e)}" for symbol, e in gaps.items())
+        print(f"{day}: expired contracts unavailable ({lost}). Backtests open no new trades there.")
+
+
 def cmd_holidays(_: argparse.Namespace) -> None:
     settings = get_settings()
     now = datetime.now(IST)
@@ -762,6 +794,10 @@ def main() -> None:
     commands.add_parser(
         "history-capture", help="Save today's session after the close"
     ).set_defaults(handler=cmd_history_capture)
+    commands.add_parser(
+        "history-fill",
+        help="Fill missed recent sessions from Upstox (no Plus plan needed)",
+    ).set_defaults(handler=cmd_history_fill)
     commands.add_parser(
         "walk-forward", help="Tune on past data and test on unseen windows"
     ).set_defaults(handler=cmd_walk_forward)

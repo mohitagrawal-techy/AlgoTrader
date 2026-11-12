@@ -114,7 +114,9 @@ def _study(frames: Frames, request: ChartRequest, study: Study, keep: slice) -> 
             "lines": [],
         }
     params = {p.name: study.params.get(p.name, p.default) for p in indicator.params}
-    fields = list(indicator.fields) or [None]
+    # Fields of a price overlay that are not prices, such as band width, stay rule inputs.
+    # Drawn in a pane of their own they read as clutter next to the bands.
+    fields = [f for f in indicator.fields if (study.name, f) not in CHART_SEPARATE_FIELDS] or [None]
     try:
         operands = [Operand(name=study.name, params=params, field=f) for f in fields]
     except ValidationError as exc:

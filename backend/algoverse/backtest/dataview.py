@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 
@@ -12,6 +13,16 @@ from algoverse.backtest.bhavcopy import COLUMNS, history_dir
 
 BAR_COLUMNS = ["ts", "open", "high", "low", "close", "volume", "oi"]
 IST = "Asia/Kolkata"
+# Sessions filled from live contracts only, with the expiries Upstox could not serve.
+INCOMPLETE_FILE = Path("history") / "upstox" / "incomplete.json"
+INCOMPLETE_REASON = "data incomplete"
+
+
+def load_incomplete(data_dir: Path) -> dict[str, dict[str, list[str]]]:
+    try:
+        return json.loads((Path(data_dir) / INCOMPLETE_FILE).read_text())
+    except FileNotFoundError:
+        return {}
 
 
 class History:
@@ -23,6 +34,18 @@ class History:
             date.fromisoformat(path.stem): path for path in sorted(self._folder.glob("*.parquet"))
         }
         self._bars: dict[str, pd.DataFrame] | None = None
+        self._incomplete = load_incomplete(Path(data_dir))
+
+    def entry_block(self, session: date, symbol: str) -> str | None:
+        """Why no new trade may open on this underlying in this session, if it may not.
+
+        A session filled after its nearest expiries had expired lacks those contracts. A
+        strategy asking for the nearest expiry would get a later one, so it opens nothing;
+        positions already open are still priced from the contracts that are there."""
+        missing = self._incomplete.get(session.isoformat(), {}).get(symbol)
+        if not missing:
+            return None
+        return f"{INCOMPLETE_REASON}: expiries {', '.join(missing)} were not available"
 
     @property
     def sessions(self) -> list[date]:

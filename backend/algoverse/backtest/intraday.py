@@ -220,6 +220,7 @@ def replay_intraday(
         ai=None,
         publish=False,
         custom=custom,
+        entry_block=lambda symbol: history.entry_block(view.as_of, symbol),
     )
     now: dict[str, datetime] = {}
 
