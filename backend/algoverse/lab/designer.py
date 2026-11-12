@@ -77,6 +77,8 @@ crosses_above or crosses_below. An operand is {{"kind": "value", "value": number
 The left operand must be an indicator. Indicators: {indicators}.
 - {{"type": "pattern", "timeframe", "pattern", "within" (1-20 candles), "present" (true/false)}}. \
 Patterns: {", ".join(PATTERNS)}.
+Any rule may add "candles": "heikin_ashi" to read Heikin-Ashi candles instead of normal ones.
+entry.any_rules (optional, up to 8) take the same rules; at least one of them must hold.
 Daily candles include the decision day, and the trade enters at the next open."""
 
 

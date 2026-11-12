@@ -1,4 +1,4 @@
-import type { TechCatalog, TechOperand, TechRule, TechTimeframe } from "../api";
+import type { CandleType, TechCatalog, TechOperand, TechRule, TechTimeframe } from "../api";
 
 export const MAX_RULES = 8;
 const MAX_BARS_AGO = 50;
@@ -88,6 +88,37 @@ export const PRESETS: { label: string; rule: TechRule }[] = [
     },
   },
   {
+    label: "Heikin-Ashi candle green",
+    rule: {
+      type: "compare",
+      timeframe: "1d",
+      candles: "heikin_ashi",
+      left: { kind: "indicator", name: "close" },
+      op: "above",
+      right: { kind: "indicator", name: "open" },
+    },
+  },
+  {
+    label: "CCI 20 above 100",
+    rule: {
+      type: "compare",
+      timeframe: "1d",
+      left: { kind: "indicator", name: "cci", params: { period: 20 } },
+      op: "above",
+      right: { kind: "value", value: 100 },
+    },
+  },
+  {
+    label: "Williams %R 14 below -80",
+    rule: {
+      type: "compare",
+      timeframe: "1d",
+      left: { kind: "indicator", name: "williams_r", params: { period: 14 } },
+      op: "below",
+      right: { kind: "value", value: -80 },
+    },
+  },
+  {
     label: "Bullish engulfing",
     rule: { type: "pattern", timeframe: "1d", pattern: "bullish_engulfing", within: 1, present: true },
   },
@@ -127,7 +158,8 @@ function operandText(catalog: TechCatalog, operand: TechOperand): string {
 }
 
 export function ruleText(catalog: TechCatalog, rule: TechRule): string {
-  const frame = catalog.timeframes.find((t) => t.value === rule.timeframe)?.label.toLowerCase() ?? rule.timeframe;
+  let frame = catalog.timeframes.find((t) => t.value === rule.timeframe)?.label.toLowerCase() ?? rule.timeframe;
+  if (rule.candles === "heikin_ashi") frame += " Heikin-Ashi";
   if (rule.type === "pattern") {
     const label = catalog.patterns.find((p) => p.name === rule.pattern)?.label.toLowerCase() ?? rule.pattern;
     const when = rule.within === 1 ? "on the latest candle" : `in the last ${rule.within} candles`;
@@ -334,14 +366,23 @@ export function TechRulesEditor({
   );
   const update = (index: number, rule: TechRule) => onChange(rules.map((item, i) => (i === index ? rule : item)));
   const setTimeframe = (index: number, timeframe: TechTimeframe) => update(index, { ...rules[index], timeframe });
+  const candleTypes = catalog.candle_types ?? [];
   const setType = (index: number, type: TechRule["type"]) =>
     update(
       index,
       type === "pattern"
-        ? { type, timeframe: rules[index].timeframe, pattern: catalog.patterns[0].name, within: 1, present: true }
+        ? {
+            type,
+            timeframe: rules[index].timeframe,
+            candles: rules[index].candles,
+            pattern: catalog.patterns[0].name,
+            within: 1,
+            present: true,
+          }
         : {
             type,
             timeframe: rules[index].timeframe,
+            candles: rules[index].candles,
             left: freshIndicator(catalog, "close"),
             op: "above",
             right: freshIndicator(catalog, "ema"),
@@ -374,6 +415,20 @@ export function TechRulesEditor({
                 </option>
               ))}
             </select>
+            {candleTypes.length > 0 && (
+              <select
+                className="form-select form-select-sm w-auto"
+                aria-label="Candle type"
+                value={rule.candles ?? "normal"}
+                onChange={(event) => update(index, { ...rule, candles: event.target.value as CandleType })}
+              >
+                {candleTypes.map((kind) => (
+                  <option key={kind.value} value={kind.value}>
+                    {kind.label}
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               type="button"
               className="btn btn-link btn-sm text-danger ms-auto"

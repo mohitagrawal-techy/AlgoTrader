@@ -735,6 +735,7 @@ export interface LabCondition {
 export type TechTimeframe = "5m" | "15m" | "1h" | "1d" | "1w" | "1mo";
 export type DecideEvery = "day" | "5m" | "15m" | "1h";
 export type ExitUnit = "premium" | "rupees" | "points";
+export type CandleType = "normal" | "heikin_ashi";
 
 export interface TechOperand {
   kind: "value" | "indicator";
@@ -750,14 +751,23 @@ export type TechRule =
   | {
       type: "compare";
       timeframe: TechTimeframe;
+      candles?: CandleType;
       left: TechOperand;
       op: "above" | "below" | "crosses_above" | "crosses_below";
       right: TechOperand;
     }
-  | { type: "pattern"; timeframe: TechTimeframe; pattern: string; within: number; present: boolean };
+  | {
+      type: "pattern";
+      timeframe: TechTimeframe;
+      candles?: CandleType;
+      pattern: string;
+      within: number;
+      present: boolean;
+    };
 
 export interface TechCatalog {
   timeframes: { value: TechTimeframe; label: string }[];
+  candle_types?: { value: CandleType; label: string }[];
   operators: { value: string; label: string }[];
   indicators: {
     name: string;
@@ -787,6 +797,8 @@ export interface LabSpec {
     conditions: LabCondition[];
     /** Indicator, candle-pattern and price-level rules, each on its own timeframe. */
     rules?: TechRule[];
+    /** At least one of these must hold as well. */
+    any_rules?: TechRule[];
     /** Intraday strategies: enter only between these times ("HH:MM"). */
     time_from?: string | null;
     time_to?: string | null;

@@ -211,7 +211,9 @@ function complexity(spec: LabSpec): { label: string; tone: string } {
   const { entry } = spec;
   const hasIv = entry.iv_rank_min !== null || entry.iv_rank_max !== null;
   const filters =
-    Number(entry.trend.length > 0) + Number(hasIv) + (entry.conditions ?? []).length + (entry.rules ?? []).length;
+    Number(entry.trend.length > 0) + Number(hasIv) + (entry.conditions ?? []).length +
+    (entry.rules ?? []).length +
+    Number((entry.any_rules ?? []).length > 0);
   if (spec.legs.length >= 3 || filters > 2) return { label: "Complex", tone: "text-bg-primary" };
   if (spec.legs.length === 2 || filters > 1) return { label: "Moderate", tone: "text-bg-info" };
   return { label: "Simple", tone: "text-bg-secondary" };
@@ -391,15 +393,21 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
 
   const rules: TechRule[] = spec.entry.rules ?? [];
   const exitRules: TechRule[] = spec.exits.rules ?? [];
+  const anyRules: TechRule[] = spec.entry.any_rules ?? [];
   const intraday = (spec.decide_every ?? "day") !== "day";
   const problems = useMemo(() => {
     const found: Record<string, string> = {
       ...findProblems(spec),
       ...(lab ? ruleProblems(lab.technical, spec.entry.rules ?? []) : {}),
       ...(lab ? ruleProblems(lab.technical, spec.exits.rules ?? [], "exit-rule") : {}),
+      ...(lab ? ruleProblems(lab.technical, spec.entry.any_rules ?? [], "any-rule") : {}),
     };
     const daily = (spec.decide_every ?? "day") === "day";
-    for (const [prefix, list] of [["rule", spec.entry.rules ?? []], ["exit-rule", spec.exits.rules ?? []]] as const) {
+    for (const [prefix, list] of [
+      ["rule", spec.entry.rules ?? []],
+      ["any-rule", spec.entry.any_rules ?? []],
+      ["exit-rule", spec.exits.rules ?? []],
+    ] as const) {
       list.forEach((rule, index) => {
         if (daily && MINUTE_FRAMES.includes(rule.timeframe)) {
           found[`${prefix}-${index}-left`] = "Minute candles need a decision every 5, 15 or 60 minutes.";
@@ -894,6 +902,26 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
               intraday={intraday}
               onChange={(next) => setEntry({ rules: next })}
             />
+
+            <div className="d-flex justify-content-between align-items-center mt-3 mb-1">
+              <strong className="small">Any of these</strong>
+              <span className="badge text-bg-secondary">
+                {anyRules.length} of {MAX_RULES}
+              </span>
+            </div>
+            <p className="form-text mt-0">
+              At least one of these must hold too, for a setup that can start in more than one way. Leave empty if
+              every rule above is enough.
+            </p>
+            <TechRulesEditor
+              catalog={lab.technical}
+              rules={anyRules}
+              problems={visible}
+              intraday={intraday}
+              prefix="any-rule"
+              addLabel="Add an any-of rule"
+              onChange={(next) => setEntry({ any_rules: next })}
+            />
           </Section>
 
           <Section title="Exit when" hint="The first of these to happen closes the trade.">
@@ -1058,6 +1086,16 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
                       <li key={index}>{ruleText(lab.technical, rule)}</li>
                     ))}
                   </ul>
+                )}
+                {anyRules.length > 0 && (
+                  <div>
+                    <span className="text-body-secondary">And any of</span>
+                    <ul className="mb-0 ps-3">
+                      {anyRules.map((rule, index) => (
+                        <li key={index}>{ruleText(lab.technical, rule)}</li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
                 <div>
                   <span className="text-body-secondary">Exits</span> profit {amountText(spec.exits.target_frac, spec.exits.target_unit)}, loss{" "}

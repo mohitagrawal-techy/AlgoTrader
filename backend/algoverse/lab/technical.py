@@ -156,6 +156,51 @@ def _pivots(bars: pd.DataFrame) -> dict[str, pd.Series]:
     }
 
 
+def _wma(series: pd.Series, period: int) -> pd.Series:
+    weights = np.arange(1, period + 1, dtype=float)
+    return series.rolling(period).apply(
+        lambda v: float(np.dot(v, weights) / weights.sum()), raw=True
+    )
+
+
+def _cci(bars: pd.DataFrame, period: int) -> pd.Series:
+    typical = (bars["high"] + bars["low"] + bars["close"]) / 3
+    mean = typical.rolling(period).mean()
+    deviation = typical.rolling(period).apply(
+        lambda v: float(np.abs(v - v.mean()).mean()), raw=True
+    )
+    return (typical - mean) / (0.015 * deviation.replace(0, np.nan))
+
+
+def _williams_r(bars: pd.DataFrame, period: int) -> pd.Series:
+    high = bars["high"].rolling(period).max()
+    low = bars["low"].rolling(period).min()
+    return -100 * (high - bars["close"]) / (high - low).replace(0, np.nan)
+
+
+def _donchian(bars: pd.DataFrame, period: int) -> dict[str, pd.Series]:
+    upper = bars["high"].rolling(period).max()
+    lower = bars["low"].rolling(period).min()
+    return {"upper": upper, "middle": (upper + lower) / 2, "lower": lower}
+
+
+def heikin_ashi(bars: pd.DataFrame) -> pd.DataFrame:
+    """Heikin-Ashi candles: smoothed bodies that make trends easier to read."""
+    if bars.empty:
+        return bars
+    close = (bars["open"] + bars["high"] + bars["low"] + bars["close"]).to_numpy(float) / 4
+    opens = np.empty(len(bars))
+    opens[0] = (float(bars["open"].iloc[0]) + float(bars["close"].iloc[0])) / 2
+    for i in range(1, len(bars)):
+        opens[i] = (opens[i - 1] + close[i - 1]) / 2
+    frame = bars.copy()
+    frame["open"] = opens
+    frame["close"] = close
+    frame["high"] = np.maximum.reduce([bars["high"].to_numpy(float), opens, close])
+    frame["low"] = np.minimum.reduce([bars["low"].to_numpy(float), opens, close])
+    return frame.reset_index(drop=True)
+
+
 @dataclass(frozen=True)
 class Param:
     name: str
@@ -200,6 +245,11 @@ INDICATORS: dict[str, Indicator] = {
     "ema": Indicator(
         "Exponential moving average",
         lambda b, period: _ema(b["close"], int(period)),
+        (_p("period", "Period", 20, 2, 400),),
+    ),
+    "wma": Indicator(
+        "Weighted moving average",
+        lambda b, period: _wma(b["close"], int(period)),
         (_p("period", "Period", 20, 2, 400),),
     ),
     "rsi": Indicator(
@@ -272,6 +322,27 @@ INDICATORS: dict[str, Indicator] = {
         lambda b, period: b["close"].pct_change(int(period)) * 100,
         (_p("period", "Period", 10, 1, 200),),
         unit="percent",
+    ),
+    "cci": Indicator(
+        "CCI",
+        lambda b, period: _cci(b, int(period)),
+        (_p("period", "Period", 20, 2, 200),),
+        unit="index",
+        description="Commodity channel index; above +100 is strong, below -100 weak",
+    ),
+    "williams_r": Indicator(
+        "Williams %R",
+        lambda b, period: _williams_r(b, int(period)),
+        (PERIOD,),
+        unit="index",
+        description="-100 to 0; above -20 overbought, below -80 oversold",
+    ),
+    "donchian": Indicator(
+        "Donchian channel",
+        lambda b, period: _donchian(b, int(period)),
+        (_p("period", "Candles", 20, 2, 250),),
+        {"upper": "Upper", "middle": "Middle", "lower": "Lower"},
+        description="Highest high and lowest low of the last N candles, including this one",
     ),
     "prior_high": Indicator(
         "Highest high of the prior N candles",
@@ -523,9 +594,14 @@ class Operand(BaseModel):
         return self
 
 
+CandleType = Literal["normal", "heikin_ashi"]
+CANDLE_TYPES = {"normal": "Normal", "heikin_ashi": "Heikin-Ashi"}
+
+
 class CompareRule(BaseModel):
     type: Literal["compare"] = "compare"
     timeframe: Timeframe = "1d"
+    candles: CandleType = "normal"
     left: Operand
     op: Literal["above", "below", "crosses_above", "crosses_below"]
     right: Operand
@@ -540,6 +616,7 @@ class CompareRule(BaseModel):
 class PatternRule(BaseModel):
     type: Literal["pattern"] = "pattern"
     timeframe: Timeframe = "1d"
+    candles: CandleType = "normal"
     pattern: str
     # The pattern completed on one of the last `within` candles.
     within: int = Field(default=1, ge=1, le=20)
@@ -622,24 +699,28 @@ class Frames:
     def __init__(self, daily: pd.DataFrame, minutes: pd.DataFrame | None = None):
         self.daily = daily
         self.minutes = minutes if minutes is not None else pd.DataFrame()
-        self._frames: dict[str, pd.DataFrame] = {}
+        self._frames: dict[tuple[str, str], pd.DataFrame] = {}
         self._series: dict[tuple, pd.Series] = {}
 
-    def frame(self, timeframe: str) -> pd.DataFrame:
-        if timeframe not in self._frames:
-            self._frames[timeframe] = (
-                resample_intraday(self.minutes, timeframe)
-                if timeframe in INTRADAY_MINUTES
-                else resample(self.daily, timeframe)
-            )
-        return self._frames[timeframe]
+    def frame(self, timeframe: str, candles: str = "normal") -> pd.DataFrame:
+        key = (timeframe, candles)
+        if key not in self._frames:
+            if candles == "heikin_ashi":
+                self._frames[key] = heikin_ashi(self.frame(timeframe))
+            else:
+                self._frames[key] = (
+                    resample_intraday(self.minutes, timeframe)
+                    if timeframe in INTRADAY_MINUTES
+                    else resample(self.daily, timeframe)
+                )
+        return self._frames[key]
 
-    def series(self, timeframe: str, operand: Operand) -> pd.Series:
+    def series(self, timeframe: str, operand: Operand, candles: str = "normal") -> pd.Series:
         indicator = INDICATORS[operand.name]
         params = {p.name: operand.params.get(p.name, p.default) for p in indicator.params}
-        key = (timeframe, operand.name, tuple(sorted(params.items())))
+        key = (timeframe, candles, operand.name, tuple(sorted(params.items())))
         if key not in self._series:
-            result = indicator.compute(self.frame(timeframe), **params)
+            result = indicator.compute(self.frame(timeframe, candles), **params)
             if isinstance(result, dict):
                 for name, values in result.items():
                     self._series[(*key, name)] = values
@@ -648,10 +729,12 @@ class Frames:
                 self._series[key] = result
         return self._series[(*key, operand.field)] if operand.field else self._series[key]
 
-    def value(self, timeframe: str, operand: Operand, extra_back: int = 0) -> float | None:
+    def value(
+        self, timeframe: str, operand: Operand, extra_back: int = 0, candles: str = "normal"
+    ) -> float | None:
         if operand.kind == "value":
             return operand.value
-        values = self.series(timeframe, operand)
+        values = self.series(timeframe, operand, candles)
         position = len(values) - 1 - operand.bars_ago - extra_back
         if position < 0:
             return None
@@ -684,6 +767,8 @@ OPS = {
 
 def rule_text(rule: CompareRule | PatternRule) -> str:
     frame = TIMEFRAMES[rule.timeframe].lower()
+    if rule.candles == "heikin_ashi":
+        frame += " Heikin-Ashi"
     if isinstance(rule, PatternRule):
         when = "on the latest candle" if rule.within == 1 else f"in the last {rule.within} candles"
         verb = "" if rule.present else "no "
@@ -694,27 +779,28 @@ def rule_text(rule: CompareRule | PatternRule) -> str:
 def rule_failure(rule: CompareRule | PatternRule, frames: Frames) -> str | None:
     """Why the rule does not hold now, or None when it holds."""
     label = f"entry rule: {rule_text(rule)}"
+    kind = rule.candles
     if rule.timeframe in INTRADAY_MINUTES:
         if frames.minutes.empty:
             return f"{label} needs one-minute candles"
     elif frames.daily.empty:
         return f"{label} has no price history"
     if isinstance(rule, PatternRule):
-        candles = frames.frame(rule.timeframe)
+        candles = frames.frame(rule.timeframe, kind)
         if len(candles) < 3:
             return f"{label} needs more candles"
         seen = bool(PATTERNS[rule.pattern].detect(candles).iloc[-rule.within :].fillna(False).any())
         return None if seen == rule.present else f"{label} does not hold"
-    left = frames.value(rule.timeframe, rule.left)
-    right = frames.value(rule.timeframe, rule.right)
+    left = frames.value(rule.timeframe, rule.left, candles=kind)
+    right = frames.value(rule.timeframe, rule.right, candles=kind)
     if left is None or right is None:
         return f"{label} is not available yet"
     if rule.op == "above":
         return None if left > right else f"{label} does not hold"
     if rule.op == "below":
         return None if left < right else f"{label} does not hold"
-    left_before = frames.value(rule.timeframe, rule.left, 1)
-    right_before = frames.value(rule.timeframe, rule.right, 1)
+    left_before = frames.value(rule.timeframe, rule.left, 1, kind)
+    right_before = frames.value(rule.timeframe, rule.right, 1, kind)
     if left_before is None or right_before is None:
         return f"{label} is not available yet"
     crossed = (
@@ -729,6 +815,7 @@ def catalog() -> dict:
     """What the strategy editor can offer."""
     return {
         "timeframes": [{"value": k, "label": v} for k, v in TIMEFRAMES.items()],
+        "candle_types": [{"value": k, "label": v} for k, v in CANDLE_TYPES.items()],
         "operators": [{"value": k, "label": v} for k, v in OPS.items()],
         "indicators": [
             {

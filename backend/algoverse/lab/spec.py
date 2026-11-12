@@ -103,6 +103,8 @@ class EntryRules(BaseModel):
     # Indicator, candle-pattern and price-level rules on the underlying, each on its own
     # timeframe. Every rule must hold too.
     rules: list[TechRule] = Field(default_factory=list, max_length=8)
+    # At least one of these must hold as well, for setups that can start in more than one way.
+    any_rules: list[TechRule] = Field(default_factory=list, max_length=8)
     # Intraday strategies: only enter between these times. None means any time.
     time_from: time | None = None
     time_to: time | None = None
@@ -203,7 +205,10 @@ class StrategySpec(BaseModel):
         intraday_only = (
             self.entry.time_from or self.entry.time_to or self.exits.square_off
         ) is not None
-        minute_rules = needs_minutes(self.entry.rules) or needs_minutes(self.exits.rules)
+        minute_rules = any(
+            needs_minutes(rules)
+            for rules in (self.entry.rules, self.entry.any_rules, self.exits.rules)
+        )
         if self.decide_every == "day" and (intraday_only or minute_rules):
             raise ValueError(
                 "entry times, square-off and 5m/15m/1h rules need a decision every 5, 15 or 60 "
@@ -225,6 +230,10 @@ def signature(spec: StrategySpec) -> str:
         holder = rules if section is None else rules[section]
         if holder.get(key) == default:
             del holder[key]
+    for section, key in (("entry", "rules"), ("entry", "any_rules"), ("exits", "rules")):
+        for rule in rules[section].get(key, []):
+            if rule.get("candles") == "normal":
+                del rule["candles"]
     return hashlib.sha256(json.dumps(rules, sort_keys=True).encode()).hexdigest()[:12]
 
 
@@ -244,6 +253,7 @@ LATER_SETTINGS = (
     ("exits", "daily_target", None),
     ("entry", "max_trades_per_day", None),
     ("entry", "reenter_after_stop", True),
+    ("entry", "any_rules", []),
     (None, "decide_every", "day"),
 )
 
@@ -268,7 +278,13 @@ def has_undefined_risk(spec: StrategySpec) -> bool:
 def _filter_count(spec: StrategySpec) -> int:
     entry = spec.entry
     has_iv_rule = entry.iv_rank_min is not None or entry.iv_rank_max is not None
-    return int(bool(entry.trend)) + int(has_iv_rule) + len(entry.conditions) + len(entry.rules)
+    return (
+        int(bool(entry.trend))
+        + int(has_iv_rule)
+        + len(entry.conditions)
+        + len(entry.rules)
+        + int(bool(entry.any_rules))
+    )
 
 
 def complexity_level(spec: StrategySpec) -> str:
@@ -292,6 +308,8 @@ def describe_entry(spec: StrategySpec) -> str:
         parts.append(f"IV rank at most {entry.iv_rank_max:g}")
     parts += [f"{SIGNALS[c.signal]} {c.op} {c.value:g}" for c in entry.conditions]
     parts += [rule_text(rule) for rule in entry.rules]
+    if entry.any_rules:
+        parts.append("any of: " + " or ".join(rule_text(rule) for rule in entry.any_rules))
     if entry.time_from or entry.time_to:
         start = f"{entry.time_from:%H:%M}" if entry.time_from else "09:15"
         end = f"{entry.time_to:%H:%M}" if entry.time_to else "15:25"
@@ -390,12 +408,14 @@ def entry_failures(
             reasons.append(f"entry rule: after {rules.time_to:%H:%M}")
         if spec.exits.square_off is not None and moment >= spec.exits.square_off:
             reasons.append("entry rule: past the square-off time")
-    if rules.rules:
+    if rules.rules or rules.any_rules:
         frames = Frames(ctx.bars, getattr(ctx, "intraday", None))
         for rule in rules.rules:
             failure = rule_failure(rule, frames)
             if failure:
                 reasons.append(failure)
+        if rules.any_rules and all(rule_failure(rule, frames) for rule in rules.any_rules):
+            reasons.append("entry rule: none of the any-of rules holds")
     if rules.trend:
         trend = ctx.regime.trend if ctx.regime else None
         if trend not in rules.trend:
