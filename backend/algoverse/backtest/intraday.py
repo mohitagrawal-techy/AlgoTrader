@@ -37,8 +37,11 @@ from algoverse.backtest.engine import (
     trades_frame,
 )
 from algoverse.backtest.fills import contract_key, modelled_chain
+from algoverse.evaluation.context import decision_bars
 from algoverse.execution.cycle import CycleDeps, prepare_chains, run_cycle
+from algoverse.execution.ledger import LIVE_STATUSES
 from algoverse.execution.paper import PaperBroker, StepReport
+from algoverse.lab.technical import Frames
 
 BAR_MINUTES = 5
 SESSION_OPEN = time(9, 15)
@@ -172,8 +175,16 @@ def replay_intraday(
     reference: dict[str, pd.DataFrame] | None = None,
     custom=None,
     on_cycle=None,
+    on_skip=None,
+    fast: bool = True,
 ) -> ReplayResult:
-    """Run one configuration over a window, deciding every `every` minutes."""
+    """Run one configuration over a window, deciding every `every` minutes.
+
+    With `fast`, a decision is skipped when nothing is open or pending and every custom
+    strategy fails a check that needs no option chain (its time window, candle rules or day
+    limits). Such a decision cannot change anything, so results are the same; `on_skip` gets
+    the reasons, one per strategy, for the skipped-days report. The last decision of each
+    session always runs, since it records the day's volatility and P&L."""
     if every % BAR_MINUTES:
         raise ValueError(f"Decisions must be a multiple of {BAR_MINUTES} minutes")
     config = services.backtest
@@ -186,7 +197,10 @@ def replay_intraday(
 
     indexed = {s: _Minutes.build(f) for s, f in minutes.items() if s in config.symbols and len(f)}
     sessions_all = [s for s in history.sessions if history.has_intraday(s)]
-    start_index = next((i for i, s in enumerate(sessions_all) if s >= spec.start), None)
+    anchor = spec.window_start or spec.start
+    if next((s for s in sessions_all if s >= spec.start), None) is None:
+        raise ValueError(f"No intraday data on or after {spec.start}")
+    start_index = next((i for i, s in enumerate(sessions_all) if s >= anchor), None)
     if start_index is None:
         raise ValueError(f"No intraday data on or after {spec.start}")
     first = max(0, start_index - config.warmup_sessions)
@@ -235,6 +249,7 @@ def replay_intraday(
 
     deps.today_bars = today_bar
     deps.intraday_bars = intraday_bars
+    can_skip = fast and getattr(custom, "only", False) and hasattr(custom, "idle_reasons")
     r = services.scoring.risk_free_rate
     labels: dict[int, dict] = {}
     previous_day: pd.DataFrame | None = None
@@ -271,8 +286,16 @@ def replay_intraday(
         contracts = pd.concat(lots, ignore_index=True)
         previous_moment = datetime.combine(session, SESSION_OPEN, IST)
         ivs: dict[str, float] = {}
-        for moment in decision_times(session, every):
+        times = decision_times(session, every)
+        for moment in times:
             now["t"] = moment
+            if can_skip and session >= spec.start and moment != times[-1]:
+                reasons = _idle(custom, chains, moment, view, today_bar, intraday_bars, ledger)
+                if reasons is not None:
+                    previous_moment = moment
+                    if on_skip is not None:
+                        on_skip(reasons)
+                    continue
             raw = {}
             ranges = {}
             for symbol, chain in chains.items():
@@ -336,6 +359,24 @@ def replay_intraday(
         {},
         trade_details(ledger, labels),
     )
+
+
+def _idle(custom, chains, moment, view, today_bar, intraday_bars, ledger) -> list[str] | None:
+    """Reasons nothing can happen at this decision, or None when the full cycle must run."""
+    if ledger.positions(LIVE_STATUSES):
+        return None
+    reasons: list[str] = []
+    for symbol in chains:
+
+        def frames(symbol: str = symbol) -> Frames:
+            bars = decision_bars(view.read_candles(symbol), moment, today_bar(symbol))
+            return Frames(bars, intraday_bars(symbol))
+
+        found = custom.idle_reasons(symbol, moment, frames)
+        if found is None:
+            return None
+        reasons += found
+    return reasons
 
 
 def _range_extremes(ranges: dict, ivs: dict, now: datetime, r: float, position):

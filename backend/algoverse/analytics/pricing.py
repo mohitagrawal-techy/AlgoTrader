@@ -9,7 +9,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.stats import norm
+from scipy.special import ndtr
+
+# The standard normal CDF without scipy.stats' argument checks, which cost more than the maths
+# on small arrays; the pricer runs hundreds of thousands of times in a backtest.
+_SQRT_2PI = float(np.sqrt(2.0 * np.pi))
+
+
+def _pdf(x):
+    return np.exp(-0.5 * np.square(x)) / _SQRT_2PI
+
 
 IV_LOW = 1e-4
 IV_HIGH = 5.0
@@ -31,8 +40,8 @@ def black76_price(F, K, T, sigma, r, is_call):
     safe_t = np.where(live, T, 1.0)
     safe_sigma = np.where(live, sigma, 1.0)
     d1, d2 = _d1_d2(F, K, safe_t, safe_sigma)
-    call = F * norm.cdf(d1) - K * norm.cdf(d2)
-    put = K * norm.cdf(-d2) - F * norm.cdf(-d1)
+    call = F * ndtr(d1) - K * ndtr(d2)
+    put = K * ndtr(-d2) - F * ndtr(-d1)
     undiscounted = np.where(is_call, call, put)
     return discount * np.where(live, undiscounted, intrinsic)
 
@@ -59,9 +68,9 @@ def black76_greeks(F, K, T, sigma, r, is_call, spot=None) -> Greeks:
     with np.errstate(divide="ignore", invalid="ignore"):
         d1, _ = _d1_d2(F, K, T, sigma)
         discount = np.exp(-r * T)
-        pdf = norm.pdf(d1)
+        pdf = _pdf(d1)
         root_t = np.sqrt(T)
-        delta = discount * np.where(is_call, norm.cdf(d1), norm.cdf(d1) - 1.0) * scale
+        delta = discount * np.where(is_call, ndtr(d1), ndtr(d1) - 1.0) * scale
         gamma = discount * pdf / (F * sigma * root_t) * scale**2
         theta = (r * price - discount * F * pdf * sigma / (2.0 * root_t)) / 365.0
         vega = discount * F * pdf * root_t / 100.0

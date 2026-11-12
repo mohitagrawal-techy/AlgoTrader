@@ -65,6 +65,9 @@ class ReplaySpec:
     min_score: float
     disabled_profiles: tuple[str, ...] = ()
     spread_multiplier: float = 1.0
+    # For one chunk of a longer window: that window's start. Warm-up then begins where the
+    # whole window's would, so volatility history, and every decision, matches a single run.
+    window_start: date | None = None
 
 
 @dataclass

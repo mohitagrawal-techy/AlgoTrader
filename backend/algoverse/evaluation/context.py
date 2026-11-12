@@ -176,6 +176,23 @@ def _vix_context(vix_bars: pd.DataFrame) -> tuple[IvRanking | None, float | None
     return iv_ranking(close.iloc[:-1], current), change
 
 
+def decision_bars(bars: pd.DataFrame, now: datetime, today_bar: dict | None) -> pd.DataFrame:
+    """Completed daily candles, plus the session's own candle so far when known."""
+    bars = completed_bars(bars, now.date())
+    decision = bars[["ts", "open", "high", "low", "close"]] if not bars.empty else bars
+    if today_bar is not None and not bars.empty:
+        today = pd.DataFrame(
+            [
+                {
+                    "ts": pd.Timestamp(now.date()).tz_localize(pd.to_datetime(bars["ts"]).dt.tz),
+                    **{k: float(today_bar[k]) for k in ("open", "high", "low", "close")},
+                }
+            ]
+        )
+        decision = pd.concat([decision, today], ignore_index=True)
+    return decision
+
+
 def build_context(
     symbol: str,
     now: datetime,
@@ -192,18 +209,8 @@ def build_context(
 
     `today_bar` is the session's own candle so far (open, high, low, close). Only rules that
     read candles use it; the other signals stay on completed sessions."""
+    rule_bars = decision_bars(bars, now, today_bar)
     bars = completed_bars(bars, now.date())
-    decision_bars = bars[["ts", "open", "high", "low", "close"]] if not bars.empty else bars
-    if today_bar is not None and not bars.empty:
-        today = pd.DataFrame(
-            [
-                {
-                    "ts": pd.Timestamp(now.date()).tz_localize(pd.to_datetime(bars["ts"]).dt.tz),
-                    **{k: float(today_bar[k]) for k in ("open", "high", "low", "close")},
-                }
-            ]
-        )
-        decision_bars = pd.concat([decision_bars, today], ignore_index=True)
     vix_bars = completed_bars(vix_bars, now.date())
     live = chain[chain["T"] > 0]
     base_levels = _base_levels(bars)
@@ -234,6 +241,6 @@ def build_context(
         term_slope=term_slope(term_structure(live)) if not live.empty else None,
         by_expiry=by_expiry,
         events=events,
-        bars=decision_bars,
+        bars=rule_bars,
         intraday=intraday if intraday is not None else pd.DataFrame(),
     )

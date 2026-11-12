@@ -680,38 +680,61 @@ def needs_minutes(rules) -> bool:
     return any(rule.timeframe in INTRADAY_MINUTES for rule in rules)
 
 
+IST_OFFSET_MS = 19_800_000
+DAY_MS = 86_400_000
+SESSION_START_MIN = 9 * 60 + 15
+SESSION_END_MIN = 15 * 60 + 30
+
+
+def _wall_minutes(ts: pd.Series) -> np.ndarray:
+    """Minutes since 1970 on the Indian wall clock, from aware (any zone) or naive local times."""
+    if ts.dtype.kind != "M" and not isinstance(ts.dtype, pd.DatetimeTZDtype):
+        ts = pd.to_datetime(ts)
+    values = ts.array.asi8  # Epoch in the column's own unit; UTC when the column is aware.
+    per_minute = {"s": 60, "ms": 60_000, "us": 60_000_000, "ns": 60_000_000_000}[ts.dt.unit]
+    minutes = values // per_minute
+    return minutes + IST_OFFSET_MS // 60_000 if ts.dt.tz is not None else minutes
+
+
 def resample_intraday(minutes: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     """5m, 15m or 1h candles from one-minute ones, each session starting at 09:15.
 
     Only finished candles are returned: a candle still forming at the decision is left out,
-    so a signal never changes after it is acted on.
+    so a signal never changes after it is acted on. Grouping is done with array arithmetic
+    because this runs at every decision of an intraday backtest.
     """
     if minutes.empty:
         return minutes
     size = INTRADAY_MINUTES[timeframe]
-    times = pd.to_datetime(minutes["ts"])
-    local = times.dt.tz_convert("Asia/Kolkata") if times.dt.tz is not None else times
-    day = local.dt.normalize()
-    offset = ((local - day - SESSION_START) // pd.Timedelta(minutes=size)).astype(int)
-    start = day + SESSION_START + offset * pd.Timedelta(minutes=size)
-    grouped = minutes.groupby(start.to_numpy(), sort=True)
+    if not minutes["ts"].is_monotonic_increasing:
+        minutes = minutes.sort_values("ts", kind="stable")
+    wall = _wall_minutes(minutes["ts"])
+    day = wall // 1440
+    offset = wall - day * 1440 - SESSION_START_MIN
+    # Each candle's start, in wall-clock minutes; minutes before 09:15 fall in earlier buckets.
+    start = day * 1440 + SESSION_START_MIN + np.floor_divide(offset, size) * size
+    edges = np.flatnonzero(np.diff(start)) + 1
+    first = np.concatenate(([0], edges))
+    last = np.concatenate((edges, [len(start)])) - 1
+    highs = minutes["high"].to_numpy(float)
+    lows = minutes["low"].to_numpy(float)
+    count = last - first + 1
     frame = pd.DataFrame(
         {
-            "ts": grouped["ts"].first().to_numpy(),
-            "open": grouped["open"].first().to_numpy(float),
-            "high": grouped["high"].max().to_numpy(float),
-            "low": grouped["low"].min().to_numpy(float),
-            "close": grouped["close"].last().to_numpy(float),
-            "count": grouped["close"].size().to_numpy(int),
+            "ts": minutes["ts"].iloc[first].reset_index(drop=True),
+            "open": minutes["open"].to_numpy(float)[first],
+            "high": np.maximum.reduceat(highs, first),
+            "low": np.minimum.reduceat(lows, first),
+            "close": minutes["close"].to_numpy(float)[last],
         }
     )
     # The last candle is finished only when all its minutes have ended.
-    if len(frame) and frame["count"].iloc[-1] < size:
-        last_start = pd.Timestamp(grouped["ts"].first().index[-1])
-        session_end = last_start.normalize() + pd.Timedelta(hours=15, minutes=30)
-        if last_start + pd.Timedelta(minutes=size) < session_end:
+    if count[-1] < size:
+        last_start = int(start[-1])
+        session_end = (last_start // 1440) * 1440 + SESSION_END_MIN
+        if last_start + size < session_end:
             frame = frame.iloc[:-1]
-    return frame.drop(columns="count").reset_index(drop=True)
+    return frame.reset_index(drop=True)
 
 
 def resample(daily: pd.DataFrame, timeframe: str) -> pd.DataFrame:

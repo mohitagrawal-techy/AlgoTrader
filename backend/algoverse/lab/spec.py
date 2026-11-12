@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, datetime, time
 from typing import Literal
@@ -396,12 +397,16 @@ def signal_value(name: str, ctx: MarketContext, front_expiry: date | None) -> fl
     return None
 
 
-def entry_failures(
-    spec: StrategySpec, ctx: MarketContext, front_expiry: date | None = None
+def quick_failures(
+    spec: StrategySpec, now: datetime | None, frames: Callable[[], Frames]
 ) -> list[str]:
+    """The entry checks that need no option chain: the time window and candle rules.
+
+    They come first in `entry_failures`, so a strategy failing one is rejected for that reason
+    whatever the chain shows. Intraday replays use this to skip decisions nothing can act on."""
     rules, reasons = spec.entry, []
     if (rules.time_from or rules.time_to or spec.exits.square_off) is not None:
-        moment = ctx.now.time()
+        moment = now.time()
         if rules.time_from is not None and moment < rules.time_from:
             reasons.append(f"entry rule: before {rules.time_from:%H:%M}")
         if rules.time_to is not None and moment > rules.time_to:
@@ -409,13 +414,34 @@ def entry_failures(
         if spec.exits.square_off is not None and moment >= spec.exits.square_off:
             reasons.append("entry rule: past the square-off time")
     if rules.rules or rules.any_rules:
-        frames = Frames(ctx.bars, getattr(ctx, "intraday", None))
+        built = frames()
         for rule in rules.rules:
-            failure = rule_failure(rule, frames)
+            failure = rule_failure(rule, built)
             if failure:
                 reasons.append(failure)
-        if rules.any_rules and all(rule_failure(rule, frames) for rule in rules.any_rules):
+        if rules.any_rules and all(rule_failure(rule, built) for rule in rules.any_rules):
             reasons.append("entry rule: none of the any-of rules holds")
+    return reasons
+
+
+def _has_market_rules(spec: StrategySpec) -> bool:
+    entry = spec.entry
+    return bool(
+        entry.trend
+        or entry.conditions
+        or entry.iv_rank_min is not None
+        or entry.iv_rank_max is not None
+    )
+
+
+def entry_failures(
+    spec: StrategySpec, ctx: MarketContext, front_expiry: date | None = None
+) -> list[str]:
+    rules = spec.entry
+    # The clock is read only by time rules, so callers without one still work.
+    reasons = quick_failures(
+        spec, getattr(ctx, "now", None), lambda: Frames(ctx.bars, getattr(ctx, "intraday", None))
+    )
     if rules.trend:
         trend = ctx.regime.trend if ctx.regime else None
         if trend not in rules.trend:
@@ -498,6 +524,35 @@ class CustomSet:
             reasons.append("entry rule: the day's loss limit is reached")
         if exits.daily_target is not None and pnl >= exits.daily_target:
             reasons.append("entry rule: the day's profit target is reached")
+        return reasons
+
+    def idle_reasons(
+        self, symbol: str, now: datetime, frames: Callable[[], Frames]
+    ) -> list[str] | None:
+        """Why no strategy can enter on `symbol` now, from checks that need no option chain.
+
+        Returns None when any strategy might enter, so the full cycle must run. Otherwise one
+        reason per strategy, the same first reason the full cycle would give it. Built once,
+        the candles are shared by every strategy."""
+        cache: list[Frames] = []
+
+        def shared() -> Frames:
+            if not cache:
+                cache.append(frames())
+            return cache[0]
+
+        reasons = []
+        for spec in self.specs:
+            if spec.symbols and symbol not in spec.symbols:
+                continue
+            failures = quick_failures(spec, now, shared)
+            # A day limit is reported after the market rules, so it can only stand in for them
+            # when there are none.
+            if not failures and not _has_market_rules(spec):
+                failures = self.limit_failures(spec, now.date())
+            if not failures:
+                return None
+            reasons.append(failures[0])
         return reasons
 
     def exit_requests(self, ctx: MarketContext) -> list[tuple[int, str]]:

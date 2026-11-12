@@ -83,11 +83,7 @@ def _minutes(data_dir: str, symbols: list[str]) -> dict[str, pd.DataFrame]:
     return _CACHE[key]
 
 
-def _run(task: tuple) -> dict:
-    """One replay. An optional seventh item, (counts, key), records sessions finished so far."""
-    data_dir, config_dir, spec_json, start, end, multiplier, *extra = task
-    tracker = extra[0] if extra else None
-    days: set = set()
+def _load(data_dir: str, config_dir: str):
     key = (data_dir, config_dir)
     if key not in _CACHE:
         _CACHE[key] = (
@@ -95,7 +91,19 @@ def _run(task: tuple) -> dict:
             load_services(Path(config_dir)),
             reference_series(SnapshotStore(Path(data_dir))),
         )
-    history, base, reference = _CACHE[key]
+    return _CACHE[key]
+
+
+def _run(task: tuple) -> dict:
+    """One replay: (data, config, spec, start, end, spread multiplier[, window start[, tracker]]).
+
+    The window start is set for a chunk of a longer window. The tracker, (counts, key),
+    records how many sessions have been replayed so far."""
+    data_dir, config_dir, spec_json, start, end, multiplier, *extra = task
+    window_start = extra[0] if extra else None
+    tracker = extra[1] if len(extra) > 1 else None
+    days: set = set()
+    history, base, reference = _load(data_dir, config_dir)
     spec = StrategySpec.model_validate_json(spec_json)
     services = apply_specs(base, [spec])
     custom = CustomSet([spec])
@@ -115,7 +123,7 @@ def _run(task: tuple) -> dict:
                 reasons = idea.rejections or idea.risk.reasons
                 outcomes[normalize_reason(reasons[0])] += 1
 
-    window = ReplaySpec(start, end, 0.0, (), multiplier)
+    window = ReplaySpec(start, end, 0.0, (), multiplier, window_start=window_start)
     if spec.decide_every == "day":
         result = replay(history, services, window, reference, custom=custom, on_cycle=on_cycle)
     else:
@@ -128,26 +136,116 @@ def _run(task: tuple) -> dict:
             reference,
             custom=custom,
             on_cycle=on_cycle,
+            on_skip=lambda reasons: outcomes.update(normalize_reason(r) for r in reasons),
         )
     signals = outcomes.pop("signal", 0)
     if custom.no_contracts[spec.id]:
         outcomes[NO_CONTRACTS] = custom.no_contracts[spec.id]
-    capital = services.risk.capital
-    daily = result.daily_pnl
+    return _package(
+        result.trades,
+        result.daily_pnl,
+        result.details,
+        dict(result.unfilled),
+        signals,
+        outcomes,
+        services,
+    )
+
+
+def _package(trades, daily, details, unfilled, signals, outcomes: Counter, services) -> dict:
+    """A replay's results. `frame`, `daily_series` and `outcomes` let chunks be merged."""
     return {
-        "stats": trade_stats(result.trades, services.backtest.tail_share)
-        | daily_stats(daily, capital),
+        "stats": trade_stats(trades, services.backtest.tail_share)
+        | daily_stats(daily, services.risk.capital),
         "signals": signals,
         "blocked": dict(outcomes.most_common(TOP_REASONS)),
-        "unfilled": result.unfilled,
-        "pnls": ([] if result.trades.empty else [float(pnl) for pnl in result.trades["net_pnl"]]),
+        "unfilled": unfilled,
+        "pnls": ([] if trades.empty else [float(pnl) for pnl in trades["net_pnl"]]),
         "daily": {str(day): float(pnl) for day, pnl in zip(daily.index, daily, strict=True)},
-        "trades": result.details,
+        "trades": details,
         "equity": [
             {"day": day, "pnl": float(pnl)}
             for day, pnl in zip(daily.index, daily.cumsum().to_numpy(float), strict=True)
         ],
+        "frame": trades,
+        "daily_series": daily,
+        "outcomes": dict(outcomes),
     }
+
+
+# ---- Splitting long windows across cores ---------------------------------------------------
+
+# A chunk shorter than this spends more time warming up than replaying.
+MIN_CHUNK_SESSIONS = 15
+
+
+def _chunkable(spec_json: str) -> bool:
+    """Intraday strategies that square off every day hold nothing overnight, so each session
+    starts from the same state and a window can be replayed in independent pieces."""
+    spec = StrategySpec.model_validate_json(spec_json)
+    return spec.decide_every != "day" and spec.exits.square_off is not None
+
+
+def _plan(tasks: list[tuple], workers: int) -> list[tuple[int, tuple]]:
+    """Split long chunkable windows so every core has work. Returns (task index, sub-task)."""
+    plain = list(enumerate(tasks))
+    if workers <= 1:
+        return plain
+    history = _load(tasks[0][0], tasks[0][1])[0]
+    windows: dict[int, list[date]] = {}
+    for index, task in enumerate(tasks):
+        if task[6] is None and _chunkable(task[2]):
+            days = [d for d in history.sessions if task[3] <= d <= task[4]]
+            windows[index] = [d for d in days if history.has_intraday(d)]
+    total = sum(len(days) for days in windows.values())
+    if not total:
+        return plain
+    # About two chunks per core, so one slow chunk does not leave the others idle.
+    size = max(MIN_CHUNK_SESSIONS, -(-total // (workers * 2)))
+    planned = []
+    for index, task in enumerate(tasks):
+        days = windows.get(index)
+        if not days or len(days) < 2 * size:
+            planned.append((index, task))
+            continue
+        pieces = [days[i : i + size] for i in range(0, len(days), size)]
+        if len(pieces[-1]) < MIN_CHUNK_SESSIONS:
+            tail = pieces.pop()
+            pieces[-1] = pieces[-1] + tail
+        for number, piece in enumerate(pieces):
+            first = task[3] if number == 0 else piece[0]
+            last = task[4] if number == len(pieces) - 1 else piece[-1]
+            planned.append((index, (*task[:3], first, last, task[5], task[3])))
+    return planned
+
+
+def _merge(parts: list[dict], data_dir: str, config_dir: str) -> dict:
+    """One window's results from its chunks, which arrive in order."""
+    if len(parts) == 1:
+        return parts[0]
+    services = _load(data_dir, config_dir)[1]
+    frames = [p["frame"] for p in parts if not p["frame"].empty]
+    trades = pd.concat(frames, ignore_index=True) if frames else parts[0]["frame"]
+    series = [p["daily_series"] for p in parts if len(p["daily_series"])]
+    daily = pd.concat(series) if series else parts[0]["daily_series"]
+    outcomes: Counter = Counter()
+    unfilled: Counter = Counter()
+    for part in parts:
+        outcomes.update(part["outcomes"])
+        unfilled.update(part["unfilled"])
+    return _package(
+        trades,
+        daily,
+        [trade for part in parts for trade in part["trades"]],
+        dict(unfilled),
+        sum(part["signals"] for part in parts),
+        outcomes,
+        services,
+    )
+
+
+def _public(result: dict) -> dict:
+    return {k: v for k, v in result.items() if k not in ("frame", "daily_series", "outcomes")}
 
 
 def _summary(run: dict) -> dict:
@@ -197,28 +295,47 @@ def run_tasks(
     on_sessions: Callable[[int, int], None] | None = None,
     pool: ProcessPoolExecutor | None = None,
 ) -> list[dict]:
-    """Run replay tasks in order, in parallel when allowed, reporting sessions replayed."""
-    if on_sessions is None or sessions is None:
+    """Run replay tasks, in parallel when allowed, and return their results in order.
+
+    Long windows of strategies that square off daily are split into chunks so every core
+    has work, and the chunks' results are merged back. `on_sessions(done, total)` reports
+    sessions replayed."""
+    tasks = [(*task[:6], task[6] if len(task) > 6 else None) for task in tasks]
+    if not tasks:
+        return []
+    planned = _plan(tasks, workers)
+    subtasks = [sub for _, sub in planned]
+    parallel = pool is not None or (workers > 1 and len(subtasks) > 1)
+    tracked = on_sessions is not None and sessions is not None
+    counter = SessionCounter(shared=parallel) if tracked else None
+    if counter is not None:
+        subtasks = [(*sub, (counter.counts, i)) for i, sub in enumerate(subtasks)]
+
+    def execute() -> list[dict]:
         if pool is not None:
-            return list(pool.map(_run, tasks))
-        if workers > 1 and len(tasks) > 1:
-            with ProcessPoolExecutor(max_workers=min(workers, len(tasks))) as own:
-                return list(own.map(_run, tasks))
-        return [_run(task) for task in tasks]
-    total = sum(sum(1 for day in sessions if task[3] <= day <= task[4]) for task in tasks)
-    parallel = pool is not None or (workers > 1 and len(tasks) > 1)
-    counter = SessionCounter(shared=parallel)
-    tagged = [(*task, (counter.counts, index)) for index, task in enumerate(tasks)]
+            return list(pool.map(_run, subtasks))
+        if parallel:
+            with ProcessPoolExecutor(max_workers=min(workers, len(subtasks))) as own:
+                return list(own.map(_run, subtasks))
+        return [_run(sub) for sub in subtasks]
+
     try:
-        with Poller(counter, total, on_sessions):
-            if pool is not None:
-                return list(pool.map(_run, tagged))
-            if parallel:
-                with ProcessPoolExecutor(max_workers=min(workers, len(tasks))) as own:
-                    return list(own.map(_run, tagged))
-            return [_run(task) for task in tagged]
+        if counter is not None:
+            total = sum(sum(1 for d in sessions if t[3] <= d <= t[4]) for t in tasks)
+            with Poller(counter, total, on_sessions):
+                raw = execute()
+        else:
+            raw = execute()
     finally:
-        counter.close()
+        if counter is not None:
+            counter.close()
+    grouped: dict[int, list[dict]] = {}
+    for (index, _), result in zip(planned, raw, strict=True):
+        grouped.setdefault(index, []).append(result)
+    return [
+        _public(_merge(grouped[index], tasks[index][0], tasks[index][1]))
+        for index in range(len(tasks))
+    ]
 
 
 def evaluate_specs(
