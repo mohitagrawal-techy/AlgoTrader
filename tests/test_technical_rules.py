@@ -48,6 +48,8 @@ def test_every_indicator_computes_on_real_looking_data():
     closes = 20000 + np.cumsum(rng.normal(5, 80, 300))
     frames = Frames(candles(closes, opens=closes - rng.normal(0, 40, 300)))
     for name, indicator in INDICATORS.items():
+        if indicator.intraday_only:
+            continue
         fields = list(indicator.fields) or [None]
         for field in fields:
             value = frames.value("1d", ind(name, field))

@@ -115,3 +115,49 @@ def test_saved_strategies_keep_their_signature():
 
 def test_rule_without_candle_type_is_normal():
     assert CompareRule(left=ind("close"), op="above", right=num(1)).candles == "normal"
+
+
+# ---- Opening range --------------------------------------------------------------------------
+
+
+def minute_bars(day="2026-11-10", start=100.0, step=0.1, minutes=60):
+    import pandas as pd
+
+    ts = pd.date_range(f"{day} 09:15", periods=minutes, freq="1min", tz="Asia/Kolkata")
+    close = start + np.arange(minutes) * step
+    return pd.DataFrame(
+        {"ts": ts, "open": close, "high": close + 1, "low": close - 1, "close": close}
+    )
+
+
+def test_opening_range_is_known_only_after_it_ends():
+    frames = Frames(candles([100.0] * 5), minute_bars())
+    high = frames.series("5m", ind("opening_range", "high", minutes=15)).tolist()
+    low = frames.series("5m", ind("opening_range", "low", minutes=15)).tolist()
+    # Candles at 09:15, 09:20 and 09:25 form the range; it is read from the 09:30 candle.
+    assert np.isnan(high[:3]).all() and np.isnan(low[:3]).all()
+    assert high[3] == pytest.approx(102.4) and low[3] == pytest.approx(99.0)
+    # Hourly candles are longer than the range, so there is no value.
+    assert np.isnan(frames.series("1h", ind("opening_range", "high", minutes=15))).all()
+
+
+def test_opening_range_resets_each_session():
+    import pandas as pd
+
+    bars = pd.concat([minute_bars("2026-11-10"), minute_bars("2026-11-11", start=200.0)])
+    frames = Frames(candles([100.0] * 5), bars.reset_index(drop=True))
+    high = frames.series("5m", ind("opening_range", "high", minutes=15)).tolist()
+    assert high[3] == pytest.approx(102.4) and high[-1] == pytest.approx(202.4)
+
+
+def test_breakout_rule_and_daily_refusal():
+    breakout = CompareRule(
+        timeframe="5m",
+        left=ind("close"),
+        op="above",
+        right=ind("opening_range", "high", minutes=15),
+    )
+    # A steady climb closes above the first 15 minutes' high soon after.
+    assert rule_failure(breakout, Frames(candles([100.0] * 5), minute_bars(step=0.3))) is None
+    with pytest.raises(ValidationError):
+        CompareRule(left=ind("close"), op="above", right=ind("opening_range", "high", minutes=15))

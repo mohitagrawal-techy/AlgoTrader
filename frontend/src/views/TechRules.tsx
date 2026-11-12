@@ -88,6 +88,26 @@ export const PRESETS: { label: string; rule: TechRule }[] = [
     },
   },
   {
+    label: "Breaks above the 15-minute opening range",
+    rule: {
+      type: "compare",
+      timeframe: "5m",
+      left: { kind: "indicator", name: "close" },
+      op: "above",
+      right: { kind: "indicator", name: "opening_range", params: { minutes: 15 }, field: "high" },
+    },
+  },
+  {
+    label: "Breaks below the 15-minute opening range",
+    rule: {
+      type: "compare",
+      timeframe: "5m",
+      left: { kind: "indicator", name: "close" },
+      op: "below",
+      right: { kind: "indicator", name: "opening_range", params: { minutes: 15 }, field: "low" },
+    },
+  },
+  {
     label: "Heikin-Ashi candle green",
     rule: {
       type: "compare",
@@ -350,6 +370,7 @@ export function TechRulesEditor({
   onChange,
   prefix = "rule",
   addLabel = "Add a rule",
+  quickAdd = false,
 }: {
   catalog: TechCatalog;
   rules: TechRule[];
@@ -360,6 +381,8 @@ export function TechRulesEditor({
   /** Field ids start with this, so entry and exit rules do not collide. */
   prefix?: string;
   addLabel?: string;
+  /** Show the ready-made rules as one-click buttons above the list. */
+  quickAdd?: boolean;
 }) {
   const frames = catalog.timeframes.filter(
     (frame) => intraday || !MINUTE_FRAMES.includes(frame.value) || rules.some((r) => r.timeframe === frame.value),
@@ -389,8 +412,23 @@ export function TechRulesEditor({
           },
     );
 
+  const offered = PRESETS.filter((preset) => intraday || !MINUTE_FRAMES.includes(preset.rule.timeframe));
   return (
     <div className="vstack gap-2">
+      {quickAdd && rules.length < MAX_RULES && (
+        <div className="quick-rules" aria-label="Add a common indicator rule">
+          {offered.map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              className="btn btn-outline-secondary btn-sm"
+              onClick={() => onChange([...rules, structuredClone(preset.rule)])}
+            >
+              + {preset.label}
+            </button>
+          ))}
+        </div>
+      )}
       {rules.map((rule, index) => (
         <div className="tech-rule border rounded p-2" key={index}>
           <div className="d-flex flex-wrap gap-2 align-items-center">
@@ -535,22 +573,24 @@ export function TechRulesEditor({
           >
             {addLabel}
           </button>
-          <select
-            className="form-select form-select-sm w-auto"
-            aria-label="Add a ready-made rule"
-            value=""
-            onChange={(event) => {
-              const preset = PRESETS[Number(event.target.value)];
-              if (preset) onChange([...rules, structuredClone(preset.rule)]);
-            }}
-          >
-            <option value="">Add a ready-made rule…</option>
-            {PRESETS.map((preset, i) => (
-              <option key={preset.label} value={i}>
-                {preset.label}
-              </option>
-            ))}
-          </select>
+          {!quickAdd && (
+            <select
+              className="form-select form-select-sm w-auto"
+              aria-label="Add a ready-made rule"
+              value=""
+              onChange={(event) => {
+                const preset = PRESETS[Number(event.target.value)];
+                if (preset) onChange([...rules, structuredClone(preset.rule)]);
+              }}
+            >
+              <option value="">Add a ready-made rule…</option>
+              {PRESETS.map((preset, i) => (
+                <option key={preset.label} value={i}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       )}
     </div>

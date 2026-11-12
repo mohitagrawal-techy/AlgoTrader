@@ -3,10 +3,11 @@ import {
   api,
   type LabOverview,
   type LabRow,
-  type LabSpec,
   type LabSummary,
+  type TechCatalog,
 } from "../api";
 import { LineChart, timeTicks } from "../charts";
+import { StrategyVisual } from "./StrategyVisual";
 import { dateTimeIst, fraction, inrCompact, num, shortDate, signedInr } from "../format";
 import { Empty, Panel, Pnl, Segmented, Select, Status, Tile, type Tone } from "../ui";
 
@@ -32,13 +33,6 @@ const SOURCE_FILTERS = [
   { value: "ladder", label: "Ladder" },
   { value: "template", label: "Templates" },
 ];
-
-function exitText(spec: LabSpec): string {
-  const exits = spec.exits;
-  return `target ${Math.round(exits.target_frac * 100)}%, stop ${Math.round(
-    exits.stop_frac * 100,
-  )}% of premium, time exit ${exits.exit_dte}d before expiry`;
-}
 
 function LadderPanel({
   data,
@@ -194,6 +188,8 @@ function Blocked({ summary }: { summary: LabSummary }) {
 
 function Detail({
   row,
+  catalog,
+  signals,
   minTrades,
   busy,
   onTest,
@@ -201,6 +197,8 @@ function Detail({
   onDelete,
 }: {
   row: LabRow;
+  catalog: TechCatalog;
+  signals: { name: string; label: string }[];
   minTrades: number;
   busy: boolean;
   onTest: () => void;
@@ -239,16 +237,10 @@ function Detail({
         </div>
       </header>
       {spec.rationale && <p className="secondary">{spec.rationale}</p>}
-      <dl className="facts facts-1 facts-stacked">
-        <div>
-          <dt>Enter</dt>
-          <dd>{row.entry_text}</dd>
-        </div>
-        <div>
-          <dt>Exit</dt>
-          <dd>{exitText(spec)}</dd>
-        </div>
-      </dl>
+      <details className="sv-details" open>
+        <summary>Strategy map</summary>
+        <StrategyVisual spec={spec} catalog={catalog} signals={signals} />
+      </details>
       <div className="detail-actions">
         {result && spec.id ? (
           <a className="button" href={`#lab/backtest/${encodeURIComponent(spec.id)}`}>
@@ -505,6 +497,8 @@ export function LabView({ initialSelected }: { initialSelected: string | null })
           {current && (
             <Detail
               row={current}
+              catalog={data.technical}
+              signals={data.signals}
               minTrades={data.min_test_trades}
               busy={running || !ready}
               onTest={() => act(() => api.labBacktest([current.spec.id as string]))}

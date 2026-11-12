@@ -3953,3 +3953,292 @@ main > .empty {
   font-stretch: 100%;
   letter-spacing: 0;
 }
+
+.strategy-page .quick-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.strategy-page .quick-rules .btn {
+  --bs-btn-padding-y: 2px;
+  --bs-btn-padding-x: 9px;
+  border-radius: 999px;
+  font-size: 12.5px;
+}
+
+/* ---- Strategy map: steps on a rail, then an exit map ------------------------------- */
+
+.sv {
+  display: grid;
+  gap: 14px;
+  font-size: 13px;
+}
+
+.sv-flow {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The rail joining the steps, top to bottom: the order a trade goes through them. */
+.sv-flow::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 5px;
+  width: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink-3) 55%, transparent);
+}
+
+.sv-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.sv-dot {
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--ink-3);
+  box-shadow: 0 0 0 1px var(--axis);
+}
+
+.sv-step:first-child .sv-dot {
+  background: var(--surface);
+}
+
+.sv-step:last-child .sv-dot {
+  background: var(--ink);
+}
+
+.sv-body {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.sv-body h4 {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sv-body p {
+  margin: 0;
+}
+
+.sv-rules,
+.sv-exits {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sv-rules li {
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+
+.sv-market li {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.sv-any {
+  display: grid;
+  gap: 4px;
+  padding-left: 8px;
+  border-left: 2px dotted var(--axis);
+}
+
+.sv-legs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sv-leg {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 9px;
+  border: 1.5px solid transparent;
+  border-radius: var(--r-sm);
+  font-weight: 500;
+}
+
+.sv-leg b {
+  font-weight: 700;
+}
+
+.sv-call {
+  border-color: var(--series-1);
+  background: color-mix(in srgb, var(--series-1) 16%, transparent);
+}
+
+.sv-put {
+  border-color: var(--series-2);
+  background: color-mix(in srgb, var(--series-2) 16%, transparent);
+}
+
+/* Sold legs are outlined only: a short position, not a purchase. */
+.sv-leg.sv-sell {
+  border-style: dashed;
+  background: transparent;
+}
+
+.sv-exits li {
+  position: relative;
+  padding-left: 14px;
+}
+
+.sv-exits li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink-3) 55%, transparent);
+}
+
+.sv-exits li.sv-good::before {
+  background: var(--pnl-up);
+}
+
+.sv-exits li.sv-bad::before {
+  background: var(--pnl-down);
+}
+
+.sv-map {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 10px 8px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.sv-map svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.sv-axis {
+  stroke: var(--axis);
+  stroke-width: 1;
+}
+
+.sv-stop-line {
+  stroke: var(--pnl-down);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
+
+.sv-target-line {
+  stroke: var(--pnl-up);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.8;
+}
+
+.sv-trail {
+  fill: none;
+  stroke: var(--pnl-down);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.sv-price {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.sv-entry {
+  fill: var(--surface-2);
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+
+.sv-exit {
+  fill: var(--accent);
+  stroke: var(--surface-2);
+  stroke-width: 2;
+}
+
+.sv-tick,
+.sv-note {
+  fill: var(--ink-3);
+  font-size: 9.5px;
+}
+
+.sv-exit-label {
+  fill: var(--ink);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.sv-map figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11.5px;
+}
+
+.sv-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-2);
+}
+
+.sv-key::before {
+  content: "";
+  width: 14px;
+  height: 0;
+  border-top: 2px solid var(--ink);
+}
+
+.sv-key-trail::before {
+  border-top-color: var(--pnl-down);
+}
+
+.sv-key-stop::before {
+  border-top: 1px dashed var(--pnl-down);
+}
+
+.sv-details > summary {
+  margin-bottom: 10px;
+  color: var(--ink-2);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (min-width: 1200px) {
+  .bs-scope.strategy-page .strategy-summary {
+    max-height: calc(100vh - var(--bar-h) - 32px);
+    overflow-y: auto;
+  }
+}

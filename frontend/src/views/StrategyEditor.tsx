@@ -9,6 +9,7 @@ import {
   type LabSpec,
   type TechRule,
 } from "../api";
+import { StrategyVisual } from "./StrategyVisual";
 import { MAX_RULES, MINUTE_FRAMES, ruleProblems, ruleText, TechRulesEditor } from "./TechRules";
 
 const MAX_LEGS = 4;
@@ -534,6 +535,56 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
             </Section>
           )}
 
+          <Section
+            title="Indicators"
+            hint="Entry signals on the underlying: indicators, candle patterns and price levels."
+            aside={<span className="badge text-bg-secondary">{rules.length + anyRules.length} rules</span>}
+          >
+            <div className="d-flex justify-content-between align-items-center mb-1">
+              <strong className="small">All of these must hold</strong>
+              <span className="badge text-bg-secondary">
+                {rules.length} of {MAX_RULES}
+              </span>
+            </div>
+            <p className="form-text mt-0">
+              {intraday
+                ? "Indicators, candle patterns and price levels on the underlying, each on 5-minute to monthly candles. Minute candles count once finished; daily and longer ones include today so far. A trade enters at the next check."
+                : "Indicators, candle patterns and price levels on the underlying, each on daily, weekly or monthly candles. Rules read candles up to the decision at the close, and the trade enters at the next open. For 5-minute to hourly candles, decide every 5, 15 or 60 minutes."}
+            </p>
+            <TechRulesEditor
+              catalog={lab.technical}
+              rules={rules}
+              problems={visible}
+              intraday={intraday}
+              quickAdd
+              onChange={(next) => setEntry({ rules: next })}
+            />
+
+            <div className="d-flex justify-content-between align-items-center mt-3 mb-1">
+              <strong className="small">Any of these</strong>
+              <span className="badge text-bg-secondary">
+                {anyRules.length} of {MAX_RULES}
+              </span>
+            </div>
+            <p className="form-text mt-0">
+              At least one of these must hold too, for a setup that can start in more than one way. Leave empty if
+              every rule above is enough.
+            </p>
+            <TechRulesEditor
+              catalog={lab.technical}
+              rules={anyRules}
+              problems={visible}
+              intraday={intraday}
+              prefix="any-rule"
+              addLabel="Add an any-of rule"
+              onChange={(next) => setEntry({ any_rules: next })}
+            />
+            <p className="form-text mb-0 mt-3">
+              Exit signals are under Exit when. Strategies without indicators enter on the other entry rules
+              alone.
+            </p>
+          </Section>
+
           <Section title="Basics">
             <div className="row g-3">
               <div className="col-12 col-md-7">
@@ -883,45 +934,6 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
               </button>
             )}
 
-            <hr />
-            <div className="d-flex justify-content-between align-items-center mb-1">
-              <strong className="small">Price and candle rules</strong>
-              <span className="badge text-bg-secondary">
-                {rules.length} of {MAX_RULES}
-              </span>
-            </div>
-            <p className="form-text mt-0">
-              {intraday
-                ? "Indicators, candle patterns and price levels on the underlying, each on 5-minute to monthly candles. Minute candles count once finished; daily and longer ones include today so far. A trade enters at the next check."
-                : "Indicators, candle patterns and price levels on the underlying, each on daily, weekly or monthly candles. Rules read candles up to the decision at the close, and the trade enters at the next open. For 5-minute to hourly candles, decide every 5, 15 or 60 minutes."}
-            </p>
-            <TechRulesEditor
-              catalog={lab.technical}
-              rules={rules}
-              problems={visible}
-              intraday={intraday}
-              onChange={(next) => setEntry({ rules: next })}
-            />
-
-            <div className="d-flex justify-content-between align-items-center mt-3 mb-1">
-              <strong className="small">Any of these</strong>
-              <span className="badge text-bg-secondary">
-                {anyRules.length} of {MAX_RULES}
-              </span>
-            </div>
-            <p className="form-text mt-0">
-              At least one of these must hold too, for a setup that can start in more than one way. Leave empty if
-              every rule above is enough.
-            </p>
-            <TechRulesEditor
-              catalog={lab.technical}
-              rules={anyRules}
-              problems={visible}
-              intraday={intraday}
-              prefix="any-rule"
-              addLabel="Add an any-of rule"
-              onChange={(next) => setEntry({ any_rules: next })}
-            />
           </Section>
 
           <Section title="Exit when" hint="The first of these to happen closes the trade.">
@@ -1058,7 +1070,17 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
         </div>
 
         <div className="col-12 col-xl-4">
-          <aside className="card strategy-summary">
+          <div className="strategy-summary">
+          <section className="card mb-3">
+            <div className="card-header">
+              <h2 className="h6 mb-0">Strategy map</h2>
+              <small className="text-body-secondary">Updates as you edit.</small>
+            </div>
+            <div className="card-body">
+              <StrategyVisual spec={spec} catalog={lab?.technical ?? null} signals={lab?.signals} />
+            </div>
+          </section>
+          <aside className="card">
             <div className="card-header d-flex justify-content-between align-items-center">
               <h2 className="h6 mb-0">Summary</h2>
               <span className={`badge ${level.tone}`}>{level.label}</span>
@@ -1167,6 +1189,7 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
               )}
             </div>
           </aside>
+          </div>
         </div>
       </div>
     </div>

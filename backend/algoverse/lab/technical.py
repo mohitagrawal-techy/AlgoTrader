@@ -143,6 +143,33 @@ def _stochastic(bars: pd.DataFrame, k: int, d: int) -> dict[str, pd.Series]:
     return {"k": fast, "d": fast.rolling(d).mean()}
 
 
+def _opening_range(bars: pd.DataFrame, minutes: int) -> dict[str, pd.Series]:
+    """The high and low of each session's first `minutes`, from 09:15.
+
+    Intraday candles only. A candle gets the values once the range has finished, so the range
+    is never read before it is known. Candles longer than the range, and daily or longer
+    candles, have no value.
+    """
+    empty = pd.Series(np.nan, index=bars.index, dtype=float)
+    if bars.empty or "ts" not in bars:
+        return {"high": empty, "low": empty, "mid": empty}
+    times = pd.to_datetime(bars["ts"])
+    local = times.dt.tz_convert("Asia/Kolkata") if times.dt.tz is not None else times
+    day = local.dt.normalize()
+    offset = (local - day - SESSION_START).dt.total_seconds() / 60
+    gaps = offset.groupby(day).diff().dropna()
+    size = float(gaps[gaps > 0].min()) if (gaps > 0).any() else float("inf")
+    if size > minutes or (offset.groupby(day).nunique() <= 1).all():
+        return {"high": empty, "low": empty, "mid": empty}
+    inside = offset < minutes
+    high = bars["high"].where(inside).groupby(day).transform("max")
+    low = bars["low"].where(inside).groupby(day).transform("min")
+    # Known only from the first candle that starts after the range ends.
+    known = offset >= minutes
+    high, low = high.where(known), low.where(known)
+    return {"high": high, "low": low, "mid": (high + low) / 2}
+
+
 def _pivots(bars: pd.DataFrame) -> dict[str, pd.Series]:
     """Classic floor pivots from the previous candle."""
     high, low, close = (bars[c].shift(1) for c in ("high", "low", "close"))
@@ -220,6 +247,8 @@ class Indicator:
     # What the value is measured in, so the editor can suggest sensible numbers.
     unit: Literal["price", "percent", "index", "ratio", "direction"] = "price"
     description: str = ""
+    # Needs 5-minute to hourly candles.
+    intraday_only: bool = False
 
 
 PERIOD = Param("period", "Period", 14, 2, 400)
@@ -381,6 +410,14 @@ INDICATORS: dict[str, Indicator] = {
         "Change from previous close, %",
         lambda b: (b["close"] / b["close"].shift(1) - 1) * 100,
         unit="percent",
+    ),
+    "opening_range": Indicator(
+        "Opening range",
+        lambda b, minutes: _opening_range(b, int(minutes)),
+        (_p("minutes", "First minutes", 15, 5, 120),),
+        {"high": "High", "low": "Low", "mid": "Middle"},
+        description="High and low of the session's first minutes. Use on 5- or 15-minute candles",
+        intraday_only=True,
     ),
     "pivots": Indicator(
         "Pivot levels (previous candle)",
@@ -610,6 +647,10 @@ class CompareRule(BaseModel):
     def _not_two_numbers(self) -> CompareRule:
         if self.left.kind == "value" and self.right.kind == "value":
             raise ValueError("a rule needs at least one indicator")
+        for operand in (self.left, self.right):
+            indicator = INDICATORS.get(operand.name or "")
+            if indicator and indicator.intraday_only and self.timeframe not in INTRADAY_MINUTES:
+                raise ValueError(f"{indicator.label} needs 5-minute, 15-minute or hourly candles")
         return self
 
 
@@ -835,6 +876,7 @@ def catalog() -> dict:
                     for p in indicator.params
                 ],
                 "fields": [{"value": k, "label": v} for k, v in indicator.fields.items()],
+                "intraday_only": indicator.intraday_only,
             }
             for name, indicator in INDICATORS.items()
         ],
