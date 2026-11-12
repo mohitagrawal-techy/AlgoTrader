@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import threading
+import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,8 @@ from algoverse.backtest.registry import Registry
 from algoverse.dashboard import clean
 from algoverse.lab.designer import _rules_help, design_strategies, feedback_row
 from algoverse.lab.evaluate import (
+    HELD_UP,
+    UNPROVEN,
     evaluate_specs,
     rank_key,
     sessions_needed,
@@ -58,6 +61,10 @@ IST = ZoneInfo("Asia/Kolkata")
 DESIGN_TIMEOUT_SECONDS = 420
 MAX_STORED = 200
 MAX_TUNING_SESSIONS = 30
+# Autopilot limits. Each cycle designs, tests and tunes, which takes minutes, not seconds.
+AUTOPILOT_FAILURES = 3
+# Verdicts worth keeping in the lab; the rest are archived when autopilot made them.
+KEEP_VERDICTS = (HELD_UP, UNPROVEN)
 
 
 def _without_detail(result: dict | None) -> dict | None:
@@ -99,6 +106,7 @@ class LabService:
         self._folder = self.data_dir / "lab"
         self._lock = threading.Lock()
         self._job: dict | None = None
+        self._stop = threading.Event()
 
     # ---- Storage -------------------------------------------------------------------------
 
@@ -198,6 +206,8 @@ class LabService:
                 "signals": [{"name": k, "label": v} for k, v in SIGNALS.items()],
                 "technical": technical_catalog(),
                 "ladder": self._latest_ladder(),
+                "autopilot": self.autopilot(),
+                "archived": len(list((self._archive_folder() / "strategies").glob("*.json"))),
                 "ladder_ready": ladder_windows(sessions, config) is not None,
                 "strategies": rows,
             }
@@ -376,7 +386,11 @@ class LabService:
         dropped: list[str] = []
         for number in range(1, rounds + 1):
             specs = self.specs()
-            tested = [feedback_row(spec, self.result(spec)) for spec in specs]
+            archived = self._archived()
+            # Archived strategies still count: the AI learns from them and must not repeat them.
+            tested = [feedback_row(spec, result) for spec, result in archived] + [
+                feedback_row(spec, self.result(spec)) for spec in specs
+            ]
             note(f"Round {number} of {rounds}: the AI is designing {per_round} strategies")
             try:
                 new, notes = design_strategies(
@@ -388,7 +402,7 @@ class LabService:
                     rounds,
                     account,
                     tested,
-                    {signature(spec) for spec in specs},
+                    {signature(spec) for spec in specs} | {signature(spec) for spec, _ in archived},
                     guidance,
                 )
             except LLMError as exc:
@@ -640,6 +654,251 @@ class LabService:
 
         job = self._start("tune", work)
         job["session_id"] = target
+        return job
+
+    # ---- Autopilot ------------------------------------------------------------------------
+
+    def _autopilot_path(self) -> Path:
+        return self._folder / "autopilot.json"
+
+    def _archive_folder(self) -> Path:
+        return self._folder / "archive"
+
+    def _archived(self) -> list[tuple[StrategySpec, dict | None]]:
+        """Strategies autopilot moved out of the lab, with their last results."""
+        found = []
+        for path in sorted((self._archive_folder() / "strategies").glob("*.json")):
+            try:
+                spec = StrategySpec.model_validate_json(path.read_text())
+            except ValidationError:
+                continue
+            try:
+                result = json.loads((self._archive_folder() / "results" / path.name).read_text())
+            except (FileNotFoundError, ValueError):
+                result = None
+            found.append((spec, result))
+        return found
+
+    def _archive(self, spec_id: str) -> None:
+        """Move a strategy and its result out of the lab. Nothing is deleted."""
+        for kind, source in (
+            ("strategies", self._spec_path(spec_id)),
+            ("results", self._result_path(spec_id)),
+        ):
+            if source.exists():
+                target = self._archive_folder() / kind / source.name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(source, target)
+
+    def autopilot(self) -> dict | None:
+        try:
+            state = json.loads(self._autopilot_path().read_text())
+        except FileNotFoundError:
+            return None
+        job = self._job
+        live = job is not None and job["kind"] == "autopilot" and job["state"] == "running"
+        if state.get("running") and not live:
+            state["running"] = False
+            state["ended"] = "Interrupted: the server restarted or the job failed."
+        return state
+
+    @staticmethod
+    def _train_summary(result: dict | None) -> dict | None:
+        if result is None:
+            return None
+        train = result.get("train") or {}
+        return {
+            key: train.get(key) for key in ("trades", "net_pnl", "win_rate", "expectancy", "sharpe")
+        }
+
+    @staticmethod
+    def _pick(candidates: list[tuple[StrategySpec, dict | None]], min_trades: int):
+        """The design worth tuning: best training Sharpe among those with enough trades.
+
+        Only training results are used, so picking never looks at the test period."""
+        usable = [
+            (spec, result)
+            for spec, result in candidates
+            if result and (result["train"].get("trades") or 0) >= min_trades
+        ]
+        if not usable:
+            return None
+        return max(usable, key=lambda item: item[1]["train"].get("sharpe") or -99.0)[0]
+
+    def run_autopilot(
+        self,
+        now: datetime,
+        cycles: int,
+        hours: float,
+        per_cycle: int,
+        tune_rounds: int,
+        guidance: str,
+        stop: threading.Event,
+        note: Callable[[str], None] = lambda _: None,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> dict:
+        """Repeat: the AI designs strategies, the best on training data is tuned one setting
+        at a time, and it gets one final test. Strategies that did not hold up are archived,
+        so the lab keeps only the ones worth a look. Stops on request, at the cycle or time
+        limit, or after repeated AI failures."""
+        self._require_history()
+        config, _ = self._tuning_windows()
+        deadline = time.monotonic() + hours * 3600
+        state = {
+            "started_at": now.isoformat(),
+            "finished_at": None,
+            "running": True,
+            "ended": None,
+            "settings": {
+                "cycles": cycles,
+                "hours": hours,
+                "per_cycle": per_cycle,
+                "tune_rounds": tune_rounds,
+                "guidance": guidance[:500],
+            },
+            "cycles": [],
+        }
+        _write(self._autopilot_path(), state)
+        failures = 0
+        ended = f"Finished all {cycles} cycles"
+        for number in range(1, cycles + 1):
+            if stop.is_set():
+                ended = "Stopped on request"
+                break
+            if time.monotonic() > deadline:
+                ended = f"Reached the {hours:g} hour limit"
+                break
+            if len(self.specs()) - len(TEMPLATES) >= MAX_STORED:
+                ended = f"The lab is full ({MAX_STORED} strategies). Delete some to continue."
+                break
+            cycle_now = datetime.now(IST)
+            cycle: dict = {
+                "number": number,
+                "started_at": cycle_now.isoformat(),
+                "designed": [],
+                "dropped": 0,
+                "picked": None,
+                "session_id": None,
+                "final": None,
+                "kept": [],
+                "archived": 0,
+                "message": None,
+            }
+            state["cycles"].append(cycle)
+            _write(self._autopilot_path(), state)
+
+            def step(message: str, number=number) -> None:
+                note(f"Cycle {number} of {cycles}: {message}")
+
+            step(f"the AI is designing {per_cycle} strategies")
+            try:
+                outcome = self.run_generate(cycle_now, 1, per_cycle, guidance, step, progress)
+            except LabError as exc:
+                failures += 1
+                cycle["message"] = str(exc)
+                _write(self._autopilot_path(), state)
+                if failures >= AUTOPILOT_FAILURES:
+                    ended = f"The AI failed {AUTOPILOT_FAILURES} cycles in a row: {exc}"
+                    break
+                continue
+            failures = 0
+            designed = [
+                (spec, self.result(spec))
+                for spec in (self.spec(i) for i in outcome["created"])
+                if spec is not None
+            ]
+            cycle["dropped"] = len(outcome["dropped"])
+            cycle["designed"] = [
+                {
+                    "id": spec.id,
+                    "name": spec.name,
+                    "train": self._train_summary(result),
+                    "verdict": result["verdict"] if result else None,
+                }
+                for spec, result in designed
+            ]
+            made = [spec.id for spec, _ in designed]
+            picked = self._pick(designed, config.lab.min_test_trades)
+            if picked is None:
+                cycle["message"] = (
+                    "No design had enough training trades to tune."
+                    if designed
+                    else "The AI proposed nothing new."
+                )
+            elif not stop.is_set():
+                cycle["picked"] = {"id": picked.id, "name": picked.name}
+                _write(self._autopilot_path(), state)
+                step(f"tuning {picked.name}")
+                try:
+                    session = self.run_tuning(
+                        picked.id,
+                        datetime.now(IST),
+                        rounds=tune_rounds,
+                        guidance=guidance,
+                        note=step,
+                        progress=progress,
+                    )
+                except LabError as exc:
+                    cycle["message"] = f"Tuning failed: {exc}"
+                else:
+                    cycle["session_id"] = session["id"]
+                    final = session.get("final")
+                    if final:
+                        made.append(final["id"])
+                        cycle["final"] = {
+                            "id": final["id"],
+                            "verdict": final["verdict"],
+                            "test": final.get("test"),
+                        }
+                    else:
+                        cycle["message"] = "No change beat the original on unseen sessions."
+            for spec_id in dict.fromkeys(made):
+                spec = self.spec(spec_id)
+                result = self.result(spec) if spec else None
+                if result and result["verdict"] in KEEP_VERDICTS:
+                    cycle["kept"].append(
+                        {"id": spec_id, "name": spec.name, "verdict": result["verdict"]}
+                    )
+                elif spec is not None and spec.source != "template":
+                    self._archive(spec_id)
+                    cycle["archived"] += 1
+            cycle["finished_at"] = datetime.now(IST).isoformat()
+            _write(self._autopilot_path(), state)
+        state.update(running=False, ended=ended, finished_at=datetime.now(IST).isoformat())
+        _write(self._autopilot_path(), state)
+        return state
+
+    def start_autopilot(
+        self,
+        now: datetime,
+        cycles: int,
+        hours: float,
+        per_cycle: int,
+        tune_rounds: int,
+        guidance: str,
+    ) -> dict:
+        self._require_history()
+        self._tuning_windows()
+        self._design_client()
+        stop = threading.Event()
+
+        def work(note, progress) -> str:
+            state = self.run_autopilot(
+                now, cycles, hours, per_cycle, tune_rounds, guidance, stop, note, progress
+            )
+            kept = sum(len(c["kept"]) for c in state["cycles"])
+            return f"{state['ended']}. {len(state['cycles'])} cycles, {kept} strategies kept."
+
+        with self._lock:
+            self._stop = stop
+        return self._start("autopilot", work)
+
+    def stop_autopilot(self) -> dict:
+        job = self._job
+        if not job or job["kind"] != "autopilot" or job["state"] != "running":
+            raise LabError("Autopilot is not running.")
+        self._stop.set()
+        job["message"] = "Stopping after the current step"
         return job
 
     # ---- Background jobs -----------------------------------------------------------------

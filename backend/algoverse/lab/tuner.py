@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -263,6 +264,10 @@ new item. A null value at a list position removes that item.
   value: the new value, in the same shape as the current one.
   reason: one sentence tying the change to the analysis.
 
+Allowed values: entry.trend is a list of "up", "down" and "range" (empty means any trend); \
+decide_every is "day", "5m", "15m" or "1h"; units are "premium", "rupees" or "points"; times \
+are "HH:MM" between 09:15 and 15:25. Indicator names and their settings are listed below.
+
 Rules: one setting per suggestion; never repeat a change already tried; small samples are \
 noise, so prefer changes with a clear reason over chasing one result; keep the strategy's loss \
 at the stop within the account's loss limit. Exit amounts are in the unit beside them: premium \
@@ -276,8 +281,64 @@ class AiSuggestion(BaseModel):
 
 
 class AiTuning(BaseModel):
-    analysis: str
+    analysis: str = ""
     suggestions: list[AiSuggestion]
+
+
+# Small local models sometimes reply with nothing or with prose; ask again before giving up.
+ATTEMPTS = 3
+REMINDER = (
+    "Your last reply could not be read. Reply with one JSON object only: "
+    '{"analysis": "...", "suggestions": [{"path": "...", "value": ..., "reason": "..."}]}'
+)
+NO_ANALYSIS = "The AI model suggested these changes without writing an analysis."
+
+
+def _objects(text: str) -> list:
+    """JSON values written one after another, separated by commas, newlines or spaces."""
+    decoder = json.JSONDecoder()
+    found, position = [], 0
+    while True:
+        while position < len(text) and text[position] in " \t\r\n,":
+            position += 1
+        if position >= len(text):
+            break
+        try:
+            value, position = decoder.raw_decode(text, position)
+        except json.JSONDecodeError as exc:
+            raise ValueError("not JSON") from exc
+        found.append(value)
+    if not found:
+        raise ValueError("empty reply")
+    return found
+
+
+def parse_tuning(text: str) -> AiTuning:
+    """Read the model's reply, forgiving the shapes small local models often produce.
+
+    Accepts the requested object, a bare list of suggestions, or suggestions written one
+    after another, by commas or by lines, without the surrounding brackets. Raises ValueError
+    when none fit."""
+    # Drop code fences and list markers ("- ", "* ", "1. ") the model may wrap suggestions in.
+    text = re.sub(r"```(?:json)?", "", text)
+    text = re.sub(r"(?m)^\s*(?:[-*\u2022]|\d+[.)])\s+", "", text).strip()
+    if not text:
+        raise ValueError("empty reply")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        data = _objects(text)
+    if isinstance(data, dict) and "suggestions" not in data and "path" in data:
+        data = [data]
+    if isinstance(data, list):
+        data = {"suggestions": data}
+    try:
+        parsed = AiTuning.model_validate(data)
+    except ValidationError as exc:
+        raise ValueError(str(exc.errors()[0]["msg"])) from exc
+    if not parsed.suggestions:
+        raise ValueError("no suggestions")
+    return parsed
 
 
 def ai_changes(
@@ -306,35 +367,44 @@ def ai_changes(
         default=str,
     )
     system = SYSTEM + rules_help
-    started = time.monotonic()
-    text, status, tokens = "", UNAVAILABLE, (0, 0)
-    try:
-        reply = client.complete(system, user, AiTuning.model_json_schema())
-        text, tokens = reply.text, (reply.input_tokens, reply.output_tokens)
-        parsed = AiTuning.model_validate_json(text)
-        status = OK
-    except LLMError as exc:
-        text = str(exc)
-        raise
-    except ValidationError as exc:
-        raise LLMError("The AI model returned suggestions in an unreadable format.") from exc
-    finally:
-        ai_log.record(
-            ts=now.isoformat(),
-            day=now.date().isoformat(),
-            kind="strategy_tuning",
-            key=spec.id,
-            model=client.model,
-            status=status,
-            prompt=f"{system}\n\n{user}",
-            output=text,
-            payload=None,
-            input_tokens=tokens[0],
-            output_tokens=tokens[1],
-            latency_ms=int((time.monotonic() - started) * 1000),
+    parsed: AiTuning | None = None
+    for attempt in range(1, ATTEMPTS + 1):
+        message = user if attempt == 1 else f"{user}\n\n{REMINDER}"
+        started = time.monotonic()
+        text, status, tokens = "", UNAVAILABLE, (0, 0)
+        try:
+            reply = client.complete(system, message, AiTuning.model_json_schema())
+            text, tokens = reply.text, (reply.input_tokens, reply.output_tokens)
+            parsed = parse_tuning(text)
+            status = OK
+        except LLMError as exc:
+            text = str(exc)
+            raise
+        except ValueError:
+            log.warning("Unreadable tuning reply, attempt %s of %s", attempt, ATTEMPTS)
+        finally:
+            ai_log.record(
+                ts=now.isoformat(),
+                day=now.date().isoformat(),
+                kind="strategy_tuning",
+                key=spec.id,
+                model=client.model,
+                status=status,
+                prompt=f"{system}\n\n{message}",
+                output=text,
+                payload=None,
+                input_tokens=tokens[0],
+                output_tokens=tokens[1],
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
+        if parsed is not None:
+            break
+    if parsed is None:
+        raise LLMError(
+            f"The AI model returned suggestions in an unreadable format, {ATTEMPTS} times."
         )
     changes = [Change(s.path, s.value, s.reason[:300]) for s in parsed.suggestions[: count * 2]]
-    return Suggestions(parsed.analysis[:1200], changes, "ai")
+    return Suggestions((parsed.analysis.strip() or NO_ANALYSIS)[:1200], changes, "ai")
 
 
 # ---- Scoring and the tree -----------------------------------------------------------------

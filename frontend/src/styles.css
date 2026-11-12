@@ -4492,3 +4492,64 @@ main > .empty {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+.tune-main {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.tune-tree-note {
+  padding-top: 0;
+}
+
+.tune-all .tune-label {
+  font-size: 12px;
+}
+
+.tune-row-dropped td {
+  color: var(--ink-2);
+}
+
+.tune-best-chip {
+  margin-left: 8px;
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+/* Autopilot */
+.autopilot-settings {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .autopilot-settings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.autopilot-log {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.autopilot-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.autopilot-kept {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.lab-tools > .panel + .lab-tools-grid {
+  margin-top: 16px;
+}

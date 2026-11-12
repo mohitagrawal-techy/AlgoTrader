@@ -1027,6 +1027,42 @@ export interface LabRow {
   result: LabResult | null;
 }
 
+export interface AutopilotCycle {
+  number: number;
+  started_at: string;
+  finished_at?: string;
+  designed: {
+    id: string;
+    name: string;
+    verdict: string | null;
+    train: { trades: number; net_pnl: number; win_rate?: number | null; sharpe?: number | null } | null;
+  }[];
+  dropped: number;
+  picked: { id: string; name: string } | null;
+  session_id: string | null;
+  final: { id: string; verdict: string; test?: LabSummary } | null;
+  kept: { id: string; name: string; verdict: string }[];
+  archived: number;
+  message: string | null;
+}
+
+export interface AutopilotState {
+  started_at: string;
+  finished_at: string | null;
+  running: boolean;
+  ended: string | null;
+  settings: { cycles: number; hours: number; per_cycle: number; tune_rounds: number; guidance: string };
+  cycles: AutopilotCycle[];
+}
+
+export interface AutopilotSettings {
+  cycles: number;
+  hours: number;
+  per_cycle: number;
+  tune_rounds: number;
+  guidance: string;
+}
+
 export interface LabOverview {
   history: { sessions: number; needed: number; ready: boolean };
   min_test_trades: number;
@@ -1040,6 +1076,8 @@ export interface LabOverview {
   technical: TechCatalog;
   ladder: LadderReport | null;
   ladder_ready: boolean;
+  autopilot: AutopilotState | null;
+  archived: number;
   strategies: LabRow[];
 }
 
@@ -1140,6 +1178,8 @@ export const api = {
   }) => sendJson<unknown>("/api/lab/tune", "POST", body),
   labTuneSave: (sessionId: string, nodeId: string) =>
     sendJson<{ id: string }>(`/api/lab/tune/${encodeURIComponent(sessionId)}/save`, "POST", { node_id: nodeId }),
+  labAutopilot: (body: AutopilotSettings) => sendJson<unknown>("/api/lab/autopilot", "POST", body),
+  labAutopilotStop: () => sendJson<unknown>("/api/lab/autopilot/stop", "POST"),
   labGenerate: (guidance: string) => sendJson<unknown>("/api/lab/generate", "POST", { guidance }),
   overview: () => getJson<OverviewPayload>("/api/overview"),
   explain: (

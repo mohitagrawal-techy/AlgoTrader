@@ -33,6 +33,8 @@ function Metrics({ label, summary }: { label: string; summary: LabSummary }) {
 interface NodeActions {
   busy: boolean;
   selectedId: string | null;
+  /** Fold changes that were not kept under one line per branch. */
+  hideDropped: boolean;
   onSelect: (node: TuneNode) => void;
   saved: Record<string, boolean>;
   onTune: (node: TuneNode) => void;
@@ -161,7 +163,11 @@ function Branch({
           {kept.map((child) => (
             <Branch key={child.id} node={child} session={session} children={children} actions={actions} />
           ))}
-          {dropped.length > 0 && (
+          {!actions.hideDropped &&
+            dropped.map((child) => (
+              <Branch key={child.id} node={child} session={session} children={children} actions={actions} />
+            ))}
+          {actions.hideDropped && dropped.length > 0 && (
             <li>
               <details className="tune-dropped">
                 <summary>
@@ -181,6 +187,111 @@ function Branch({
   );
 }
 
+/** Every try in the order it ran, numbered, with its results beside the version it came from. */
+function AllTests({
+  session,
+  selectedId,
+  onSelect,
+}: {
+  session: TuneSession;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const order = session.rounds.flatMap((round) => round.tried.map((id) => ({ id, round: round.round })));
+  const number = new Map(order.map((row, index) => [row.id, index + 1]));
+  const from = (node: TuneNode) => {
+    if (!node.parent_id || node.parent_id === session.root_id) return "Start";
+    return `Try ${number.get(node.parent_id) ?? "?"}`;
+  };
+  if (!order.length) {
+    return (
+      <Panel title="All tests">
+        <Empty title="Nothing tested yet">The starting version is tested first, then each round's changes.</Empty>
+      </Panel>
+    );
+  }
+  return (
+    <Panel
+      title="All tests"
+      aside={
+        <span className="muted">
+          {order.length} tries in {session.rounds.length} round{session.rounds.length === 1 ? "" : "s"}. Choose a row
+          to compare.
+        </span>
+      }
+    >
+      <div className="table-wrap">
+        <table className="table compact-table table-ideas tune-all">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Round</th>
+              <th>Change</th>
+              <th>From</th>
+              <th className="right">Design trades</th>
+              <th className="right">Design P&amp;L</th>
+              <th className="right">Unseen trades</th>
+              <th className="right">Unseen P&amp;L</th>
+              <th className="right">Unseen Sharpe</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {order.map(({ id, round }, index) => {
+              const node = session.nodes[id];
+              if (!node) return null;
+              const parent = node.parent_id ? session.nodes[node.parent_id] : undefined;
+              const before = parent?.validate.sharpe;
+              const after = node.validate.sharpe;
+              const delta =
+                before !== null && before !== undefined && after !== null && after !== undefined ? after - before : null;
+              return (
+                <tr
+                  key={id}
+                  className={id === selectedId ? "selected" : node.accepted ? "" : "tune-row-dropped"}
+                  tabIndex={0}
+                  onClick={() => onSelect(id)}
+                  onKeyDown={(event) => event.key === "Enter" && onSelect(id)}
+                >
+                  <td>{index + 1}</td>
+                  <td>{round}</td>
+                  <td className="wrap-cell">
+                    <span className="tune-label">{node.label}</span>
+                    {node.id === session.best_id && <span className="badge-chip tune-best-chip">Best</span>}
+                  </td>
+                  <td className="secondary">{from(node)}</td>
+                  <td className="right">{node.design.trades}</td>
+                  <td className="right">
+                    <Pnl value={node.design.net_pnl}>{signedInr(node.design.net_pnl)}</Pnl>
+                  </td>
+                  <td className="right">{node.validate.trades}</td>
+                  <td className="right">
+                    <Pnl value={node.validate.net_pnl}>{signedInr(node.validate.net_pnl)}</Pnl>
+                  </td>
+                  <td className="right">
+                    {num(after, 2)}
+                    {delta !== null && (
+                      <small className={delta > 0 ? "pnl-up" : delta < 0 ? "pnl-down" : "muted"}>
+                        {" "}
+                        ({delta > 0 ? "+" : ""}
+                        {num(delta, 2)})
+                      </small>
+                    )}
+                  </td>
+                  <td className="wrap-cell">
+                    <Status tone={node.accepted ? "good" : "critical"}>{node.accepted ? "Kept" : "Not kept"}</Status>
+                    <div className="secondary">{node.verdict}</div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+
 function bestPath(session: TuneSession): TuneNode[] {
   const path: TuneNode[] = [];
   let node: TuneNode | undefined = session.nodes[session.best_id];
@@ -197,11 +308,17 @@ function SessionView({
   catalog,
 }: {
   session: TuneSession;
-  actions: Omit<NodeActions, "selectedId" | "onSelect">;
+  actions: Omit<NodeActions, "selectedId" | "onSelect" | "hideDropped">;
   catalog: TechCatalog | null;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const actions: NodeActions = { ...outer, selectedId, onSelect: (node) => setSelectedId(node.id) };
+  const [hideDropped, setHideDropped] = useState(false);
+  const actions: NodeActions = {
+    ...outer,
+    selectedId,
+    hideDropped,
+    onSelect: (node) => setSelectedId(node.id),
+  };
   const selected = selectedId ? session.nodes[selectedId] : undefined;
   const children = useMemo(() => {
     const map = new Map<string, TuneNode[]>();
@@ -293,20 +410,39 @@ function SessionView({
         </div>
       </Panel>
       <div className={selected ? "split tune-split" : ""}>
-        <Panel
-          title="Tree of changes"
-          aside={<span className="muted">One setting changed per step. Choose “See what changed” on any try.</span>}
-        >
-          <ul className="tune-tree tune-root">
-            <Branch node={root} session={session} children={children} actions={actions} />
-          </ul>
-        </Panel>
+        <div className="tune-main">
+          <AllTests session={session} selectedId={selectedId} onSelect={setSelectedId} />
+          <Panel
+            title="Tree of changes"
+            aside={
+              <button
+                type="button"
+                className="link-button"
+                aria-pressed={hideDropped}
+                onClick={() => setHideDropped((value) => !value)}
+              >
+                {hideDropped ? "Show changes not kept" : "Hide changes not kept"}
+              </button>
+            }
+          >
+            <p className="panel-note tune-tree-note">
+              One setting changed per step. Choose “See what changed” on any try to compare it with the
+              version it came from.
+            </p>
+            <ul className="tune-tree tune-root">
+              <Branch node={root} session={session} children={children} actions={actions} />
+            </ul>
+          </Panel>
+        </div>
         {selected && (
           <aside className="panel detail-panel">
             <TuneCompare
               node={selected}
               parent={selected.parent_id ? session.nodes[selected.parent_id] : undefined}
               catalog={catalog}
+              number={
+                session.rounds.flatMap((round) => round.tried).indexOf(selected.id) + 1 || undefined
+              }
               onClose={() => setSelectedId(null)}
             />
           </aside>
@@ -376,7 +512,7 @@ export function TunerView({ sessionId, startId }: { sessionId: string | null; st
     }
   };
 
-  const actions: Omit<NodeActions, "selectedId" | "onSelect"> = {
+  const actions: Omit<NodeActions, "selectedId" | "onSelect" | "hideDropped"> = {
     busy: running,
     saved,
     onTune: (node) => session && void begin({ session_id: session.id, node_id: node.id }),

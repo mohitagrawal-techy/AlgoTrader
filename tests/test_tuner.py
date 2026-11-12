@@ -231,3 +231,72 @@ def test_api(tmp_path):
 def test_spec_round_trip():
     child, _ = apply_change(CALL, Change("exits.trail", 0.2))
     assert StrategySpec.model_validate(child.model_dump()).exits.trail == 0.2
+
+
+# ---- Reading the model's replies ------------------------------------------------------------
+
+# Two replies gpt-oss:20b gave on 12 Nov 2026: suggestions without brackets, and no analysis.
+BARE = (
+    '{"path":"exits.stop_frac","value":0.2,"reason":"Fewer premature stops."},'
+    '{"path":"entry.max_trades_per_day","value":2,"reason":"More entries."}'
+)
+NO_ANALYSIS = '{"suggestions":[{"path":"exits.target_frac","value":1.5,"reason":"Bank sooner."}]}'
+
+
+def test_lenient_reading_of_small_model_replies():
+    from algoverse.lab.tuner import parse_tuning
+
+    bare = parse_tuning(BARE)
+    assert [s.path for s in bare.suggestions] == ["exits.stop_frac", "entry.max_trades_per_day"]
+    assert bare.analysis == ""
+    assert parse_tuning(NO_ANALYSIS).suggestions[0].value == 1.5
+    fenced = parse_tuning(f"```json\n{json.dumps(reply(('exits.trail', 0.2)))}\n```")
+    assert fenced.analysis and fenced.suggestions[0].path == "exits.trail"
+    lines = parse_tuning(BARE.replace("},{", "}\n{"))
+    assert len(lines.suggestions) == 2
+    bullets = parse_tuning("- " + BARE.replace("},{", "}\n- {"))
+    assert len(bullets.suggestions) == 2
+    numbered = parse_tuning("1. " + BARE.replace("},{", "}\n2) {"))
+    assert len(numbered.suggestions) == 2
+    single = parse_tuning('{"path": "exits.trail", "value": 0.2}')
+    assert single.suggestions[0].path == "exits.trail"
+    for bad in ("I think you should widen the stop.", "{}", '{"suggestions": []}', "", "  "):
+        with pytest.raises(ValueError):
+            parse_tuning(bad)
+
+
+class Raw:
+    """Returns replies as written, so unreadable text can be tested."""
+
+    model = "fake:1"
+
+    def __init__(self, *texts):
+        self.texts = list(texts)
+        self.prompts = []
+
+    def complete(self, system, user, schema):
+        self.prompts.append(user)
+        return LLMResult(self.texts.pop(0), 10, 10)
+
+
+def suggest(client, tmp_path):
+    from algoverse.ai.budget import AiLog
+    from algoverse.lab.tuner import ai_changes
+
+    return ai_changes(client, AiLog(tmp_path / "ai.sqlite"), NOW, CALL, {}, [], 4, {}, "", "")
+
+
+def test_an_unreadable_reply_is_asked_for_again(tmp_path):
+    from algoverse.lab.tuner import NO_ANALYSIS as PLACEHOLDER
+    from algoverse.lab.tuner import REMINDER
+
+    client = Raw("Sure! Here are my ideas.", BARE)
+    found = suggest(client, tmp_path)
+    assert found.source == "ai" and len(found.changes) == 2
+    assert found.analysis == PLACEHOLDER
+    assert REMINDER in client.prompts[1] and REMINDER not in client.prompts[0]
+
+
+def test_repeated_unreadable_replies_fall_back(tmp_path):
+    with pytest.raises(LLMError, match="3 times"):
+        suggest(Raw("no", "", "still no"), tmp_path)

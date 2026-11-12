@@ -16,6 +16,7 @@ from pydantic import BaseModel, ValidationError
 
 from algoverse.ai.client import LLMClient, LLMError
 from algoverse.ai.schemas import OK, OVER_LIMIT, UNAVAILABLE, AiConfig
+from algoverse.ai.tracing import get_tracer
 
 log = logging.getLogger(__name__)
 Output = TypeVar("Output", bound=BaseModel)
@@ -66,6 +67,8 @@ class AiLog:
                            :input_tokens, :output_tokens, :latency_ms)""",
                 fields,
             )
+        # Every model call passes through here, so this is the one place traces are sent.
+        get_tracer().submit(fields)
 
     def calls_on(self, day: str) -> int:
         with self._connect() as connection:

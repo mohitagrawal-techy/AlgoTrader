@@ -296,11 +296,14 @@ export function TuneCompare({
   node,
   parent,
   catalog,
+  number,
   onClose,
 }: {
   node: TuneNode;
   parent: TuneNode | undefined;
   catalog: TechCatalog | null;
+  /** The try's place in the run order, as numbered in the all-tests table. */
+  number?: number;
   onClose: () => void;
 }) {
   const change = parent ? describeChange(parent.spec, node.spec, node.path, catalog) : null;
@@ -309,7 +312,7 @@ export function TuneCompare({
     <div className="tune-compare">
       <header className="tune-compare-head">
         <div>
-          <h3>{node.depth === 0 ? "Starting version" : `Try ${node.depth}: what changed`}</h3>
+          <h3>{node.depth === 0 ? "Starting version" : `Try ${number ?? node.depth}: what changed`}</h3>
           {state && <Status tone={state.tone}>{state.label}</Status>}
         </div>
         <button type="button" className="icon-button" aria-label="Close comparison" onClick={onClose}>

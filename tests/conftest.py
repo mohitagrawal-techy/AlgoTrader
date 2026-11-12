@@ -1,6 +1,10 @@
+import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+# Tests never send traces, whatever .env says. Real variables override .env.
+os.environ["LANGSMITH_TRACING"] = "false"
 
 import numpy as np
 import pandas as pd

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
+  type AutopilotCycle,
+  type AutopilotSettings,
   type LabOverview,
   type LabRow,
   type LabSummary,
@@ -33,6 +35,203 @@ const SOURCE_FILTERS = [
   { value: "ladder", label: "Ladder" },
   { value: "template", label: "Templates" },
 ];
+
+const AUTOPILOT_LIMITS: Record<keyof Omit<AutopilotSettings, "guidance">, [number, number]> = {
+  cycles: [1, 200],
+  hours: [1, 24],
+  per_cycle: [1, 8],
+  tune_rounds: [1, 15],
+};
+
+function clampSetting(value: number, [low, high]: [number, number]): number {
+  return Number.isFinite(value) ? Math.min(high, Math.max(low, Math.round(value))) : low;
+}
+
+function CycleRow({ cycle }: { cycle: AutopilotCycle }) {
+  const best = cycle.designed.reduce<AutopilotCycle["designed"][number] | null>(
+    (top, row) => ((row.train?.sharpe ?? -99) > (top?.train?.sharpe ?? -99) ? row : top),
+    null,
+  );
+  const verdict = cycle.final ? VERDICTS[cycle.final.verdict] : null;
+  const running = !cycle.finished_at && !cycle.message;
+  return (
+    <tr>
+      <td className="right">{cycle.number}</td>
+      <td className="wrap-cell">
+        <div className="primary">
+          {cycle.designed.length} designed{cycle.dropped ? `, ${cycle.dropped} dropped` : ""}
+        </div>
+        {best?.train && (
+          <div className="secondary">
+            Best on training: {best.name}, Sharpe {num(best.train.sharpe, 2)}
+          </div>
+        )}
+      </td>
+      <td className="wrap-cell">
+        {cycle.picked ? (
+          cycle.session_id ? (
+            <a href={`#lab/tune/s/${encodeURIComponent(cycle.session_id)}`}>{cycle.picked.name}</a>
+          ) : (
+            <span>{cycle.picked.name}</span>
+          )
+        ) : (
+          <span className="muted">–</span>
+        )}
+      </td>
+      <td className="wrap-cell">
+        {verdict ? (
+          <>
+            <Status tone={verdict.tone}>{verdict.label}</Status>
+            {cycle.final?.test && (
+              <div className="secondary">
+                {cycle.final.test.trades} trades,{" "}
+                <Pnl value={cycle.final.test.net_pnl}>{signedInr(cycle.final.test.net_pnl)}</Pnl>
+              </div>
+            )}
+          </>
+        ) : (
+          <span className="secondary">{cycle.message ?? (running ? "Working…" : "–")}</span>
+        )}
+      </td>
+      <td className="wrap-cell">
+        {cycle.kept.length ? cycle.kept.map((k) => <div key={k.id}>{k.name}</div>) : <span className="muted">None</span>}
+        {cycle.archived > 0 && <div className="secondary">{cycle.archived} archived</div>}
+      </td>
+    </tr>
+  );
+}
+
+function AutopilotPanel({
+  data,
+  busy,
+  onStart,
+  onStop,
+  onSelect,
+}: {
+  data: LabOverview;
+  busy: boolean;
+  onStart: (settings: AutopilotSettings) => void;
+  onStop: () => void;
+  onSelect: (id: string) => void;
+}) {
+  const state = data.autopilot;
+  const [settings, setSettings] = useState<AutopilotSettings>(() =>
+    state?.settings ?? { cycles: 20, hours: 8, per_cycle: 4, tune_rounds: 3, guidance: "" },
+  );
+  const live = data.job?.kind === "autopilot" && data.job.state === "running";
+  const cycles = state ? [...state.cycles].reverse() : [];
+  const kept = state?.cycles.flatMap((c) => c.kept) ?? [];
+  const designed = state?.cycles.reduce((sum, c) => sum + c.designed.length, 0) ?? 0;
+  const number = (key: keyof typeof AUTOPILOT_LIMITS, label: string, hint: string) => (
+    <label className="field">
+      {label}
+      <input
+        type="number"
+        min={AUTOPILOT_LIMITS[key][0]}
+        max={AUTOPILOT_LIMITS[key][1]}
+        value={settings[key]}
+        disabled={live}
+        onChange={(e) =>
+          setSettings({ ...settings, [key]: clampSetting(Number(e.target.value), AUTOPILOT_LIMITS[key]) })
+        }
+      />
+      <small className="muted">{hint}</small>
+    </label>
+  );
+
+  return (
+    <Panel
+      title="Autopilot"
+      aside={<span className="muted">{data.archived} archived so far</span>}
+    >
+      <div className="builder">
+        <p className="secondary">
+          Runs on its own until it reaches a limit or you stop it. Each cycle the AI designs new
+          strategies, the best one on training data is tuned one setting at a time, and the result
+          gets a final test on a period nothing has seen. Strategies that held up stay in the lab.
+          The rest are moved to the archive, which the AI still learns from. The more it tries, the
+          stricter the luck check gets, so a long run is not a way to force a pass.
+        </p>
+        <div className="builder-row autopilot-settings">
+          {number("cycles", "Cycles", "1 to 200")}
+          {number("hours", "Hours at most", "1 to 24")}
+          {number("per_cycle", "Designs per cycle", "1 to 8")}
+          {number("tune_rounds", "Tuning rounds", "1 to 15")}
+        </div>
+        <div className="builder-row">
+          <label className="field grow">
+            <span>Optional direction for the AI</span>
+            <input
+              value={settings.guidance}
+              maxLength={500}
+              disabled={live}
+              placeholder="For example: intraday Nifty ideas with defined risk"
+              onChange={(e) => setSettings({ ...settings, guidance: e.target.value })}
+            />
+          </label>
+          {live ? (
+            <button type="button" className="button ghost" onClick={onStop}>
+              Stop after this step
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="button"
+              disabled={busy || !data.history.ready || !data.ladder_ready || !data.ai.enabled}
+              onClick={() => onStart(settings)}
+            >
+              Start autopilot
+            </button>
+          )}
+        </div>
+        {!data.ai.enabled && <p className="secondary">The AI model is turned off, so autopilot cannot run.</p>}
+      </div>
+
+      {state && (
+        <div className="autopilot-log">
+          <p className="autopilot-summary">
+            <Status tone={state.running ? "neutral" : "good"}>{state.running ? "Running" : "Stopped"}</Status>
+            <span>
+              {state.cycles.length} of {state.settings.cycles} cycles, {designed} strategies designed,{" "}
+              {kept.length} kept. Started {dateTimeIst(state.started_at)}.
+              {state.ended && ` ${state.ended}.`.replace("..", ".")}
+            </span>
+          </p>
+          {kept.length > 0 && (
+            <div className="autopilot-kept">
+              <span className="muted">Kept so far:</span>
+              {kept.map((k) => (
+                <button key={k.id} type="button" className="link-button" onClick={() => onSelect(k.id)}>
+                  {k.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {cycles.length > 0 && (
+            <div className="table-wrap">
+              <table className="table compact-table">
+                <thead>
+                  <tr>
+                    <th className="right">Cycle</th>
+                    <th>Designed</th>
+                    <th>Tuned</th>
+                    <th>Final test</th>
+                    <th>Kept</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cycles.map((cycle) => (
+                    <CycleRow key={cycle.number} cycle={cycle} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
 
 function LadderPanel({
   data,
@@ -509,9 +708,16 @@ export function LabView({ initialSelected }: { initialSelected: string | null })
         <header className="section-head">
           <h2>Find strategies automatically</h2>
           <p className="secondary">
-            Both judge every candidate on sessions it was not built on, then spend the final test period once.
+            Each judges every candidate on sessions it was not built on, then spends the final test period once.
           </p>
         </header>
+        <AutopilotPanel
+          data={data}
+          busy={running}
+          onStart={(settings) => act(() => api.labAutopilot(settings))}
+          onStop={() => act(() => api.labAutopilotStop())}
+          onSelect={setSelected}
+        />
         <div className="lab-tools-grid">
         <LadderPanel
         data={data}

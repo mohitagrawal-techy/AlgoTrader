@@ -140,6 +140,14 @@ class LabTuneRequest(BaseModel):
     use_ai: bool = True
 
 
+class LabAutopilotRequest(BaseModel):
+    cycles: int = Field(default=20, ge=1, le=200)
+    hours: float = Field(default=8, gt=0, le=24)
+    per_cycle: int = Field(default=4, ge=1, le=8)
+    tune_rounds: int = Field(default=3, ge=1, le=15)
+    guidance: str = Field(default="", max_length=500)
+
+
 class LabTuneSaveRequest(BaseModel):
     node_id: str
 
@@ -449,6 +457,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 datetime.now(IST), body.rounds, body.per_round, body.guidance
             )
         )
+
+    @app.post("/api/lab/autopilot")
+    def lab_autopilot(
+        body: LabAutopilotRequest, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        _require_dashboard(x_algoverse_client)
+        return _lab(
+            lambda: runtime.lab.start_autopilot(
+                datetime.now(IST),
+                body.cycles,
+                body.hours,
+                body.per_cycle,
+                body.tune_rounds,
+                body.guidance,
+            )
+        )
+
+    @app.post("/api/lab/autopilot/stop")
+    def lab_autopilot_stop(x_algoverse_client: str | None = Header(default=None)) -> dict:
+        _require_dashboard(x_algoverse_client)
+        return _lab(runtime.lab.stop_autopilot)
 
     @app.get("/api/lab/tune")
     def lab_tuning() -> dict:
