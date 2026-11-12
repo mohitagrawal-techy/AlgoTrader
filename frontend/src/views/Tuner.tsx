@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type LabSummary, type TuneNode, type TuneOverview, type TuneSession } from "../api";
+import { api, type LabSummary, type TechCatalog, type TuneNode, type TuneOverview, type TuneSession } from "../api";
+import { SharpeShift, TuneCompare } from "./TuneCompare";
 import { dateTimeIst, num, signedInr } from "../format";
 import { Empty, JobStatus, Panel, Pnl, Select, Status, Tile, type Tone } from "../ui";
 
 const POLL_MS = 3000;
+const MAX_ROUNDS = 15;
+const MAX_PER_ROUND = 10;
+
+function clamp(value: number, low: number, high: number): number {
+  return Number.isFinite(value) ? Math.min(high, Math.max(low, Math.round(value))) : low;
+}
 const VERDICTS: Record<string, { tone: Tone; label: string }> = {
   held_up: { tone: "good", label: "Held up on the final test" },
   unproven: { tone: "warning", label: "Final profit could be luck" },
@@ -25,6 +32,8 @@ function Metrics({ label, summary }: { label: string; summary: LabSummary }) {
 
 interface NodeActions {
   busy: boolean;
+  selectedId: string | null;
+  onSelect: (node: TuneNode) => void;
   saved: Record<string, boolean>;
   onTune: (node: TuneNode) => void;
   onSave: (node: TuneNode) => void;
@@ -32,11 +41,13 @@ interface NodeActions {
 
 function NodeCard({
   node,
+  parent,
   best,
   analysis,
   actions,
 }: {
   node: TuneNode;
+  parent: TuneNode | undefined;
   best: boolean;
   analysis: TuneSession["rounds"];
   actions: NodeActions;
@@ -49,12 +60,17 @@ function NodeCard({
         : { tone: "critical" as Tone, label: "Not kept" };
   const canGrow = node.depth === 0 || node.accepted;
   return (
-    <div className={`tune-card${best ? " best" : ""}${node.accepted === false ? " rejected" : ""}`}>
+    <div
+      className={`tune-card${best ? " best" : ""}${node.accepted === false ? " rejected" : ""}${
+        actions.selectedId === node.id ? " selected" : ""
+      }`}
+    >
       <div className="tune-card-head">
         <Status tone={state.tone}>{state.label}</Status>
         {best && <Status tone="good">Best version</Status>}
         <strong className="tune-label">{node.label}</strong>
       </div>
+      <SharpeShift node={node} parent={parent} />
       {node.reason && <p className="tune-reason">Why try it: {node.reason}</p>}
       <Metrics label="Design" summary={node.design} />
       <Metrics label="Unseen" summary={node.validate} />
@@ -67,6 +83,14 @@ function NodeCard({
         </p>
       )}
       <div className="tune-actions">
+        <button
+          type="button"
+          className="link-button"
+          aria-pressed={actions.selectedId === node.id}
+          onClick={() => actions.onSelect(node)}
+        >
+          {node.depth === 0 ? "Show results" : "See what changed"}
+        </button>
         {canGrow && (
           <button type="button" className="link-button" disabled={actions.busy} onClick={() => actions.onTune(node)}>
             Tune from here
@@ -125,7 +149,13 @@ function Branch({
   const analysis = session.rounds.filter((round) => round.parent_id === node.id);
   return (
     <li>
-      <NodeCard node={node} best={node.id === session.best_id} analysis={analysis} actions={actions} />
+      <NodeCard
+        node={node}
+        parent={node.parent_id ? session.nodes[node.parent_id] : undefined}
+        best={node.id === session.best_id}
+        analysis={analysis}
+        actions={actions}
+      />
       {below.length > 0 && (
         <ul className="tune-tree">
           {kept.map((child) => (
@@ -161,7 +191,18 @@ function bestPath(session: TuneSession): TuneNode[] {
   return path;
 }
 
-function SessionView({ session, actions }: { session: TuneSession; actions: NodeActions }) {
+function SessionView({
+  session,
+  actions: outer,
+  catalog,
+}: {
+  session: TuneSession;
+  actions: Omit<NodeActions, "selectedId" | "onSelect">;
+  catalog: TechCatalog | null;
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const actions: NodeActions = { ...outer, selectedId, onSelect: (node) => setSelectedId(node.id) };
+  const selected = selectedId ? session.nodes[selectedId] : undefined;
   const children = useMemo(() => {
     const map = new Map<string, TuneNode[]>();
     for (const node of Object.values(session.nodes)) {
@@ -251,11 +292,26 @@ function SessionView({ session, actions }: { session: TuneSession; actions: Node
           )}
         </div>
       </Panel>
-      <Panel title="Tree of changes" aside={<span className="muted">One setting changed per step</span>}>
-        <ul className="tune-tree tune-root">
-          <Branch node={root} session={session} children={children} actions={actions} />
-        </ul>
-      </Panel>
+      <div className={selected ? "split tune-split" : ""}>
+        <Panel
+          title="Tree of changes"
+          aside={<span className="muted">One setting changed per step. Choose “See what changed” on any try.</span>}
+        >
+          <ul className="tune-tree tune-root">
+            <Branch node={root} session={session} children={children} actions={actions} />
+          </ul>
+        </Panel>
+        {selected && (
+          <aside className="panel detail-panel">
+            <TuneCompare
+              node={selected}
+              parent={selected.parent_id ? session.nodes[selected.parent_id] : undefined}
+              catalog={catalog}
+              onClose={() => setSelectedId(null)}
+            />
+          </aside>
+        )}
+      </div>
     </>
   );
 }
@@ -320,7 +376,7 @@ export function TunerView({ sessionId, startId }: { sessionId: string | null; st
     }
   };
 
-  const actions: NodeActions = {
+  const actions: Omit<NodeActions, "selectedId" | "onSelect"> = {
     busy: running,
     saved,
     onTune: (node) => session && void begin({ session_id: session.id, node_id: node.id }),
@@ -362,17 +418,25 @@ export function TunerView({ sessionId, startId }: { sessionId: string | null; st
             />
             <label className="field">
               Rounds
-              <input type="number" min={1} max={8} value={rounds} onChange={(e) => setRounds(Number(e.target.value) || 1)} />
+              <input
+                type="number"
+                min={1}
+                max={MAX_ROUNDS}
+                value={rounds}
+                onChange={(e) => setRounds(clamp(Number(e.target.value), 1, MAX_ROUNDS))}
+              />
+              <small className="muted">1 to {MAX_ROUNDS}</small>
             </label>
             <label className="field">
               Changes per round
               <input
                 type="number"
                 min={1}
-                max={10}
+                max={MAX_PER_ROUND}
                 value={perRound}
-                onChange={(e) => setPerRound(Number(e.target.value) || 1)}
+                onChange={(e) => setPerRound(clamp(Number(e.target.value), 1, MAX_PER_ROUND))}
               />
+              <small className="muted">1 to {MAX_PER_ROUND}</small>
             </label>
             <span className="checks">
               <label>
@@ -419,7 +483,7 @@ export function TunerView({ sessionId, startId }: { sessionId: string | null; st
         {error && <p className="ai-error">{error}</p>}
       </Panel>
 
-      {session && <SessionView session={session} actions={actions} />}
+      {session && <SessionView session={session} actions={actions} catalog={overview.technical ?? null} />}
 
       <Panel title="Tuning sessions">
         {overview.sessions.length === 0 ? (

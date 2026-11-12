@@ -966,6 +966,8 @@ export interface TuneNode {
   accepted: boolean | null;
   verdict: string | null;
   prob_better: number | null;
+  /** Cumulative unseen-period P&L by day. */
+  validate_curve?: { day: string; pnl: number }[];
 }
 
 export interface TuneRound {
@@ -1012,6 +1014,8 @@ export interface TuneOverview {
     final: (FinalTest & { id: string }) | null;
   }[];
   strategies: { id: string; name: string; source: string }[];
+  technical?: TechCatalog;
+  signals?: { name: string; label: string }[];
 }
 
 export interface LabRow {
@@ -1046,10 +1050,38 @@ async function sendJson<T>(path: string, method: string, payload?: unknown): Pro
     body: payload === undefined ? undefined : JSON.stringify(payload),
   });
   const body = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(typeof body?.detail === "string" ? body.detail : "The request failed.");
-  }
+  if (!response.ok) throw new Error(errorText(response.status, body?.detail));
   return body;
+}
+
+const FIELD_NAMES: Record<string, string> = {
+  rounds: "Rounds",
+  per_round: "Changes per round",
+  guidance: "Guidance",
+  start_id: "Strategy",
+  node_id: "Version",
+};
+
+/** A readable message from an API error, including the server's field-by-field checks. */
+function errorText(status: number, detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail) && detail.length) {
+    return detail
+      .map((item: { loc?: (string | number)[]; msg?: string }) => {
+        const field = String(item.loc?.[item.loc.length - 1] ?? "");
+        const name = FIELD_NAMES[field] ?? field.replace(/_/g, " ");
+        const message = (item.msg ?? "is not valid")
+          .replace(/^Input should be less than or equal to/, "must be at most")
+          .replace(/^Input should be greater than or equal to/, "must be at least")
+          .replace(/^Input should be /, "must be ");
+        return name ? `${name}: ${message}` : message;
+      })
+      .join(". ");
+  }
+  if (status === 403) return "This action must come from the dashboard.";
+  if (status === 409) return "Another job is already running. Wait for it to finish.";
+  if (status >= 500) return "The server hit an error. Check the backend log.";
+  return `The request failed (HTTP ${status}).`;
 }
 
 async function getJson<T>(path: string): Promise<T> {

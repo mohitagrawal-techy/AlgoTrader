@@ -450,6 +450,8 @@ class LabService:
                     {"id": spec.id, "name": spec.name, "source": spec.source}
                     for spec in self.specs()
                 ],
+                "technical": technical_catalog(),
+                "signals": [{"name": k, "label": v} for k, v in SIGNALS.items()],
             }
         )
 

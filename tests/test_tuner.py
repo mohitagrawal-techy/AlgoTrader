@@ -149,7 +149,12 @@ def test_best_version_gets_the_final_test(tuned):
         assert "final" not in session
     else:
         assert session["final"]["id"] == best["id"] and lab.spec(best["id"]) is not None
-    assert "validate_daily" not in json.dumps(lab.tuning_session("t1"))
+    view = lab.tuning_session("t1")
+    assert "validate_daily" not in json.dumps(view)
+    root = view["nodes"][view["root_id"]]
+    days = [point["day"] for point in root["validate_curve"]]
+    assert days == sorted(days)
+    assert root["validate_curve"][-1]["pnl"] == pytest.approx(root["validate"]["net_pnl"], abs=1)
 
 
 def test_overview_lists_sessions(tuned):
@@ -211,6 +216,14 @@ def test_api(tmp_path):
     response = client.post("/api/lab/tune", json={"start_id": "x"}, headers=HEADER)
     assert response.status_code == 400 and "history" in response.json()["detail"]
     assert client.get("/api/lab/tune/nope").status_code == 400
+    # Up to 15 rounds pass validation; this store simply has no history yet.
+    allowed = client.post("/api/lab/tune", json={"start_id": "x", "rounds": 15}, headers=HEADER)
+    assert allowed.status_code == 400
+    too_many = client.post(
+        "/api/lab/tune", json={"start_id": "x", "rounds": 16, "per_round": 11}, headers=HEADER
+    )
+    assert too_many.status_code == 422
+    assert {item["loc"][-1] for item in too_many.json()["detail"]} == {"rounds", "per_round"}
     save = client.post("/api/lab/tune/nope/save", json={"node_id": "a"}, headers=HEADER)
     assert save.status_code == 400
 

@@ -521,10 +521,20 @@ def grow(
     return session
 
 
+def _curve(daily: dict[str, float] | None) -> list[dict]:
+    """Cumulative P&L by day, for comparing a change with its parent."""
+    total, curve = 0.0, []
+    for day in sorted(daily or {}):
+        total += daily[day]
+        curve.append({"day": day, "pnl": round(total, 2)})
+    return curve
+
+
 def public(session: dict) -> dict:
-    """The session for the page, without the per-day series the judge used."""
+    """The session for the page: each version's unseen P&L as a curve instead of daily rows."""
     nodes = {
         key: {k: v for k, v in node.items() if k != "validate_daily"}
+        | {"validate_curve": _curve(node.get("validate_daily"))}
         for key, node in session["nodes"].items()
     }
     return clean({**session, "nodes": nodes})

@@ -134,7 +134,7 @@ class LabTuneRequest(BaseModel):
     start_id: str | None = None
     session_id: str | None = None
     node_id: str | None = None
-    rounds: int | None = Field(default=None, ge=1, le=8)
+    rounds: int | None = Field(default=None, ge=1, le=15)
     per_round: int | None = Field(default=None, ge=1, le=10)
     guidance: str = Field(default="", max_length=500)
     use_ai: bool = True
