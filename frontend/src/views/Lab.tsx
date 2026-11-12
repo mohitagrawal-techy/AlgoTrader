@@ -8,7 +8,7 @@ import {
 } from "../api";
 import { LineChart, timeTicks } from "../charts";
 import { dateTimeIst, fraction, inrCompact, num, shortDate, signedInr } from "../format";
-import { Empty, Panel, Pnl, Select, Status, Tile, type Tone } from "../ui";
+import { Empty, Panel, Pnl, Segmented, Select, Status, Tile, type Tone } from "../ui";
 
 const VERDICTS: Record<string, { tone: Tone; label: string }> = {
   held_up: { tone: "good", label: "Held up on unseen data" },
@@ -25,6 +25,13 @@ const SOURCES: Record<string, string> = {
 };
 const LEVELS: Record<string, string> = { simple: "Simple", moderate: "Moderate", complex: "Complex" };
 const POLL_MS = 3000;
+const SOURCE_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "user", label: "Yours" },
+  { value: "ai", label: "AI" },
+  { value: "ladder", label: "Ladder" },
+  { value: "template", label: "Templates" },
+];
 
 function exitText(spec: LabSpec): string {
   const exits = spec.exits;
@@ -116,10 +123,12 @@ function LadderPanel({
               result counts for less.
             </p>
           )}
+          <details className="ladder-report">
+            <summary>Every change tried, rung by rung</summary>
           {report.rungs.map((rung) => {
             const kept = rung.tried.filter((node) => node.accepted).length;
             return (
-              <details key={rung.rung} open={rung.rung === report.rungs.length}>
+              <details key={rung.rung}>
                 <summary>
                   Rung {rung.rung}: {kept} of {rung.tried.length} kept
                 </summary>
@@ -162,6 +171,7 @@ function LadderPanel({
               </details>
             );
           })}
+          </details>
         </div>
       )}
     </Panel>
@@ -229,7 +239,7 @@ function Detail({
         </div>
       </header>
       {spec.rationale && <p className="secondary">{spec.rationale}</p>}
-      <dl className="facts facts-1">
+      <dl className="facts facts-1 facts-stacked">
         <div>
           <dt>Enter</dt>
           <dd>{row.entry_text}</dd>
@@ -239,27 +249,26 @@ function Detail({
           <dd>{exitText(spec)}</dd>
         </div>
       </dl>
-      <div className="builder-row">
-        <button type="button" className="button" disabled={busy} onClick={onTest}>
-          {result ? "Test again" : "Test"}
-        </button>
-        {result && spec.id && (
+      <div className="detail-actions">
+        {result && spec.id ? (
           <a className="button" href={`#lab/backtest/${encodeURIComponent(spec.id)}`}>
             Full backtest
           </a>
+        ) : null}
+        <button type="button" className={result ? "button ghost" : "button"} disabled={busy} onClick={onTest}>
+          {result ? "Test again" : "Test"}
+        </button>
+        {spec.id && (
+          <a className="button ghost" href={`#lab/tune/from/${encodeURIComponent(spec.id)}`}>
+            Tune
+          </a>
         )}
-        {spec.source !== "template" ? (
-          <>
-            <button type="button" className="button ghost" onClick={onEdit}>
-              Edit
-            </button>
-            <button type="button" className="button ghost" onClick={onDelete}>
-              Delete
-            </button>
-          </>
-        ) : (
-          <button type="button" className="button ghost" onClick={onEdit}>
-            Copy and edit
+        <button type="button" className="button ghost" onClick={onEdit}>
+          {spec.source !== "template" ? "Edit" : "Copy and edit"}
+        </button>
+        {spec.source !== "template" && (
+          <button type="button" className="link-button danger" onClick={onDelete}>
+            Delete
           </button>
         )}
       </div>
@@ -385,72 +394,38 @@ export function LabView({ initialSelected }: { initialSelected: string | null })
       )}
       {error && <p className="ai-error">{error}</p>}
 
-      <LadderPanel
-        data={data}
-        busy={running}
-        onBuild={(startId) => act(() => api.labLadder(startId))}
-        onSelect={setSelected}
-      />
-
-      <Panel
-        title="Let the AI design strategies"
-        aside={<span className="muted">{data.ai.model}</span>}
-      >
-        <div className="builder">
-          <p className="secondary">
-            The AI proposes {data.defaults.per_round} strategies per round for {data.defaults.rounds}{" "}
-            rounds. Each is backtested at once, and the AI sees only training-period results before the
-            next round. The ranking below uses a later period it never saw.
-          </p>
-          <div className="builder-row">
-            <label className="field grow">
-              <span>Optional direction for the AI</span>
-              <input
-                value={guidance}
-                maxLength={500}
-                placeholder="For example: defined-risk ideas for range-bound weeks"
-                onChange={(event) => setGuidance(event.target.value)}
-              />
-            </label>
-            <button
-              type="button"
-              className="button"
-              disabled={running || !ready || !data.ai.enabled}
-              onClick={() => act(() => api.labGenerate(guidance))}
-            >
-              Generate and test
-            </button>
-          </div>
-        </div>
-      </Panel>
-
-      <div className="filters">
-        <Select
+      <div className="toolbar">
+        <Segmented
           label="Show"
           value={source}
           onChange={setSource}
-          options={[
-            { value: "all", label: "All strategies" },
-            { value: "ladder", label: "Ladder winners" },
-            { value: "ai", label: "AI-designed" },
-            { value: "user", label: "Yours" },
-            { value: "template", label: "Templates" },
-          ]}
+          options={SOURCE_FILTERS.map((option) => ({
+            ...option,
+            count:
+              option.value === "all"
+                ? data.strategies.length
+                : data.strategies.filter((row) => row.spec.source === option.value).length,
+          }))}
         />
-        <a className="button" href="#lab/new">
-          New strategy
-        </a>
-        <button
-          type="button"
-          className="button ghost"
-          disabled={running || !ready}
-          onClick={() => act(() => api.labBacktest(null))}
-        >
-          Test all
-        </button>
-        <span className="filter-count">
-          {data.tested} of {data.strategies.length} tested · {data.trials_logged} trials logged
+        <span className="toolbar-note">
+          {data.tested} of {data.strategies.length} tested, {data.trials_logged} trials logged
         </span>
+        <div className="toolbar-actions">
+          <button
+            type="button"
+            className="button ghost"
+            disabled={running || !ready}
+            onClick={() => act(() => api.labBacktest(null))}
+          >
+            Test all
+          </button>
+          <a className="button ghost" href="#lab/tune">
+            Tune a strategy
+          </a>
+          <a className="button" href="#lab/new">
+            New strategy
+          </a>
+        </div>
       </div>
 
       <div className="split">
@@ -462,7 +437,7 @@ export function LabView({ initialSelected }: { initialSelected: string | null })
             <Empty title="No strategies here yet" />
           ) : (
             <div className="table-wrap">
-              <table className="table table-ideas">
+              <table className="table table-ideas leaderboard">
                 <thead>
                   <tr>
                     <th>Strategy</th>
@@ -542,6 +517,56 @@ export function LabView({ initialSelected }: { initialSelected: string | null })
           )}
         </aside>
       </div>
+
+      <section className="lab-tools" aria-label="Find strategies automatically">
+        <header className="section-head">
+          <h2>Find strategies automatically</h2>
+          <p className="secondary">
+            Both judge every candidate on sessions it was not built on, then spend the final test period once.
+          </p>
+        </header>
+        <div className="lab-tools-grid">
+        <LadderPanel
+        data={data}
+        busy={running}
+        onBuild={(startId) => act(() => api.labLadder(startId))}
+        onSelect={setSelected}
+      />
+
+        <Panel
+        title="Let the AI design strategies"
+        aside={<span className="muted">{data.ai.model}</span>}
+      >
+        <div className="builder">
+          <p className="secondary">
+            The AI proposes {data.defaults.per_round} strategies per round for {data.defaults.rounds}{" "}
+            rounds. Each is backtested at once, and the AI sees only training-period results before the
+            next round. The ranking below uses a later period it never saw.
+          </p>
+          <div className="builder-row">
+            <label className="field grow">
+              <span>Optional direction for the AI</span>
+              <input
+                value={guidance}
+                maxLength={500}
+                placeholder="For example: defined-risk ideas for range-bound weeks"
+                onChange={(event) => setGuidance(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="button"
+              disabled={running || !ready || !data.ai.enabled}
+              onClick={() => act(() => api.labGenerate(guidance))}
+            >
+              Generate and test
+            </button>
+          </div>
+        </div>
+      </Panel>
+
+        </div>
+      </section>
     </>
   );
 }

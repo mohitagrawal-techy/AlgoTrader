@@ -139,6 +139,15 @@ export function PaperView({ portfolio }: { portfolio: Portfolio }) {
     new Date(portfolio.equity[portfolio.equity.length - 1].ts).getTime() -
       new Date(portfolio.equity[0].ts).getTime() >
       86400000;
+  // Across several days, one tick per day at midnight IST, so each date appears once.
+  const dayTicks = (min: number, max: number) => {
+    const day = 86400000;
+    const ist = 19800000;
+    const ticks: number[] = [];
+    for (let t = Math.ceil((min + ist) / day) * day - ist; t <= max; t += day) ticks.push(t);
+    const every = Math.max(1, Math.ceil(ticks.length / 6));
+    return ticks.filter((_, index) => index % every === 0);
+  };
   const formatTime = (x: number) => {
     const iso = new Date(x).toISOString();
     return spansDays ? dateTimeIst(iso).split(",")[0] : timeIst(iso);
@@ -175,7 +184,7 @@ export function PaperView({ portfolio }: { portfolio: Portfolio }) {
             series={series}
             polarity
             includeZero
-            tickX={timeTicks}
+            tickX={spansDays ? dayTicks : timeTicks}
             label="Total paper P&L over time"
             formatX={formatTime}
             formatY={inrCompact}

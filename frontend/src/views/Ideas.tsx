@@ -311,11 +311,13 @@ export function IdeasView({ ideas }: { ideas: Idea[] }) {
           {visible.length} shown · {tradableCount} tradable of {ideas.length}
         </span>
       </div>
-      <div className="split">
+      <div className={visible.length === 0 ? "" : "split"}>
         <Panel title="Ranked ideas">
           {visible.length === 0 ? (
-            <Empty title="Nothing matches these filters">
-              Choose “Include rejected” to see why ideas failed.
+            <Empty title={ideas.length ? "No tradable ideas right now" : "No ideas yet"}>
+              {ideas.length
+                ? `All ${ideas.length} ideas from the latest chains were rejected. Show “Include rejected” to see the reason for each.`
+                : "Ideas appear after the collector ranks the first option chains of the session."}
             </Empty>
           ) : (
             <div className="table-wrap">
@@ -379,7 +381,7 @@ export function IdeasView({ ideas }: { ideas: Idea[] }) {
             </div>
           )}
         </Panel>
-        <aside className="panel detail-panel">{current && <Detail idea={current} />}</aside>
+        {visible.length > 0 && <aside className="panel detail-panel">{current && <Detail idea={current} />}</aside>}
       </div>
     </>
   );

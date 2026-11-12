@@ -933,6 +933,71 @@ export interface LadderReport {
   final_period_uses: number;
 }
 
+export interface TuneNode {
+  id: string;
+  parent_id: string | null;
+  depth: number;
+  spec: LabSpec;
+  label: string;
+  path: string | null;
+  reason: string | null;
+  level: "simple" | "moderate" | "complex";
+  legs_text: string;
+  entry_text: string;
+  design: LabSummary;
+  design_exits: Record<string, number>;
+  validate: LabSummary;
+  accepted: boolean | null;
+  verdict: string | null;
+  prob_better: number | null;
+}
+
+export interface TuneRound {
+  round: number;
+  parent_id: string;
+  analysis: string;
+  source: "ai" | "built_in";
+  skipped: string[];
+  tried: string[];
+  kept: string[];
+}
+
+type FinalTest = Pick<LabResult, "verdict" | "test" | "test_2x">;
+
+export interface TuneSession {
+  id: string;
+  root_id: string;
+  root_name: string;
+  created_at: string;
+  updated_at?: string;
+  nodes: Record<string, TuneNode>;
+  rounds: TuneRound[];
+  best_id: string;
+  trials: number;
+  final?: FinalTest & { id: string };
+  root_final?: FinalTest | null;
+  final_period_uses?: number;
+}
+
+export interface TuneOverview {
+  ready: boolean;
+  ai: { enabled: boolean; model: string };
+  job: { kind: string; state: "running" | "done" | "failed"; message: string; session_id?: string | null } | null;
+  sessions: {
+    id: string;
+    root_name: string;
+    created_at: string;
+    updated_at?: string;
+    tested: number;
+    kept: number;
+    root_validate: LabSummary | null;
+    best_validate: LabSummary | null;
+    best_label: string | null;
+    final: (FinalTest & { id: string }) | null;
+  }[];
+  strategies: { id: string; name: string; source: string }[];
+}
+
 export interface LabRow {
   spec: LabSpec;
   legs_text: string;
@@ -1014,6 +1079,19 @@ export const api = {
   labBacktest: (ids: string[] | null) => sendJson<unknown>("/api/lab/backtest", "POST", { ids }),
   labLadder: (startId: string | null) =>
     sendJson<unknown>("/api/lab/ladder", "POST", { start_id: startId }),
+  labTuning: () => getJson<TuneOverview>("/api/lab/tune"),
+  labTuningSession: (id: string) => getJson<TuneSession>(`/api/lab/tune/${encodeURIComponent(id)}`),
+  labTune: (body: {
+    start_id?: string;
+    session_id?: string;
+    node_id?: string;
+    rounds: number;
+    per_round: number;
+    guidance: string;
+    use_ai: boolean;
+  }) => sendJson<unknown>("/api/lab/tune", "POST", body),
+  labTuneSave: (sessionId: string, nodeId: string) =>
+    sendJson<{ id: string }>(`/api/lab/tune/${encodeURIComponent(sessionId)}/save`, "POST", { node_id: nodeId }),
   labGenerate: (guidance: string) => sendJson<unknown>("/api/lab/generate", "POST", { guidance }),
   overview: () => getJson<OverviewPayload>("/api/overview"),
   explain: (

@@ -21,7 +21,7 @@ from algoverse.backtest.config import load_backtest_config
 from algoverse.backtest.dataview import History
 from algoverse.backtest.registry import Registry
 from algoverse.dashboard import clean
-from algoverse.lab.designer import design_strategies, feedback_row
+from algoverse.lab.designer import _rules_help, design_strategies, feedback_row
 from algoverse.lab.evaluate import (
     evaluate_specs,
     rank_key,
@@ -41,12 +41,22 @@ from algoverse.lab.spec import (
     signature,
 )
 from algoverse.lab.technical import catalog as technical_catalog
+from algoverse.lab.tuner import (
+    Scorer,
+    Suggestions,
+    ai_changes,
+    built_in_changes,
+    grow,
+    new_node,
+    public,
+)
 from algoverse.risk.config import load_risk_config
 
 log = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 DESIGN_TIMEOUT_SECONDS = 420
 MAX_STORED = 200
+MAX_TUNING_SESSIONS = 30
 
 
 def _without_detail(result: dict | None) -> dict | None:
@@ -387,6 +397,241 @@ class LabService:
             self.run_backtest([spec.id for spec in new], now, note)
             created += [spec.id for spec in new]
         return {"created": created, "dropped": dropped}
+
+    # ---- Tuning --------------------------------------------------------------------------
+
+    def _tuning_path(self, session_id: str) -> Path:
+        if not session_id.replace("-", "").replace("_", "").isalnum():
+            raise LabError("That tuning session does not exist.")
+        return self._folder / "tuning" / f"{session_id}.json"
+
+    def _tuning(self, session_id: str) -> dict:
+        try:
+            return json.loads(self._tuning_path(session_id).read_text())
+        except FileNotFoundError as exc:
+            raise LabError("That tuning session does not exist.") from exc
+
+    def tuning_overview(self) -> dict:
+        config = load_backtest_config(self.config_dir)
+        sessions = []
+        for path in sorted((self._folder / "tuning").glob("*.json"), reverse=True):
+            try:
+                data = json.loads(path.read_text())
+            except ValueError:
+                continue
+            best = data["nodes"].get(data.get("best_id") or data["root_id"], {})
+            root = data["nodes"].get(data["root_id"], {})
+            sessions.append(
+                {
+                    "id": data["id"],
+                    "root_name": data["root_name"],
+                    "created_at": data["created_at"],
+                    "updated_at": data.get("updated_at"),
+                    "tested": len(data["nodes"]) - 1,
+                    "kept": sum(1 for n in data["nodes"].values() if n.get("accepted")),
+                    "root_validate": root.get("validate"),
+                    "best_validate": best.get("validate"),
+                    "best_label": best.get("label"),
+                    "final": data.get("final"),
+                }
+            )
+        return clean(
+            {
+                "ready": ladder_windows(History(self.data_dir).sessions, config) is not None,
+                "ai": {"enabled": self.ai_enabled, "model": load_ai_config(self.config_dir).model},
+                "job": self._job,
+                "sessions": sessions[:MAX_TUNING_SESSIONS],
+                "strategies": [
+                    {"id": spec.id, "name": spec.name, "source": spec.source}
+                    for spec in self.specs()
+                ],
+            }
+        )
+
+    def tuning_session(self, session_id: str) -> dict:
+        return public(self._tuning(session_id))
+
+    def _suggester(self, now: datetime, use_ai: bool, guidance: str, note):
+        risk = load_risk_config(self.config_dir)
+        account = {
+            "capital_inr": risk.capital,
+            "max_loss_per_trade_inr": risk.amount(risk.max_loss_per_trade_pct),
+        }
+        client = self._design_client() if use_ai else None
+        ai_log = AiLog(self.data_dir / "ai.sqlite")
+        help_text = _rules_help()
+
+        def suggest(spec, feedback, tried, count) -> Suggestions:
+            if client is not None:
+                try:
+                    return ai_changes(
+                        client,
+                        ai_log,
+                        now,
+                        spec,
+                        feedback,
+                        tried,
+                        count,
+                        account,
+                        guidance,
+                        help_text,
+                    )
+                except LLMError as exc:
+                    note(f"The AI model failed ({exc}); using built-in changes this round")
+                    fallback = Suggestions(
+                        "The AI model was unavailable, so these are built-in nudges to the "
+                        "strategy's own numbers.",
+                        built_in_changes(spec),
+                        "built_in",
+                        [f"AI model failed: {exc}"],
+                    )
+                    return fallback
+            return Suggestions(
+                "Built-in nudges to the strategy's own numbers: exits, strikes, timing and "
+                "rule settings, one at a time.",
+                built_in_changes(spec),
+                "built_in",
+            )
+
+        return suggest
+
+    def _tuning_windows(self):
+        config = load_backtest_config(self.config_dir)
+        windows = ladder_windows(History(self.data_dir).sessions, config)
+        if windows is None:
+            raise LabError(
+                f"Tuning needs more than {sessions_needed(config)} sessions of history, so "
+                "design and unseen sessions each have enough to judge."
+            )
+        return config, windows
+
+    def run_tuning(
+        self,
+        start_id: str | None,
+        now: datetime,
+        session_id: str | None = None,
+        node_id: str | None = None,
+        rounds: int | None = None,
+        per_round: int | None = None,
+        guidance: str = "",
+        use_ai: bool = True,
+        note: Callable[[str], None] = lambda _: None,
+        new_id: str | None = None,
+    ) -> dict:
+        """Start a tuning tree from a strategy, or grow an existing one from one of its nodes."""
+        config, windows = self._tuning_windows()
+        rounds = rounds or config.lab.ladder_rungs
+        per_round = per_round or min(config.lab.ladder_steps, 6)
+        scorer = Scorer(self.data_dir, self.config_dir, windows, now)
+        if session_id is None:
+            spec = self.spec(start_id or "")
+            if spec is None:
+                raise LabError("That strategy no longer exists.")
+            note(f"Testing the starting version: {spec.name}")
+            scored = scorer.score([spec])[spec.id]
+            session = {
+                "id": new_id or self._new_tuning_id(spec.id, now),
+                "root_id": spec.id,
+                "root_name": spec.name.split(", tuned")[0][:40],
+                "created_at": now.isoformat(),
+                "windows": windows.__dict__,
+                "nodes": {spec.id: new_node(spec, scored, 0, None)},
+                "rounds": [],
+                "best_id": spec.id,
+                "trials": 0,
+                "guidance": guidance[:500],
+            }
+            node_id = spec.id
+        else:
+            session = self._tuning(session_id)
+            if node_id not in session["nodes"]:
+                raise LabError("That version is not in this tuning session.")
+            session.pop("final", None)
+        suggest = self._suggester(now, use_ai, guidance, note)
+        grow(session, scorer, node_id, rounds, per_round, suggest, note)
+        best = session["nodes"][session["best_id"]]
+        if best["depth"] > 0:
+            note(f"Final test on the one chosen version: {best['label']}")
+            stored = StrategySpec.model_validate(best["spec"]).model_copy(
+                update={"created_at": now.isoformat()}
+            )
+            _write(self._spec_path(stored.id), stored.model_dump(mode="json"))
+            trials = self._tested_count() + session["trials"]
+            result = self.run_backtest([stored.id], now, note, trials)[0]
+            session["final"] = {
+                "id": stored.id,
+                **{key: result[key] for key in ("verdict", "test", "test_2x", "evidence")},
+            }
+        root = self.spec(session["root_id"])
+        root_result = self.result(root) if root else None
+        session["root_final"] = (
+            {key: root_result[key] for key in ("verdict", "test", "test_2x")}
+            if root_result
+            else None
+        )
+        session["final_period_uses"] = Registry(self.data_dir).window_trials(
+            "lab_test", windows.final_start, windows.final_end
+        )
+        session["updated_at"] = now.isoformat()
+        _write(self._tuning_path(session["id"]), session)
+        return session
+
+    @staticmethod
+    def _new_tuning_id(spec_id: str, now: datetime) -> str:
+        return f"{now:%Y%m%d-%H%M%S}-{spec_id[:24]}"
+
+    def save_tuned(self, session_id: str, node_id: str, now: datetime) -> str:
+        session = self._tuning(session_id)
+        node = session["nodes"].get(node_id)
+        if node is None:
+            raise LabError("That version is not in this tuning session.")
+        spec = StrategySpec.model_validate(node["spec"]).model_copy(
+            update={"created_at": now.isoformat()}
+        )
+        if self.spec(spec.id) is None:
+            _write(self._spec_path(spec.id), spec.model_dump(mode="json"))
+        return spec.id
+
+    def start_tuning(
+        self,
+        start_id: str | None,
+        now: datetime,
+        session_id: str | None = None,
+        node_id: str | None = None,
+        rounds: int | None = None,
+        per_round: int | None = None,
+        guidance: str = "",
+        use_ai: bool = True,
+    ) -> dict:
+        self._tuning_windows()
+        if session_id is None and self.spec(start_id or "") is None:
+            raise LabError("Choose a strategy to tune.")
+        if session_id is not None and node_id not in self._tuning(session_id)["nodes"]:
+            raise LabError("That version is not in this tuning session.")
+        if use_ai:
+            self._design_client()
+
+        target = session_id or self._new_tuning_id(start_id or "", now)
+
+        def work(note) -> str:
+            session = self.run_tuning(
+                start_id,
+                now,
+                session_id,
+                node_id,
+                rounds,
+                per_round,
+                guidance,
+                use_ai,
+                note,
+                new_id=target,
+            )
+            kept = sum(1 for n in session["nodes"].values() if n.get("accepted"))
+            return f"Tested {len(session['nodes']) - 1} changes, kept {kept}."
+
+        job = self._start("tune", work)
+        job["session_id"] = target
+        return job
 
     # ---- Background jobs -----------------------------------------------------------------
 

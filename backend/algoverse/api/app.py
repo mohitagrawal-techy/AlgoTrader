@@ -130,6 +130,20 @@ class LabGenerateRequest(BaseModel):
     guidance: str = Field(default="", max_length=500)
 
 
+class LabTuneRequest(BaseModel):
+    start_id: str | None = None
+    session_id: str | None = None
+    node_id: str | None = None
+    rounds: int | None = Field(default=None, ge=1, le=8)
+    per_round: int | None = Field(default=None, ge=1, le=10)
+    guidance: str = Field(default="", max_length=500)
+    use_ai: bool = True
+
+
+class LabTuneSaveRequest(BaseModel):
+    node_id: str
+
+
 class ExplainRequest(BaseModel):
     component: str = Field(max_length=40)
     title: str = Field(max_length=120)
@@ -435,6 +449,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 datetime.now(IST), body.rounds, body.per_round, body.guidance
             )
         )
+
+    @app.get("/api/lab/tune")
+    def lab_tuning() -> dict:
+        return runtime.lab.tuning_overview()
+
+    @app.get("/api/lab/tune/{session_id}")
+    def lab_tuning_session(session_id: str) -> dict:
+        return _lab(lambda: runtime.lab.tuning_session(session_id))
+
+    @app.post("/api/lab/tune")
+    def lab_tune(
+        body: LabTuneRequest, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        _require_dashboard(x_algoverse_client)
+        return _lab(
+            lambda: runtime.lab.start_tuning(
+                body.start_id,
+                datetime.now(IST),
+                body.session_id,
+                body.node_id,
+                body.rounds,
+                body.per_round,
+                body.guidance,
+                body.use_ai,
+            )
+        )
+
+    @app.post("/api/lab/tune/{session_id}/save")
+    def lab_tune_save(
+        session_id: str,
+        body: LabTuneSaveRequest,
+        x_algoverse_client: str | None = Header(default=None),
+    ) -> dict:
+        _require_dashboard(x_algoverse_client)
+        saved = _lab(lambda: runtime.lab.save_tuned(session_id, body.node_id, datetime.now(IST)))
+        return {"id": saved}
 
     @app.get("/api/forward")
     def forward() -> dict:

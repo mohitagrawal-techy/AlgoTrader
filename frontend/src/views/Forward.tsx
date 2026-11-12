@@ -290,10 +290,26 @@ export function ForwardView({ overview }: { overview: ForwardOverview }) {
   const runs = overview.runs;
   if (!runs.length) {
     return (
-      <Empty title="No forward runs yet">
-        Run <code>algoverse forward-start --name baseline --role champion</code>, then leave{" "}
-        <code>algoverse collect</code> running during market hours.
-      </Empty>
+      <section className="panel start-panel">
+        <h2>No forward runs yet</h2>
+        <p className="secondary">
+          A forward run freezes one configuration and paper-trades it on live quotes, so you can see
+          whether its backtest holds up on days it has never seen.
+        </p>
+        <ol className="steps">
+          <li>
+            <span>Start a locked run from a terminal</span>
+            <code>algoverse forward-start --name baseline --role champion</code>
+          </li>
+          <li>
+            <span>Keep the collector running during market hours</span>
+            <code>algoverse collect</code>
+          </li>
+          <li>
+            <span>Come back here to compare it with its backtest as trades close</span>
+          </li>
+        </ol>
+      </section>
     );
   }
   const current = runs.find((run) => String(run.id) === selected) ?? runs[0];

@@ -9,6 +9,7 @@ import {
   type Portfolio,
 } from "./api";
 import { age } from "./format";
+import { MarketTape } from "./tape";
 import { Empty, Status } from "./ui";
 import { AssistantProvider } from "./assistant";
 import { BacktestsView } from "./views/Backtests";
@@ -22,6 +23,7 @@ import { PaperView } from "./views/Paper";
 import { RiskView } from "./views/Risk";
 import { StrategyEditor, type EditorRoute } from "./views/StrategyEditor";
 import { readStrikeRoute, StrikePage } from "./views/StrikeChart";
+import { TunerView } from "./views/Tuner";
 
 const NAV_GROUPS = [
   {
@@ -51,6 +53,17 @@ const NAV_GROUPS = [
 const TABS = NAV_GROUPS.flatMap((group) => [...group.items]);
 type TabId = (typeof NAV_GROUPS)[number]["items"][number]["id"];
 const SIDEBAR_KEY = "algoverse-sidebar";
+
+const PAGE_SUBS: Record<string, string> = {
+  overview: "Indices, breadth and option positioning across the market.",
+  market: "Chain analytics for one underlying and expiry.",
+  ideas: "Trades ranked from the latest option chains.",
+  lab: "Build your own strategies, then test and tune them.",
+  backtests: "How the idea engine would have traded past sessions.",
+  forward: "Locked configurations paper-trading on live data.",
+  paper: "Paper positions, fills and P&L after costs.",
+  risk: "Limits and exposure across open paper positions.",
+};
 
 const POLL_MS = 30000;
 const STALE_MS = 15 * 60000;
@@ -203,6 +216,23 @@ export function App() {
     !!health.data_as_of &&
     now - new Date(health.data_as_of).getTime() > STALE_MS;
 
+  const pageTitle = tab === "lab" && route
+            ? route.mode === "edit"
+              ? "Edit strategy"
+              : "New strategy"
+            : tab === "lab" && path[0] === "backtest"
+              ? "Strategy backtest"
+            : tab === "lab" && path[0] === "tune"
+              ? "Strategy tuner"
+            : tab === "market" && strikeRoute
+              ? "Strike chart"
+              : TABS.find((item) => item.id === tab)?.label;
+  // Sub-pages (the editor, a backtest, a strike chart) carry their own heading.
+  const topLevel = !(
+    (tab === "lab" && (route || path[0] === "backtest")) ||
+    (tab === "market" && strikeRoute)
+  );
+
   return (
     <AssistantProvider>
     <div className={`shell ${collapsed ? "sidebar-collapsed" : ""} ${menuOpen ? "menu-open" : ""}`}>
@@ -232,7 +262,12 @@ export function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <span className="paper-tag sidebar-text">Paper only</span>
+          <p className="sidebar-note">
+            For personal analysis, not investment advice. Scores are model estimates. No real orders
+            can be placed from this app.
+          </p>
+          <div className="sidebar-foot-row">
+          <span className="paper-tag sidebar-text">Paper trading</span>
           <button
             type="button"
             className="sidebar-toggle"
@@ -243,6 +278,7 @@ export function App() {
           >
             <NavIcon path={collapsed ? "M9 6l6 6-6 6" : "M15 6l-6 6 6 6"} />
           </button>
+          </div>
         </div>
       </aside>
       <button type="button" className="menu-backdrop" aria-label="Close menu" onClick={() => setMenuOpen(false)} />
@@ -251,39 +287,36 @@ export function App() {
         <button type="button" className="menu-button" aria-label="Open menu" onClick={() => setMenuOpen(true)}>
           <NavIcon path="M4 6h16M4 12h16M4 18h16" />
         </button>
-        <h1 className="page-title">
-          {tab === "lab" && route
-            ? route.mode === "edit"
-              ? "Edit strategy"
-              : "New strategy"
-            : tab === "lab" && path[0] === "backtest"
-              ? "Strategy backtest"
-            : tab === "market" && strikeRoute
-              ? "Strike chart"
-              : TABS.find((item) => item.id === tab)?.label}
-        </h1>
+        <MarketTape />
         <div className="topbar-status">
           {health && (
             <>
-              <Status tone={health.market_open ? "good" : "neutral"}>
+              <span
+                className="connection"
+                title={health.broker_session_valid ? "Upstox connected" : "Upstox logged out"}
+              >
+                <span
+                  className={`connection-dot ${
+                    !health.broker_session_valid ? "off" : health.market_open ? "live" : ""
+                  }`}
+                  aria-hidden
+                />
                 {health.market_open ? "Market open" : "Market closed"}
-              </Status>
-              <Status tone={health.broker_session_valid ? "good" : "warning"}>
-                {health.broker_session_valid ? "Upstox connected" : "Upstox logged out"}
-              </Status>
-              <span className="muted">Data {age(health.data_as_of, now)}</span>
+                <span className="muted">· data {age(health.data_as_of, now)}</span>
+                {!health.broker_session_valid && <span className="muted">· Upstox logged out</span>}
+              </span>
             </>
           )}
           <button
-            className="button"
+            className="button ghost small"
             onClick={refresh}
             disabled={refreshing || !health?.broker_session_valid}
             title={health?.broker_session_valid ? "Rank ideas from fresh quotes" : "Log in to Upstox first"}
           >
             {refreshing ? "Refreshing…" : "Refresh"}
           </button>
-          <button className="button ghost" onClick={toggleTheme} aria-label="Switch colour theme">
-            ◐
+          <button className="icon-button" onClick={toggleTheme} aria-label="Switch colour theme" title="Switch colour theme">
+            <NavIcon path="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" />
           </button>
         </div>
       </header>
@@ -320,6 +353,18 @@ export function App() {
       )}
 
       <main>
+        {topLevel && (
+          <div className="page-head">
+            <div>
+              <h1 className="page-title">{pageTitle}</h1>
+              <p className="page-sub">
+                {tab === "lab" && path[0] === "tune"
+                  ? "Change one setting at a time, and keep only what holds up on unseen sessions."
+                  : PAGE_SUBS[tab]}
+              </p>
+            </div>
+          </div>
+        )}
         {!data && !loadError && tab !== "overview" && !(tab === "market" && (shownMarket || strikeRoute)) && (
           <Empty title="Loading…" />
         )}
@@ -337,7 +382,14 @@ export function App() {
         {data && tab === "risk" && <RiskView portfolio={data.portfolio} />}
         {data && tab === "lab" && route && <StrategyEditor key={path.join("/")} route={route} />}
         {tab === "lab" && path[0] === "backtest" && path[1] && <LabBacktestView id={path[1]} />}
-        {data && tab === "lab" && !route && path[0] !== "backtest" && (
+        {tab === "lab" && path[0] === "tune" && (
+          <TunerView
+            key={path.join("/")}
+            sessionId={path[1] === "s" && path[2] ? path[2] : null}
+            startId={path[1] === "from" && path[2] ? path[2] : null}
+          />
+        )}
+        {data && tab === "lab" && !route && path[0] !== "backtest" && path[0] !== "tune" && (
           <LabView
             key={path.join("/")}
             initialSelected={path[0] === "view" && path[1] ? path[1] : null}
@@ -346,11 +398,6 @@ export function App() {
         {data && tab === "backtests" && <BacktestsView listing={data.backtests} />}
         {data && tab === "forward" && <ForwardView overview={data.forward} />}
       </main>
-      <footer className="footnote">
-        Analysis for personal use, not investment advice. Scores and probabilities are model
-        estimates and have not been validated by backtesting. No real orders can be placed from
-        this app.
-      </footer>
     </div>
     </div>
     </AssistantProvider>
