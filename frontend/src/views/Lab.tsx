@@ -9,7 +9,7 @@ import {
 import { LineChart, timeTicks } from "../charts";
 import { StrategyVisual } from "./StrategyVisual";
 import { dateTimeIst, fraction, inrCompact, num, shortDate, signedInr } from "../format";
-import { Empty, Panel, Pnl, Segmented, Select, Status, Tile, type Tone } from "../ui";
+import { Empty, JobStatus, Panel, Pnl, Segmented, Select, Status, Tile, type Tone } from "../ui";
 
 const VERDICTS: Record<string, { tone: Tone; label: string }> = {
   held_up: { tone: "good", label: "Held up on unseen data" },
@@ -376,14 +376,7 @@ export function LabView({ initialSelected }: { initialSelected: string | null })
           </p>
         </div>
       )}
-      {job && (
-        <div className={job.state === "failed" ? "reject-box" : "ai-box"}>
-          <Status tone={job.state === "running" ? "neutral" : job.state === "done" ? "good" : "critical"}>
-            {job.state === "running" ? "Working" : job.state === "done" ? "Finished" : "Failed"}
-          </Status>
-          <p>{job.message}</p>
-        </div>
-      )}
+      {job && <JobStatus job={job} />}
       {error && <p className="ai-error">{error}</p>}
 
       <div className="toolbar">

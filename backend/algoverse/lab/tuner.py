@@ -18,7 +18,6 @@ import logging
 import time
 from collections import Counter
 from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -30,10 +29,11 @@ from algoverse.ai.budget import AiLog
 from algoverse.ai.client import LLMClient, LLMError
 from algoverse.ai.schemas import OK, UNAVAILABLE
 from algoverse.backtest.config import BacktestConfig, config_hash
+from algoverse.backtest.dataview import History
 from algoverse.backtest.registry import Registry
 from algoverse.backtest.walkforward import load_services
 from algoverse.dashboard import clean
-from algoverse.lab.evaluate import _run, _summary
+from algoverse.lab.evaluate import _summary, run_tasks
 from algoverse.lab.ladder import LadderWindows, judge_step
 from algoverse.lab.spec import (
     StrategySpec,
@@ -360,8 +360,17 @@ def _exit_reasons(trades: list[dict]) -> dict[str, int]:
 class Scorer:
     """Backtests versions on the design and unseen sessions, in parallel when configured."""
 
-    def __init__(self, data_dir: Path, config_dir: Path, windows: LadderWindows, now: datetime):
+    def __init__(
+        self,
+        data_dir: Path,
+        config_dir: Path,
+        windows: LadderWindows,
+        now: datetime,
+        progress: Callable[[int, int], None] | None = None,
+    ):
         self.data_dir, self.config_dir, self.windows, self.now = data_dir, config_dir, windows, now
+        self.progress = progress
+        self.sessions = History(data_dir).sessions
         self.config: BacktestConfig = load_services(config_dir).backtest
         self.registry = Registry(data_dir)
         self.digest = config_hash(config_dir)
@@ -376,12 +385,7 @@ class Scorer:
                 (*base, w.design_start, w.design_end, 1.0),
                 (*base, w.validate_start, w.validate_end, 1.0),
             ]
-        workers = min(self.config.lab.workers, len(tasks))
-        if workers > 1:
-            with ProcessPoolExecutor(max_workers=workers) as pool:
-                runs = iter(list(pool.map(_run, tasks)))
-        else:
-            runs = iter([_run(task) for task in tasks])
+        runs = iter(run_tasks(tasks, self.config.lab.workers, self.sessions, self.progress))
         scored = {}
         for spec in specs:
             design_run, validate_run = next(runs), next(runs)

@@ -16,6 +16,7 @@ from algoverse.backtest.config import BacktestConfig, config_hash
 from algoverse.backtest.dataview import History
 from algoverse.backtest.engine import ReplaySpec, reference_series, replay
 from algoverse.backtest.intraday import replay_intraday
+from algoverse.backtest.progress import Poller, SessionCounter
 from algoverse.backtest.registry import Registry
 from algoverse.backtest.report import daily_stats, trade_stats
 from algoverse.backtest.walkforward import load_services
@@ -82,8 +83,11 @@ def _minutes(data_dir: str, symbols: list[str]) -> dict[str, pd.DataFrame]:
     return _CACHE[key]
 
 
-def _run(task: tuple[str, str, str, date, date, float]) -> dict:
-    data_dir, config_dir, spec_json, start, end, multiplier = task
+def _run(task: tuple) -> dict:
+    """One replay. An optional seventh item, (counts, key), records sessions finished so far."""
+    data_dir, config_dir, spec_json, start, end, multiplier, *extra = task
+    tracker = extra[0] if extra else None
+    days: set = set()
     key = (data_dir, config_dir)
     if key not in _CACHE:
         _CACHE[key] = (
@@ -98,6 +102,12 @@ def _run(task: tuple[str, str, str, date, date, float]) -> dict:
     outcomes: Counter = Counter()
 
     def on_cycle(result) -> None:
+        if tracker is not None and result.contexts:
+            day = next(iter(result.contexts.values())).now.date()
+            if day not in days:
+                days.add(day)
+                counts, key = tracker
+                counts[key] = len(days)
         for idea in result.ideas:
             if idea.tradable:
                 outcomes["signal"] += 1
@@ -180,6 +190,37 @@ def rank_key(result: dict | None) -> tuple:
     return (VERDICT_ORDER[result["verdict"]], -(result["test"].get("sharpe") or -99.0))
 
 
+def run_tasks(
+    tasks: list[tuple],
+    workers: int,
+    sessions: list[date] | None = None,
+    on_sessions: Callable[[int, int], None] | None = None,
+    pool: ProcessPoolExecutor | None = None,
+) -> list[dict]:
+    """Run replay tasks in order, in parallel when allowed, reporting sessions replayed."""
+    if on_sessions is None or sessions is None:
+        if pool is not None:
+            return list(pool.map(_run, tasks))
+        if workers > 1 and len(tasks) > 1:
+            with ProcessPoolExecutor(max_workers=min(workers, len(tasks))) as own:
+                return list(own.map(_run, tasks))
+        return [_run(task) for task in tasks]
+    total = sum(sum(1 for day in sessions if task[3] <= day <= task[4]) for task in tasks)
+    parallel = pool is not None or (workers > 1 and len(tasks) > 1)
+    counter = SessionCounter(shared=parallel)
+    tagged = [(*task, (counter.counts, index)) for index, task in enumerate(tasks)]
+    try:
+        with Poller(counter, total, on_sessions):
+            if pool is not None:
+                return list(pool.map(_run, tagged))
+            if parallel:
+                with ProcessPoolExecutor(max_workers=min(workers, len(tasks))) as own:
+                    return list(own.map(_run, tagged))
+            return [_run(task) for task in tagged]
+    finally:
+        counter.close()
+
+
 def evaluate_specs(
     data_dir: Path,
     config_dir: Path,
@@ -187,6 +228,7 @@ def evaluate_specs(
     now: datetime,
     progress: Callable[[int, int, str], None] | None = None,
     trials: int | None = None,
+    on_sessions: Callable[[int, int], None] | None = None,
 ) -> list[dict]:
     """Three replays per strategy: training, test, and test at double the modelled spread.
 
@@ -257,18 +299,9 @@ def evaluate_specs(
             }
         )
 
-    workers = min(config.lab.workers, len(tasks))
-    if workers <= 1:
-        runs = map(_run, tasks)
-        for index, spec in enumerate(specs):
-            results.append(finish(spec, next(runs), next(runs), next(runs)))
-            if progress:
-                progress(index + 1, len(specs), spec.name)
-        return results
-    with ProcessPoolExecutor(max_workers=workers) as pool:
-        runs = pool.map(_run, tasks)
-        for index, spec in enumerate(specs):
-            results.append(finish(spec, next(runs), next(runs), next(runs)))
-            if progress:
-                progress(index + 1, len(specs), spec.name)
+    runs = iter(run_tasks(tasks, config.lab.workers, History(data_dir).sessions, on_sessions))
+    for index, spec in enumerate(specs):
+        results.append(finish(spec, next(runs), next(runs), next(runs)))
+        if progress:
+            progress(index + 1, len(specs), spec.name)
     return results

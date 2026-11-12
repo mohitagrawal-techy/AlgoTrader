@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from algoverse.backtest.config import load_backtest_config
 from algoverse.backtest.dataview import History
 from algoverse.backtest.engine import ReplaySpec
+from algoverse.backtest.progress import set_progress
 from algoverse.backtest.walkforward import build_folds, run_backtest, run_walk_forward
 from algoverse.evaluation.config import load_scoring_config
 
@@ -85,13 +86,16 @@ class BacktestJobs:
             }
             self._job = job
 
-        def note(message: str) -> None:
+        def note(message: str, done: int | None = None, total: int | None = None) -> None:
             job["message"] = message
+            if done is not None and total:
+                set_progress(job, done, total, "replays")
 
         def run() -> None:
             try:
                 report = work(note)
                 job["report_id"] = report["id"]
+                job.pop("progress", None)
                 job["message"] = "Finished"
                 job["state"] = "done"
             except (ValueError, BacktestError) as exc:

@@ -226,7 +226,14 @@ def run_walk_forward(
     def stage(label: str):
         if note is None:
             return None
-        return lambda done, total: note(f"{label}: {done} of {total} replays")
+
+        def report(done: int, total: int) -> None:
+            try:
+                note(f"{label}: {done} of {total} replays", done=done, total=total)
+            except TypeError:  # A plain note, such as the command line's print.
+                note(f"{label}: {done} of {total} replays")
+
+        return report
 
     if note:
         note(f"Training {size_text(len(grid))} on {len(folds)} folds")

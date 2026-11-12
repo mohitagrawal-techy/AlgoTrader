@@ -19,7 +19,7 @@ import {
   shortDate,
   signedInr,
 } from "../format";
-import { Empty, Panel, Pnl, Select, Status, Tile, type Tone } from "../ui";
+import { Empty, JobStatus, Panel, Pnl, Select, Status, Tile, type Tone } from "../ui";
 
 const VERDICTS: Record<string, { tone: Tone; label: string }> = {
   passed_walk_forward: { tone: "good", label: "Passed walk-forward" },
@@ -364,16 +364,12 @@ function RunPanel({
   return (
     <Panel
       title="Run a backtest"
-      aside={
-        running ? (
-          <Status tone="neutral">
-            {job.kind === "walk_forward" ? "Walk-forward" : "Backtest"} running: {job.message}
-          </Status>
-        ) : job?.state === "failed" ? (
-          <Status tone="critical">Last run failed: {job.message}</Status>
-        ) : undefined
-      }
     >
+      {job && (running || job.state === "failed") && (
+        <div className="panel-job">
+          <JobStatus job={{ ...job, message: `${job.kind === "walk_forward" ? "Walk-forward" : "Backtest"}: ${job.message}` }} />
+        </div>
+      )}
       <div className="builder">
         <div className="builder-row">
           <Select

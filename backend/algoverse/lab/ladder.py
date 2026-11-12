@@ -18,7 +18,7 @@ from algoverse.backtest.dataview import History
 from algoverse.backtest.registry import Registry
 from algoverse.backtest.walkforward import load_services
 from algoverse.dashboard import clean
-from algoverse.lab.evaluate import _run, _summary, split_windows
+from algoverse.lab.evaluate import _summary, run_tasks, split_windows
 from algoverse.lab.evidence import prob_better
 from algoverse.lab.spec import (
     Condition,
@@ -366,17 +366,18 @@ def run_ladder(
     roots: list[StrategySpec],
     now: datetime,
     note: Callable[[str], None] = lambda _: None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> dict:
     """Climb from each root, then name one winner. Returns the report and the winner's spec."""
     config = load_services(config_dir).backtest
     lab = config.lab
-    windows = ladder_windows(History(data_dir).sessions, config)
+    sessions = History(data_dir).sessions
+    windows = ladder_windows(sessions, config)
     if windows is None:
         raise ValueError("There is not enough history to split into design and unseen sessions.")
     registry = Registry(data_dir)
     digest = config_hash(config_dir)
     pool = ProcessPoolExecutor(max_workers=lab.workers) if lab.workers > 1 else None
-    mapper = pool.map if pool else map
     trials = 0
 
     def score(specs: list[StrategySpec]) -> dict[str, dict]:
@@ -388,7 +389,7 @@ def run_ladder(
                 (*base, windows.design_start, windows.design_end, 1.0),
                 (*base, windows.validate_start, windows.validate_end, 1.0),
             ]
-        runs = iter(list(mapper(_run, tasks)))
+        runs = iter(run_tasks(tasks, lab.workers, sessions, progress, pool))
         scored = {}
         for spec in specs:
             design_run, validate_run = next(runs), next(runs)

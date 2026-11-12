@@ -19,6 +19,7 @@ from algoverse.ai.client import LLMClient, LLMError, OllamaClient
 from algoverse.ai.schemas import load_ai_config
 from algoverse.backtest.config import load_backtest_config
 from algoverse.backtest.dataview import History
+from algoverse.backtest.progress import set_progress
 from algoverse.backtest.registry import Registry
 from algoverse.dashboard import clean
 from algoverse.lab.designer import _rules_help, design_strategies, feedback_row
@@ -273,20 +274,21 @@ class LabService:
         start_id: str | None,
         now: datetime,
         note: Callable[[str], None] = lambda _: None,
+        progress: Callable[[int, int], None] | None = None,
     ) -> dict:
         """Climb from simple to complex, then spend the final test on one winner only."""
         config = load_backtest_config(self.config_dir)
         if ladder_windows(History(self.data_dir).sessions, config) is None:
             raise LabError("The ladder needs more history than is stored.")
         roots = self._ladder_roots(start_id)
-        outcome = run_ladder(self.data_dir, self.config_dir, roots, now, note)
+        outcome = run_ladder(self.data_dir, self.config_dir, roots, now, note, progress)
         report, winner = outcome["report"], outcome["winner"]
         if winner is not None:
             note(f"Final test on the one winner: {winner.name}")
             stored = winner.model_copy(update={"created_at": now.isoformat()})
             _write(self._spec_path(stored.id), stored.model_dump(mode="json"))
             trials = self._tested_count() + outcome["trials"]
-            result = self.run_backtest([stored.id], now, note, trials)[0]
+            result = self.run_backtest([stored.id], now, note, trials, progress)[0]
             report["final"] = {
                 key: result[key] for key in ("verdict", "test", "test_2x", "evidence")
             }
@@ -314,6 +316,7 @@ class LabService:
         now: datetime,
         note: Callable[[str], None] = lambda _: None,
         trials: int | None = None,
+        progress: Callable[[int, int], None] | None = None,
     ) -> list[dict]:
         self._require_history()
         wanted = [s for s in self.specs() if ids is None or s.id in ids]
@@ -327,6 +330,7 @@ class LabService:
             now,
             lambda done, total, name: note(f"Tested {done} of {total}: {name}"),
             trials if trials is not None else max(self._tested_count(), len(wanted)),
+            progress,
         )
         for result in results:
             _write(self._result_path(result["strategy_id"]), result)
@@ -349,6 +353,7 @@ class LabService:
         per_round: int | None = None,
         guidance: str = "",
         note: Callable[[str], None] = lambda _: None,
+        progress: Callable[[int, int], None] | None = None,
     ) -> dict:
         """Design, test on training data, show the AI those results, and repeat."""
         self._require_history()
@@ -365,7 +370,7 @@ class LabService:
         untested = [s for s in TEMPLATES if self.result(s) is None]
         if untested:
             note("Testing the baseline templates first")
-            self.run_backtest([s.id for s in untested], now, note)
+            self.run_backtest([s.id for s in untested], now, note, progress=progress)
         ai_log = AiLog(self.data_dir / "ai.sqlite")
         created: list[str] = []
         dropped: list[str] = []
@@ -394,7 +399,7 @@ class LabService:
                 continue
             for spec in new:
                 _write(self._spec_path(spec.id), spec.model_dump(mode="json"))
-            self.run_backtest([spec.id for spec in new], now, note)
+            self.run_backtest([spec.id for spec in new], now, note, progress=progress)
             created += [spec.id for spec in new]
         return {"created": created, "dropped": dropped}
 
@@ -517,12 +522,13 @@ class LabService:
         use_ai: bool = True,
         note: Callable[[str], None] = lambda _: None,
         new_id: str | None = None,
+        progress: Callable[[int, int], None] | None = None,
     ) -> dict:
         """Start a tuning tree from a strategy, or grow an existing one from one of its nodes."""
         config, windows = self._tuning_windows()
         rounds = rounds or config.lab.ladder_rungs
         per_round = per_round or min(config.lab.ladder_steps, 6)
-        scorer = Scorer(self.data_dir, self.config_dir, windows, now)
+        scorer = Scorer(self.data_dir, self.config_dir, windows, now, progress)
         if session_id is None:
             spec = self.spec(start_id or "")
             if spec is None:
@@ -557,7 +563,7 @@ class LabService:
             )
             _write(self._spec_path(stored.id), stored.model_dump(mode="json"))
             trials = self._tested_count() + session["trials"]
-            result = self.run_backtest([stored.id], now, note, trials)[0]
+            result = self.run_backtest([stored.id], now, note, trials, progress)[0]
             session["final"] = {
                 "id": stored.id,
                 **{key: result[key] for key in ("verdict", "test", "test_2x", "evidence")},
@@ -613,7 +619,7 @@ class LabService:
 
         target = session_id or self._new_tuning_id(start_id or "", now)
 
-        def work(note) -> str:
+        def work(note, progress) -> str:
             session = self.run_tuning(
                 start_id,
                 now,
@@ -625,6 +631,7 @@ class LabService:
                 use_ai,
                 note,
                 new_id=target,
+                progress=progress,
             )
             kept = sum(1 for n in session["nodes"].values() if n.get("accepted"))
             return f"Tested {len(session['nodes']) - 1} changes, kept {kept}."
@@ -635,7 +642,7 @@ class LabService:
 
     # ---- Background jobs -----------------------------------------------------------------
 
-    def _start(self, kind: str, work: Callable[[Callable[[str], None]], str]) -> dict:
+    def _start(self, kind: str, work: Callable[..., str]) -> dict:
         with self._lock:
             if self._job and self._job["state"] == "running":
                 raise LabBusy("A lab job is already running.")
@@ -651,9 +658,13 @@ class LabService:
         def note(message: str) -> None:
             job["message"] = message
 
+        def progress(done: int, total: int) -> None:
+            set_progress(job, done, total)
+
         def run() -> None:
             try:
-                job["message"] = work(note)
+                job["message"] = work(note, progress)
+                job.pop("progress", None)
                 job["state"] = "done"
             except LabError as exc:
                 job["state"], job["message"] = "failed", str(exc)
@@ -668,8 +679,8 @@ class LabService:
     def start_backtest(self, ids: list[str] | None, now: datetime) -> dict:
         self._require_history()
 
-        def work(note) -> str:
-            return f"Tested {len(self.run_backtest(ids, now, note))} strategies."
+        def work(note, progress) -> str:
+            return f"Tested {len(self.run_backtest(ids, now, note, progress=progress))} strategies."
 
         return self._start("backtest", work)
 
@@ -682,8 +693,8 @@ class LabService:
             )
         self._ladder_roots(start_id)
 
-        def work(note) -> str:
-            report = self.run_ladder(start_id, now, note)
+        def work(note, progress) -> str:
+            report = self.run_ladder(start_id, now, note, progress)
             if report["winner_id"] is None:
                 return "No simple starting strategy had enough trades to build on."
             return f"Finished after {report['trials']} tested strategies."
@@ -696,8 +707,8 @@ class LabService:
         self._require_history()
         self._design_client()
 
-        def work(note) -> str:
-            outcome = self.run_generate(now, rounds, per_round, guidance, note)
+        def work(note, progress) -> str:
+            outcome = self.run_generate(now, rounds, per_round, guidance, note, progress)
             extra = (
                 f" {len(outcome['dropped'])} proposals were dropped." if outcome["dropped"] else ""
             )

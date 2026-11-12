@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type LabSummary, type TuneNode, type TuneOverview, type TuneSession } from "../api";
 import { dateTimeIst, num, signedInr } from "../format";
-import { Empty, Panel, Pnl, Select, Status, Tile, type Tone } from "../ui";
+import { Empty, JobStatus, Panel, Pnl, Select, Status, Tile, type Tone } from "../ui";
 
 const POLL_MS = 3000;
 const VERDICTS: Record<string, { tone: Tone; label: string }> = {
@@ -409,11 +409,8 @@ export function TunerView({ sessionId, startId }: { sessionId: string | null; st
           </div>
         </div>
         {job && job.kind === "tune" && (
-          <div className={job.state === "failed" ? "reject-box" : "ai-box"}>
-            <Status tone={job.state === "running" ? "neutral" : job.state === "done" ? "good" : "critical"}>
-              {job.state === "running" ? "Working" : job.state === "done" ? "Finished" : "Failed"}
-            </Status>
-            <p>{job.message}</p>
+          <div className="panel-job">
+            <JobStatus job={job} />
           </div>
         )}
         {job && job.kind !== "tune" && running && (

@@ -1,3 +1,21 @@
+/** How far a long job's current stage has got, in sessions or replays. */
+export interface JobProgressInfo {
+  done: number;
+  total: number;
+  unit: "sessions" | "replays";
+  stage_started_at: string;
+  updated_at: string;
+}
+
+export interface JobInfo {
+  kind: string;
+  state: "running" | "done" | "failed";
+  message: string;
+  started_at?: string;
+  finished_at?: string | null;
+  progress?: JobProgressInfo | null;
+}
+
 export interface Health {
   upstox_configured: boolean;
   broker_session_valid: boolean;
@@ -381,10 +399,8 @@ export interface BacktestReport {
   };
 }
 
-export interface BacktestJob {
+export interface BacktestJob extends JobInfo {
   kind: "walk_forward" | "backtest";
-  state: "running" | "done" | "failed";
-  message: string;
   started_at: string;
   finished_at: string | null;
   report_id: string | null;
@@ -982,7 +998,7 @@ export interface TuneSession {
 export interface TuneOverview {
   ready: boolean;
   ai: { enabled: boolean; model: string };
-  job: { kind: string; state: "running" | "done" | "failed"; message: string; session_id?: string | null } | null;
+  job: (JobInfo & { session_id?: string | null }) | null;
   sessions: {
     id: string;
     root_name: string;
@@ -1014,7 +1030,7 @@ export interface LabOverview {
   trials_logged: number;
   ai: { enabled: boolean; model: string };
   defaults: { rounds: number; per_round: number };
-  job: { kind: string; state: "running" | "done" | "failed"; message: string } | null;
+  job: JobInfo | null;
   symbols: string[];
   signals: { name: string; label: string }[];
   technical: TechCatalog;
