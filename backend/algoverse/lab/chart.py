@@ -29,12 +29,13 @@ from algoverse.lab.technical import (
 )
 
 IST_SECONDS = 19_800
-MAX_STUDIES = 12
+# Hand-added studies plus the ones a strategy's rules read.
+MAX_STUDIES = 24
 # Daily candles since 2000 are about 6,700; a year of 5-minute candles is about 19,000.
 MAX_CANDLES = 20_000
 # Sessions shown by default on minute charts, and the most that can be asked for.
 DEFAULT_SESSIONS = {"5m": 10, "15m": 30, "1h": 90}
-MAX_SESSIONS = 400
+MAX_SESSIONS = 500
 # Extra sessions read before the first one shown, so indicators are warmed up: a 400-candle
 # average on hourly candles needs about 60 sessions.
 WARMUP_SESSIONS = 60

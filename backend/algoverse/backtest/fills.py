@@ -22,14 +22,16 @@ def spread_percent(
 
 
 def contract_key(symbol: str, frame: pd.DataFrame) -> pd.Series:
+    # The casts keep an empty frame's columns as text, such as a previous session that holds
+    # no contracts of this underlying; without them the empty strike column stays numeric.
     return (
         symbol
         + "|"
         + frame["expiry"].astype(str)
         + "|"
-        + frame["strike"].map("{:g}".format)
+        + frame["strike"].map("{:g}".format).astype(str)
         + "|"
-        + frame["option_type"]
+        + frame["option_type"].astype(str)
     )
 
 

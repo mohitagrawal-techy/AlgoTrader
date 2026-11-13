@@ -525,6 +525,8 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
         <IndexChart
           catalog={lab.technical}
           symbols={lab.chart_symbols ?? lab.symbols}
+          tradable={lab.symbols}
+          draft={{ ...spec, name: spec.name.trim() || "Draft" }}
           rules={rules}
           anyRules={anyRules}
           onAddRule={

@@ -818,6 +818,105 @@ export interface ChartData {
   };
 }
 
+export interface ReplayTrade {
+  symbol: string;
+  opened_at: string;
+  closed_at: string;
+  /** IST wall-clock epoch seconds, like the chart's time axis. */
+  open_time: number;
+  close_time: number;
+  lots: number;
+  exit_reason: string | null;
+  net_pnl: number;
+  costs: number;
+  planned_loss: number;
+  target_pnl: number;
+  legs: {
+    side: "buy" | "sell";
+    option_type: string;
+    strike: number;
+    expiry: string;
+    units: number;
+    entry_price: number;
+    exit_price: number | null;
+  }[];
+  /** The open position's value before costs, by IST wall-clock time. */
+  path: { time: number; pnl: number }[];
+}
+
+export interface ReplayData {
+  symbol: string;
+  start: string;
+  end: string;
+  intraday: boolean;
+  decide_every: string;
+  trades: ReplayTrade[];
+  stats: { trades: number; net_pnl: number | null; win_rate: number | null; expectancy: number | null; max_drawdown: number | null };
+  signals: number;
+  blocked: Record<string, number>;
+}
+
+export interface HistoryPeriod {
+  label: string;
+  start: string;
+  end: string;
+  trades: number;
+  net_pnl: number;
+  sharpe: number | null;
+  folds: number;
+}
+
+export interface HistoryRun {
+  ts: string;
+  kind: "lab" | "tune" | "ladder" | "walk_forward";
+  kind_label: string;
+  strategy_id: string | null;
+  strategy_name: string;
+  step: string | null;
+  periods: HistoryPeriod[];
+  settings_tried?: number;
+  entry_id?: string;
+  verdict?: string | null;
+  exists: boolean;
+  changed_since: boolean;
+}
+
+export interface TestHistory {
+  summary: {
+    runs: number;
+    by_kind: { kind: string; label: string; runs: number }[];
+    strategies: number;
+    first: string | null;
+    last: string | null;
+  };
+  total: number;
+  runs: HistoryRun[];
+  kinds: { value: string; label: string }[];
+  test_period: { start: string; end: string; reads: number } | null;
+}
+
+export interface HistoryEntry {
+  entry: {
+    id: string;
+    strategy_id: string;
+    name: string;
+    evaluated_at: string;
+    signature: string;
+    spec: LabSpec;
+    verdict: string;
+    windows: Record<string, string>;
+    train: LabSummary;
+    test: LabSummary;
+    test_2x: { trades: number; net_pnl: number; sharpe: number | null };
+    evidence: { floor: number; trials: number } | null;
+  };
+  current: LabSpec | null;
+  same_rules: boolean;
+  latest: { verdict: string; evaluated_at: string; test: LabSummary } | null;
+  entry_text: string | null;
+  legs_text: string | null;
+}
+
 export interface TechCatalog {
   timeframes: { value: TechTimeframe; label: string }[];
   candle_types?: { value: CandleType; label: string }[];
@@ -958,6 +1057,10 @@ export interface LabBacktestPage {
   result: LabResult | null;
   /** Daily bars of each underlying the strategy traded. */
   bars: Record<string, { day: string; open: number; high: number; low: number; close: number }[]>;
+  technical?: TechCatalog;
+  /** Underlyings with option history. */
+  symbols?: string[];
+  chart_symbols?: string[];
 }
 
 export interface LadderNode {
@@ -1232,6 +1335,21 @@ export const api = {
     },
     signal?: AbortSignal,
   ) => sendJson<ChartData>("/api/lab/chart", "POST", body, signal),
+  testHistory: (params: { kind?: string; q?: string; limit?: number; offset?: number }) => {
+    const query = new URLSearchParams();
+    if (params.kind) query.set("kind", params.kind);
+    if (params.q) query.set("q", params.q);
+    query.set("limit", String(params.limit ?? 100));
+    query.set("offset", String(params.offset ?? 0));
+    return getJson<TestHistory>(`/api/lab/history?${query}`);
+  },
+  testHistoryEntry: (id: string) => getJson<HistoryEntry>(`/api/lab/history/${encodeURIComponent(id)}`),
+  labBacktestReplay: (id: string, window: string, symbol: string) =>
+    getJson<ReplayData>(
+      `/api/lab/strategies/${encodeURIComponent(id)}/replay?window=${encodeURIComponent(window)}&symbol=${encodeURIComponent(symbol)}`,
+    ),
+  labReplay: (body: { spec: LabSpec; symbol: string; sessions: number }) =>
+    sendJson<ReplayData>("/api/lab/replay", "POST", body),
   labAutopilot: (body: AutopilotSettings) => sendJson<unknown>("/api/lab/autopilot", "POST", body),
   labAutopilotStop: () => sendJson<unknown>("/api/lab/autopilot/stop", "POST"),
   labGenerate: (guidance: string) => sendJson<unknown>("/api/lab/generate", "POST", { guidance }),

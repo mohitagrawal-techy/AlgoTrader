@@ -88,6 +88,26 @@ export const PRESETS: { label: string; rule: TechRule }[] = [
     },
   },
   {
+    label: "Closes above the first 15 minutes' open–close",
+    rule: {
+      type: "compare",
+      timeframe: "15m",
+      left: { kind: "indicator", name: "close" },
+      op: "above",
+      right: { kind: "indicator", name: "opening_range_body", params: { minutes: 15 }, field: "high" },
+    },
+  },
+  {
+    label: "Closes below the first 15 minutes' open–close",
+    rule: {
+      type: "compare",
+      timeframe: "15m",
+      left: { kind: "indicator", name: "close" },
+      op: "below",
+      right: { kind: "indicator", name: "opening_range_body", params: { minutes: 15 }, field: "low" },
+    },
+  },
+  {
     label: "Breaks above the 15-minute opening range",
     rule: {
       type: "compare",

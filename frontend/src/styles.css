@@ -4932,3 +4932,211 @@ main > .empty {
     max-width: calc(100% - 64px);
   }
 }
+
+/* Replay in the strategy builder's chart */
+.index-chart .replay-start {
+  margin-left: 0;
+}
+
+.index-chart .replay-status {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.index-chart .replay-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--accent-wash);
+}
+
+.index-chart .replay-badge {
+  font: 600 12px/1 var(--font);
+  color: var(--accent);
+}
+
+.index-chart .replay-play {
+  min-width: 84px;
+  justify-content: center;
+  font-weight: 600;
+}
+
+.index-chart .replay-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.index-chart .replay-exit {
+  margin-left: auto;
+}
+
+.index-chart .replay-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px 20px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.index-chart .replay-panel h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.index-chart .replay-panel p {
+  margin: 0 0 4px;
+}
+
+.index-chart .replay-panel .pnl-up {
+  color: var(--pnl-up);
+}
+
+.index-chart .replay-panel .pnl-down {
+  color: var(--pnl-down);
+}
+
+.index-chart .replay-legs {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.index-chart .replay-legs td {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.index-chart .replay-legs .right {
+  text-align: right;
+  color: var(--ink-2);
+}
+
+.index-chart .replay-buy {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.index-chart .replay-sell {
+  color: var(--ink);
+  font-style: italic;
+}
+
+.index-chart .replay-trades ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.index-chart .replay-trades li {
+  display: grid;
+  gap: 1px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.index-chart .replay-note {
+  grid-column: 1 / -1;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .index-chart .replay-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .index-chart .replay-exit {
+    margin-left: 0;
+  }
+}
+
+.index-chart .chart-legend-tag {
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-size: 11px;
+}
+
+/* Test history */
+.history-search input {
+  min-width: 220px;
+}
+
+.history-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 12px;
+}
+
+.history-rules {
+  display: grid;
+  gap: 8px;
+}
+
+.history-rules p {
+  margin: 0;
+}
+
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.button.small {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+td.nowrap {
+  white-space: nowrap;
+}
+
+/* Full-screen chart. The browser's own full screen uses :fullscreen; where that is refused the
+   chart covers the window instead. Either way the candles take the height that is left. */
+.index-chart.is-full {
+  background: var(--page);
+  padding: 12px 16px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.index-chart.is-full-window {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.index-chart.is-full .chart-stage {
+  flex: 1 0 auto;
+}
+
+.index-chart.is-full .replay-panel,
+.index-chart.is-full .chart-foot {
+  flex: none;
+}
+
+.index-chart:fullscreen {
+  width: 100vw;
+  height: 100vh;
+}
+
+body.chart-full-open {
+  overflow: hidden;
+}

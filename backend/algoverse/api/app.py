@@ -141,6 +141,12 @@ class LabTuneRequest(BaseModel):
     use_ai: bool = True
 
 
+class LabReplayRequest(BaseModel):
+    spec: dict
+    symbol: str = Field(min_length=1, max_length=20)
+    sessions: int = Field(default=21, ge=1, le=250)
+
+
 class LabAutopilotRequest(BaseModel):
     cycles: int = Field(default=20, ge=1, le=200)
     hours: float = Field(default=8, gt=0, le=24)
@@ -423,6 +429,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def lab_backtest_detail(spec_id: str) -> dict:
         return _lab(lambda: runtime.lab.backtest_detail(spec_id))
 
+    @app.get("/api/lab/history")
+    def lab_history(
+        kind: str | None = None, q: str = "", limit: int = 100, offset: int = 0
+    ) -> dict:
+        return runtime.lab.test_history(kind, q, max(1, min(limit, 500)), max(0, offset))
+
+    @app.get("/api/lab/history/{entry_id}")
+    def lab_history_entry(entry_id: str) -> dict:
+        return _lab(lambda: runtime.lab.test_history_entry(entry_id))
+
+    @app.get("/api/lab/strategies/{spec_id}/replay")
+    def lab_backtest_replay(spec_id: str, window: str = "test", symbol: str = "NIFTY") -> dict:
+        """A saved backtest's trades with each position's value over time. Read-only."""
+        return _lab(lambda: runtime.lab.backtest_replay(spec_id, window, symbol))
+
     @app.post("/api/lab/strategies")
     def lab_save(body: dict, x_algoverse_client: str | None = Header(default=None)) -> dict:
         _require_dashboard(x_algoverse_client)
@@ -463,6 +484,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def lab_chart(body: ChartRequest) -> dict:
         """Read-only: candles, indicator lines and where entry rules held."""
         return _lab(lambda: runtime.lab.chart(body))
+
+    @app.post("/api/lab/replay")
+    def lab_replay(
+        body: LabReplayRequest, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        """Backtest a draft strategy for the chart's replay. Saves nothing."""
+        _require_dashboard(x_algoverse_client)
+        return _lab(lambda: runtime.lab.replay(body.spec, body.symbol, body.sessions))
 
     @app.post("/api/lab/autopilot")
     def lab_autopilot(

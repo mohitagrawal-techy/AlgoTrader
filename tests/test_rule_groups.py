@@ -150,6 +150,34 @@ def test_opening_range_resets_each_session():
     assert high[3] == pytest.approx(102.4) and high[-1] == pytest.approx(202.4)
 
 
+def test_open_close_range_leaves_out_the_wicks():
+    frames = Frames(candles([100.0] * 5), minute_bars())
+    series = {
+        field: frames.series("5m", ind("opening_range_body", field, minutes=15)).tolist()
+        for field in ("high", "low", "open", "close")
+    }
+    # 09:15 opens at 100.0 and the last minute of the range, 09:29, closes at 101.4.
+    assert all(np.isnan(values[:3]).all() for values in series.values())
+    assert series["open"][3] == pytest.approx(100.0) and series["close"][3] == pytest.approx(101.4)
+    assert series["high"][3] == pytest.approx(101.4) and series["low"][3] == pytest.approx(100.0)
+    # The high-low range is wider: it includes the wicks.
+    wide = frames.series("5m", ind("opening_range", "high", minutes=15)).tolist()
+    assert wide[3] > series["high"][3]
+    # On 15-minute candles the range is the first candle's own open and close.
+    first = frames.frame("15m").iloc[0]
+    fifteen = frames.series("15m", ind("opening_range_body", "high", minutes=15)).tolist()
+    assert fifteen[1] == pytest.approx(max(first["open"], first["close"]))
+
+
+def test_open_close_range_when_the_first_candle_falls():
+    falling = minute_bars(step=-0.1)
+    frames = Frames(candles([100.0] * 5), falling)
+    high = frames.series("5m", ind("opening_range_body", "high", minutes=15)).tolist()
+    low = frames.series("5m", ind("opening_range_body", "low", minutes=15)).tolist()
+    # A falling start: the open is the upper level and the close the lower one.
+    assert high[3] == pytest.approx(100.0) and low[3] == pytest.approx(98.6)
+
+
 def test_breakout_rule_and_daily_refusal():
     breakout = CompareRule(
         timeframe="5m",

@@ -144,3 +144,17 @@ def test_chunks_cover_every_session_once(intraday_dirs, monkeypatch, count, work
     covered = [d for sub in plan for d in days if sub[3] <= d <= sub[4]]
     assert covered == days
     assert all(len([d for d in days if sub[3] <= d <= sub[4]]) >= 3 for sub in plan)
+
+
+def test_contract_key_of_an_empty_session_is_empty_text():
+    from algoverse.backtest.fills import contract_key
+
+    empty = pd.DataFrame(
+        {
+            "expiry": pd.Series([], dtype=object),
+            "strike": [],
+            "option_type": pd.Series([], dtype=str),
+        }
+    )
+    keys = contract_key("", empty)
+    assert keys.empty and keys.map({"x": 1.0}).fillna(0.0).empty

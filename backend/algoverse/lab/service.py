@@ -25,6 +25,7 @@ from algoverse.backtest.registry import Registry
 from algoverse.dashboard import clean
 from algoverse.data.candles import MINUTE
 from algoverse.data.store import SnapshotStore
+from algoverse.lab import history as test_history
 from algoverse.lab.chart import ChartRequest, chart
 from algoverse.lab.designer import _rules_help, design_strategies, feedback_row
 from algoverse.lab.evaluate import (
@@ -36,6 +37,7 @@ from algoverse.lab.evaluate import (
     split_windows,
 )
 from algoverse.lab.ladder import ROOTS, ladder_windows, run_ladder
+from algoverse.lab.replay import ReplayError, replay, stored_replay
 from algoverse.lab.seeds import TEMPLATES
 from algoverse.lab.spec import (
     SIGNALS,
@@ -259,6 +261,9 @@ class LabService:
                 "capital": load_risk_config(self.config_dir).capital,
                 "result": result,
                 "bars": bars,
+                "technical": technical_catalog(),
+                "symbols": load_backtest_config(self.config_dir).symbols,
+                "chart_symbols": self._chart_symbols(load_backtest_config(self.config_dir)),
             }
         )
 
@@ -347,8 +352,12 @@ class LabService:
             trials if trials is not None else max(self._tested_count(), len(wanted)),
             progress,
         )
+        by_id = {spec.id: spec for spec in wanted}
         for result in results:
             _write(self._result_path(result["strategy_id"]), result)
+            spec = by_id.get(result["strategy_id"])
+            if spec is not None:
+                test_history.archive(self.data_dir, result, spec.model_dump(mode="json"))
         return results
 
     def _design_client(self) -> LLMClient:
@@ -682,6 +691,102 @@ class LabService:
         daily = pd.DataFrame() if intraday else store.read_candles(request.symbol)
         minutes = store.read_candles(request.symbol, MINUTE) if intraday else pd.DataFrame()
         return clean(chart(daily, minutes, request))
+
+    def replay(self, payload: dict, symbol: str, sessions: int) -> dict:
+        """Backtest an unsaved draft on one underlying, trade by trade, for the chart."""
+        try:
+            draft = StrategySpec.model_validate({**payload, "id": "draft", "source": "user"})
+        except ValidationError as exc:
+            first = exc.errors()[0]
+            where = ".".join(str(part) for part in first["loc"])
+            raise LabError(f"The strategy is not complete yet: {where}: {first['msg']}") from exc
+        config = load_backtest_config(self.config_dir)
+        try:
+            return clean(
+                replay(self.data_dir, self.config_dir, draft, symbol, sessions, config.lab.workers)
+            )
+        except ReplayError as exc:
+            raise LabError(str(exc)) from exc
+
+    def backtest_replay(self, spec_id: str, window_name: str, symbol: str) -> dict:
+        """A saved strategy's latest backtest, trade by trade, for its chart."""
+        spec = self.spec(spec_id)
+        if spec is None:
+            raise LabError("That strategy no longer exists.")
+        result = self.result(spec)
+        if result is None:
+            raise LabError("This strategy has not been tested since its rules changed.")
+        try:
+            return clean(stored_replay(self.data_dir, spec, result, window_name, symbol))
+        except ReplayError as exc:
+            raise LabError(str(exc)) from exc
+
+    # ---- Test history -------------------------------------------------------------------
+
+    def test_history(
+        self, kind: str | None = None, query: str = "", limit: int = 100, offset: int = 0
+    ) -> dict:
+        """Every test run, newest first, with how often the lab's test period has been read."""
+        specs = self.specs()
+        names = {spec.id: spec.name for spec in specs}
+        signatures = {spec.id: signature(spec) for spec in specs}
+        found = test_history.runs(self.data_dir, names, signatures)
+        summary = test_history.summarise(found)
+        if kind:
+            found = [run for run in found if run["kind"] == kind]
+        text = query.strip().lower()
+        if text:
+            found = [
+                run
+                for run in found
+                if text in (run.get("strategy_name") or "").lower()
+                or text in (run.get("strategy_id") or "")
+                or text in (run.get("step") or "").lower()
+            ]
+        config = load_backtest_config(self.config_dir)
+        windows = split_windows(History(self.data_dir).sessions, config)
+        period = None
+        if windows is not None:
+            period = {
+                "start": windows.test_start,
+                "end": windows.test_end,
+                "reads": Registry(self.data_dir).window_trials(
+                    "lab_test", str(windows.test_start), str(windows.test_end)
+                ),
+            }
+        return clean(
+            {
+                "summary": summary,
+                "total": len(found),
+                "runs": found[offset : offset + limit],
+                "kinds": [{"value": k, "label": v} for k, v in test_history.KINDS.items()],
+                "test_period": period,
+            }
+        )
+
+    def test_history_entry(self, name: str) -> dict:
+        """One archived lab test, beside the strategy as it is now."""
+        entry = test_history.read_entry(self.data_dir, name)
+        if entry is None:
+            raise LabError("That test is not in the history.")
+        current = self.spec(entry["strategy_id"])
+        latest = self.result(current) if current is not None else None
+        return clean(
+            {
+                "entry": entry,
+                "current": current.model_dump(mode="json") if current else None,
+                "same_rules": current is not None and signature(current) == entry.get("signature"),
+                "latest": {key: latest.get(key) for key in ("verdict", "evaluated_at", "test")}
+                if latest
+                else None,
+                "entry_text": describe_entry(StrategySpec.model_validate(entry["spec"]))
+                if entry.get("spec")
+                else None,
+                "legs_text": describe_legs(StrategySpec.model_validate(entry["spec"]))
+                if entry.get("spec")
+                else None,
+            }
+        )
 
     # ---- Autopilot ------------------------------------------------------------------------
 

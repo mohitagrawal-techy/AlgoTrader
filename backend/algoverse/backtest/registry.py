@@ -82,6 +82,28 @@ class Registry:
                 ),
             )
 
+    def all_trials(self) -> list[dict]:
+        """Every recorded trial, newest first."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id, ts, kind, window_start, window_end, params, sharpe, net_pnl, trades "
+                "FROM trials ORDER BY id DESC"
+            ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "ts": row[1],
+                "kind": row[2],
+                "start": row[3],
+                "end": row[4],
+                "params": json.loads(row[5]),
+                "sharpe": row[6],
+                "net_pnl": row[7],
+                "trades": row[8],
+            }
+            for row in rows
+        ]
+
     def trial_count(self) -> int:
         with self._connect() as connection:
             return connection.execute("SELECT COUNT(*) FROM trials").fetchone()[0]

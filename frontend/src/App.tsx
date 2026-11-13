@@ -16,6 +16,7 @@ import { BacktestsView } from "./views/Backtests";
 import { ForwardView } from "./views/Forward";
 import { IdeasView } from "./views/Ideas";
 import { LabView } from "./views/Lab";
+import { TestHistoryView } from "./views/TestHistory";
 import { LabBacktestView } from "./views/LabBacktest";
 import { MarketView, readSavedMarket, saveMarket } from "./views/Market";
 import { OverviewView } from "./views/Overview";
@@ -39,6 +40,7 @@ const NAV_GROUPS = [
     items: [
       { id: "lab", label: "Strategy lab", icon: "M9 3h6M10 3v6l-5.5 9.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3M7.5 15h9" },
       { id: "backtests", label: "Backtests", icon: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2" },
+      { id: "history", label: "Test history", icon: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" },
       { id: "forward", label: "Forward test", icon: "M5 12h14M13 6l6 6-6 6" },
     ],
   },
@@ -60,6 +62,7 @@ const PAGE_SUBS: Record<string, string> = {
   ideas: "Trades ranked from the latest option chains.",
   lab: "Build your own strategies, then test and tune them.",
   backtests: "How the idea engine would have traded past sessions.",
+  history: "Every test, tuner check and ladder step run so far, newest first.",
   forward: "Locked configurations paper-trading on live data.",
   paper: "Paper positions, fills and P&L after costs.",
   risk: "Limits and exposure across open paper positions.",
@@ -365,11 +368,12 @@ export function App() {
             </div>
           </div>
         )}
-        {!data && !loadError && tab !== "overview" && !(tab === "market" && (shownMarket || strikeRoute)) && (
+        {!data && !loadError && tab !== "overview" && tab !== "history" && !(tab === "market" && (shownMarket || strikeRoute)) && (
           <Empty title="Loading…" />
         )}
         {/* The overview loads its own data and can show this browser's saved copy offline. */}
         {tab === "overview" && <OverviewView />}
+        {tab === "history" && <TestHistoryView />}
         {data && tab === "ideas" && <IdeasView ideas={data.ideas.ideas} />}
         {/* Options also falls back to the chains this browser saved, so it works offline. */}
         {tab === "market" && strikeRoute && (

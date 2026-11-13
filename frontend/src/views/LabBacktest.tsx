@@ -3,6 +3,7 @@ import { api, type LabBacktestPage, type LabTrade } from "../api";
 import { LineChart, TradeChart, ValueColumns, timeTicks, type ChartTrade } from "../charts";
 import { dateTimeIst, fraction, inrCompact, num, shortDate, signedInr } from "../format";
 import { Empty, Panel, Pnl, Select, Status, Tile, type Tone } from "../ui";
+import { IndexChart } from "./IndexChart";
 
 const VERDICTS: Record<string, { tone: Tone; label: string }> = {
   held_up: { tone: "good", label: "Held up on unseen data" },
@@ -376,6 +377,27 @@ export function LabBacktestView({ id }: { id: string }) {
               />
             )}
           </Panel>
+
+          {data.technical && (
+            <Panel
+              title="Replay every trade"
+              aside={<span className="muted">The strategy's lines, its entries and exits, and the open position, candle by candle</span>}
+            >
+              <IndexChart
+                key={windowKey}
+                catalog={data.technical}
+                symbols={data.chart_symbols ?? data.symbols ?? symbols}
+                tradable={data.symbols}
+                rules={spec.entry.rules ?? []}
+                anyRules={spec.entry.any_rules ?? []}
+                draft={spec}
+                replaySource={{
+                  label: WINDOWS[windowKey].toLowerCase(),
+                  load: (chartSymbol) => api.labBacktestReplay(spec.id as string, windowKey, chartSymbol),
+                }}
+              />
+            </Panel>
+          )}
 
           <Panel title="Cumulative P&L">
             {equity[0].points.length < 2 ? (

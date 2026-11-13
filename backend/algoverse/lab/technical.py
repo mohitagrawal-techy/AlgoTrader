@@ -143,6 +143,22 @@ def _stochastic(bars: pd.DataFrame, k: int, d: int) -> dict[str, pd.Series]:
     return {"k": fast, "d": fast.rolling(d).mean()}
 
 
+def _session_offsets(bars: pd.DataFrame, minutes: int):
+    """Each candle's session and minutes after 09:15, or None when the candles cannot hold a
+    `minutes` opening range (daily or longer, or longer than the range)."""
+    if bars.empty or "ts" not in bars:
+        return None
+    times = pd.to_datetime(bars["ts"])
+    local = times.dt.tz_convert("Asia/Kolkata") if times.dt.tz is not None else times
+    day = local.dt.normalize()
+    offset = (local - day - SESSION_START).dt.total_seconds() / 60
+    gaps = offset.groupby(day).diff().dropna()
+    size = float(gaps[gaps > 0].min()) if (gaps > 0).any() else float("inf")
+    if size > minutes or (offset.groupby(day).nunique() <= 1).all():
+        return None
+    return day, offset
+
+
 def _opening_range(bars: pd.DataFrame, minutes: int) -> dict[str, pd.Series]:
     """The high and low of each session's first `minutes`, from 09:15.
 
@@ -151,16 +167,10 @@ def _opening_range(bars: pd.DataFrame, minutes: int) -> dict[str, pd.Series]:
     candles, have no value.
     """
     empty = pd.Series(np.nan, index=bars.index, dtype=float)
-    if bars.empty or "ts" not in bars:
+    found = _session_offsets(bars, minutes)
+    if found is None:
         return {"high": empty, "low": empty, "mid": empty}
-    times = pd.to_datetime(bars["ts"])
-    local = times.dt.tz_convert("Asia/Kolkata") if times.dt.tz is not None else times
-    day = local.dt.normalize()
-    offset = (local - day - SESSION_START).dt.total_seconds() / 60
-    gaps = offset.groupby(day).diff().dropna()
-    size = float(gaps[gaps > 0].min()) if (gaps > 0).any() else float("inf")
-    if size > minutes or (offset.groupby(day).nunique() <= 1).all():
-        return {"high": empty, "low": empty, "mid": empty}
+    day, offset = found
     inside = offset < minutes
     high = bars["high"].where(inside).groupby(day).transform("max")
     low = bars["low"].where(inside).groupby(day).transform("min")
@@ -168,6 +178,31 @@ def _opening_range(bars: pd.DataFrame, minutes: int) -> dict[str, pd.Series]:
     known = offset >= minutes
     high, low = high.where(known), low.where(known)
     return {"high": high, "low": low, "mid": (high + low) / 2}
+
+
+def _opening_range_body(bars: pd.DataFrame, minutes: int) -> dict[str, pd.Series]:
+    """The open and close of each session's first `minutes`: the open of its first candle and
+    the close of its last. "high" is the higher of the two and "low" the lower, so wicks are
+    left out. Known, like the high-low range, only once the range has finished."""
+    empty = pd.Series(np.nan, index=bars.index, dtype=float)
+    found = _session_offsets(bars, minutes)
+    if found is None:
+        return {"high": empty, "low": empty, "mid": empty, "open": empty, "close": empty}
+    day, offset = found
+    inside = offset < minutes
+    first_open = bars["open"].where(inside).groupby(day).transform("first")
+    last_close = bars["close"].where(inside).groupby(day).transform("last")
+    known = offset >= minutes
+    first_open, last_close = first_open.where(known), last_close.where(known)
+    high = np.fmax(first_open, last_close).where(known)
+    low = np.fmin(first_open, last_close).where(known)
+    return {
+        "high": high,
+        "low": low,
+        "mid": (high + low) / 2,
+        "open": first_open,
+        "close": last_close,
+    }
 
 
 def _pivots(bars: pd.DataFrame) -> dict[str, pd.Series]:
@@ -419,6 +454,23 @@ INDICATORS: dict[str, Indicator] = {
         description="High and low of the session's first minutes. Use on 5- or 15-minute candles",
         intraday_only=True,
     ),
+    "opening_range_body": Indicator(
+        "Opening range, open to close",
+        lambda b, minutes: _opening_range_body(b, int(minutes)),
+        (_p("minutes", "First minutes", 15, 5, 120),),
+        {
+            "high": "Upper (higher of open and close)",
+            "low": "Lower (lower of open and close)",
+            "mid": "Middle",
+            "open": "Open",
+            "close": "Close",
+        },
+        description=(
+            "The open and close of the session's first minutes, without the wicks. "
+            "Use on 5- or 15-minute candles"
+        ),
+        intraday_only=True,
+    ),
     "pivots": Indicator(
         "Pivot levels (previous candle)",
         _pivots,
@@ -445,6 +497,7 @@ CHART_OVERLAY = {
     "prior_high",
     "prior_low",
     "opening_range",
+    "opening_range_body",
     "pivots",
 }
 # Fields of overlay indicators that are not prices.
