@@ -801,7 +801,10 @@ export function LabView({
                         setSelected(row.spec.id as string)
                       }
                     >
-                      <td className="wrap-cell">
+                      <td
+                        className="name-cell"
+                        title={`${row.spec.name}: ${row.legs_text}`}
+                      >
                         <div className="primary">{row.spec.name}</div>
                         <div className="secondary">
                           {SOURCES[row.spec.source ?? "user"]} ·{" "}

@@ -11,15 +11,19 @@ const TONES: Record<
   "info" | "warning" | "critical",
   { icon: LucideIcon; box: string; mark: string }
 > = {
-  info: { icon: Info, box: "border-line bg-surface-2", mark: "text-ink-2" },
+  info: {
+    icon: Info,
+    box: "border-l-accent bg-surface",
+    mark: "text-accent-ink",
+  },
   warning: {
     icon: TriangleAlert,
-    box: "border-warning/50 bg-warning-wash",
+    box: "border-l-warning bg-surface",
     mark: "text-warning",
   },
   critical: {
     icon: CircleAlert,
-    box: "border-down/40 bg-critical-wash",
+    box: "border-l-down bg-critical-wash",
     mark: "text-down",
   },
 };
@@ -43,7 +47,7 @@ export function Alert({
     <div
       role={tone === "critical" ? "alert" : "status"}
       className={cx(
-        "flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-[13px]",
+        "flex items-start gap-2.5 rounded-md border border-l-2 border-line px-3 py-2.5 text-[13px]",
         box,
         className,
       )}

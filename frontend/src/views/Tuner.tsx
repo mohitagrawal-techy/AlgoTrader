@@ -811,9 +811,9 @@ export function TunerView({
               <tr>
                 <th>Strategy</th>
                 <th>Started</th>
-                <th>Tested</th>
-                <th>Kept</th>
-                <th>Unseen Sharpe</th>
+                <th className="right">Tested</th>
+                <th className="right">Kept</th>
+                <th className="right">Unseen Sharpe</th>
                 <th>Final test</th>
               </tr>
             </thead>
@@ -832,9 +832,9 @@ export function TunerView({
                     </ButtonLink>
                   </td>
                   <td>{dateTimeIst(row.created_at)}</td>
-                  <td>{row.tested}</td>
-                  <td>{row.kept}</td>
-                  <td>
+                  <td className="right">{row.tested}</td>
+                  <td className="right">{row.kept}</td>
+                  <td className="right">
                     {num(row.root_validate?.sharpe, 2)} →{" "}
                     {num(row.best_validate?.sharpe, 2)}
                   </td>
