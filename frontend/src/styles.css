@@ -5649,3 +5649,186 @@ body.chart-full-open {
   gap: 6px;
   margin-right: 12px;
 }
+
+/* The strategy's indicators, under a heading for each type. */
+.bs-scope.strategy-page .indicator-type + .indicator-type {
+  margin-top: 0.85rem;
+}
+.bs-scope.strategy-page .indicator-type-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--bs-secondary-color);
+  margin: 0 0 0.4rem;
+}
+
+/* An indicator's description and formula, shown on hover or focus. */
+.indicator-tip-anchor {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.indicator-tip {
+  position: fixed;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+  text-align: left;
+  white-space: normal;
+  font-weight: 400;
+}
+.indicator-tip-name {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.indicator-tip-text {
+  font-size: 0.82rem;
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+.indicator-tip-formula {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.indicator-tip-row {
+  display: flex;
+  width: 100%;
+}
+.indicator-tip-row > button {
+  flex: 1 1 auto;
+}
+
+.map-preview.delete-indicator {
+  width: min(560px, calc(100vw - 32px));
+}
+.delete-indicator-rules {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+/* A feature's info button and its worked example. */
+.bs-scope.strategy-page .feature-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.feature-help-button {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--ink-2);
+  cursor: help;
+}
+.feature-help-button:hover,
+.feature-help-button[aria-expanded="true"] {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+.feature-help-button:focus-visible {
+  outline: 2px solid var(--bs-primary, currentColor);
+  outline-offset: 1px;
+}
+.feature-help {
+  position: fixed;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  text-align: left;
+  font-weight: 400;
+}
+.feature-help-title {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.feature-help-body {
+  overflow-y: auto;
+  padding: 10px 14px 12px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+.feature-help-body h4 {
+  margin: 4px 0 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.feature-help-body p {
+  margin: 0 0 10px;
+  color: var(--ink-2);
+}
+.feature-help-setup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.feature-help-setup span {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+.feature-help-body table {
+  width: 100%;
+  margin-bottom: 10px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.feature-help-body th {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-align: left;
+}
+.feature-help-body td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.feature-help-body tr:last-child td {
+  border-bottom: 0;
+}
+.feature-help-note {
+  margin-bottom: 0 !important;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+.feature-help-body tr.is-key td {
+  background: var(--surface-2);
+  color: var(--ink);
+  font-weight: 600;
+}

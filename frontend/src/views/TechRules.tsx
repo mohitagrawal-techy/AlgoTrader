@@ -1,3 +1,4 @@
+import { indicatorTitle } from "./IndicatorTip";
 import type { CandleType, IndicatorPick, TechCatalog, TechOperand, TechRule, TechTimeframe } from "../api";
 
 export const MAX_RULES = 8;
@@ -171,6 +172,30 @@ export const PRESETS: { label: string; rule: TechRule }[] = [
 function indicatorOf(catalog: TechCatalog, name: string | null | undefined): Indicator | undefined {
   return catalog.indicators.find((item) => item.name === name);
 }
+
+/** Items grouped by indicator type, the types and their members in the catalog's order.
+ * `nameOf` says which indicator each item is; types with no items are left out. */
+export function byType<T>(catalog: TechCatalog, items: T[], nameOf: (item: T) => string): { title: string; items: T[] }[] {
+  const groups = catalog.indicator_groups ?? [];
+  const place = new Map<string, [number, number]>();
+  groups.forEach((group, g) => group.indicators.forEach((name, i) => place.set(name, [g, i])));
+  const found = new Map<number, T[]>();
+  for (const item of items) {
+    const [g] = place.get(nameOf(item)) ?? [groups.length, 0];
+    found.set(g, [...(found.get(g) ?? []), item]);
+  }
+  return [...found.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([g, members]) => ({
+      title: groups[g]?.name ?? "Other",
+      items: [...members].sort(
+        (a, b) => (place.get(nameOf(a))?.[1] ?? 0) - (place.get(nameOf(b))?.[1] ?? 0),
+      ),
+    }));
+}
+
+/** The Current and Previous candle indicators: the candle itself, on the interval picked. */
+export const CANDLE_NAMES = ["candle", "prev_candle"];
 
 /** The candle's own prices. Every rule may use them; other indicators are picked first. */
 export const PRICE_NAMES = ["close", "open", "high", "low", "prev_close", "prev_high", "prev_low"];
@@ -404,18 +429,28 @@ function OperandEditor({
             {catalog.indicators
               .filter((item) => PRICE_NAMES.includes(item.name))
               .map((item) => (
-                <option key={item.name} value={item.name}>
+                <option key={item.name} value={item.name} title={indicatorTitle(item)}>
                   {item.label}
                 </option>
               ))}
           </optgroup>
-          <optgroup label={picked.length ? "Strategy indicators" : "No indicators picked yet"}>
-            {picked.map((pick, index) => (
-              <option key={index} value={`pick:${index}`}>
-                {pickText(catalog, pick)}
-              </option>
-            ))}
-          </optgroup>
+          {picked.length ? (
+            byType(
+              catalog,
+              picked.map((pick, index) => ({ pick, index })),
+              (entry) => entry.pick.name,
+            ).map((group) => (
+              <optgroup key={group.title} label={group.title}>
+                {group.items.map(({ pick, index }) => (
+                  <option key={index} value={`pick:${index}`} title={indicatorTitle(indicatorOf(catalog, pick.name))}>
+                    {pickText(catalog, pick)}
+                  </option>
+                ))}
+              </optgroup>
+            ))
+          ) : (
+            <optgroup label="No indicators picked yet" />
+          )}
           {choice === "__other" && (
             <option value="__other">
               {operandText(catalog, { ...operand, bars_ago: 0 })} (not in Indicators)
@@ -486,10 +521,14 @@ function OperandEditor({
         }
       >
         {allowNumber && <option value="__number">A number</option>}
-        {catalog.indicators.map((item) => (
-          <option key={item.name} value={item.name}>
-            {item.label}
-          </option>
+        {byType(catalog, catalog.indicators, (item) => item.name).map((group) => (
+          <optgroup key={group.title} label={group.title}>
+            {group.items.map((item) => (
+              <option key={item.name} value={item.name} title={indicatorTitle(item)}>
+                {item.label}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
       <div className="tech-params">
@@ -546,7 +585,11 @@ function OperandEditor({
           </>
         )}
       </div>
-      {indicator?.description && <div className="form-text">{indicator.description}</div>}
+      {indicator?.description && (
+        <div className="form-text" title={indicator.formula}>
+          {indicator.description}
+        </div>
+      )}
       {message && <div className="invalid-feedback d-block">{message}</div>}
     </div>
   );
@@ -579,18 +622,28 @@ export function TechRulesEditor({
   /** The strategy's indicators: when set, rules choose only from prices and these. */
   picked?: IndicatorPick[];
 }) {
-  // A new comparison starts at the close against the first picked indicator, on its candles,
-  // or against a number.
+  // A new comparison starts at the close, from the Current candle when it is picked, against
+  // the first other picked indicator on the same candles, or against a number.
+  const candle = picked?.find((pick) => pick.name === "candle");
+  const others = (picked ?? []).filter(
+    (pick) =>
+      !CANDLE_NAMES.includes(pick.name) &&
+      (!candle ||
+        ((pick.timeframe ?? "1d") === (candle.timeframe ?? "1d") &&
+          (pick.candles ?? "normal") === (candle.candles ?? "normal"))),
+  );
+  const firstLeft = (): TechOperand =>
+    candle ? { ...pickedOperand(catalog, candle), field: "close" } : freshIndicator(catalog, "close");
   const firstRight = (): TechOperand =>
     !picked
       ? freshIndicator(catalog, "ema")
-      : picked.length
-        ? pickedOperand(catalog, picked[0])
+      : others.length
+        ? pickedOperand(catalog, others[0])
         : { kind: "value", value: 0 };
-  const firstFrame = (fallback: { timeframe: TechTimeframe; candles?: CandleType }) =>
-    picked?.length
-      ? { timeframe: picked[0].timeframe ?? "1d", candles: picked[0].candles ?? "normal" }
-      : fallback;
+  const firstFrame = (fallback: { timeframe: TechTimeframe; candles?: CandleType }) => {
+    const from = candle ?? others[0];
+    return from ? { timeframe: from.timeframe ?? "1d", candles: from.candles ?? "normal" } : fallback;
+  };
   // The picked indicator a compare rule reads, which sets the candles it is read on.
   const pickOf = (rule: TechRule): IndicatorPick | undefined => {
     if (!picked || rule.type !== "compare") return undefined;
@@ -633,7 +686,7 @@ export function TechRulesEditor({
         : {
             type,
             ...firstFrame({ timeframe: rules[index].timeframe, candles: rules[index].candles }),
-            left: freshIndicator(catalog, "close"),
+            left: firstLeft(),
             op: "above",
             right: firstRight(),
           },
@@ -827,7 +880,7 @@ export function TechRulesEditor({
                 {
                   type: "compare",
                   ...firstFrame({ timeframe: "1d" }),
-                  left: freshIndicator(catalog, "close"),
+                  left: firstLeft(),
                   op: "above",
                   right: firstRight(),
                 },

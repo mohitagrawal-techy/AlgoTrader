@@ -32,7 +32,8 @@ import {
 } from "../api";
 import { ReplayControls, ReplayPanel } from "./ReplayPanel";
 import { indexAt, timeline, wallText } from "./replay";
-import { pickText } from "./TechRules";
+import { IndicatorTip } from "./IndicatorTip";
+import { byType, pickText } from "./TechRules";
 
 type Indicator = TechCatalog["indicators"][number];
 
@@ -76,7 +77,8 @@ const RANGES = [
 ];
 const DEFAULT_RANGE: Partial<Record<TechTimeframe, number>> = { "5m": 10, "15m": 21, "1h": 63 };
 // Already drawn by the candles themselves.
-const HIDDEN_FROM_PICKER = new Set(["close", "open", "high", "low"]);
+// The candles themselves: on a chart they would only redraw what is already there.
+const HIDDEN_FROM_PICKER = new Set(["close", "open", "high", "low", "candle", "prev_candle"]);
 const PALETTE = ["--series-1", "--series-5", "--overlay-2", "--series-3", "--series-4", "--series-2"];
 const MAX_STUDIES = 12;
 // Short names for the legend, as chart platforms show them. The full name is in the tooltip.
@@ -348,7 +350,8 @@ function defaults(indicator: Indicator): Record<string, number> {
 }
 
 // The candles themselves already show these.
-const PRICE_OPERANDS = new Set(["close", "open", "high", "low"]);
+// Prices a rule reads, drawn as the level they are compared with rather than as a line.
+const PRICE_OPERANDS = new Set(["close", "open", "high", "low", "candle", "prev_candle"]);
 
 interface StrategyLines {
   studies: StudyState[];
@@ -1205,10 +1208,7 @@ export function IndexChart({
       !HIDDEN_FROM_PICKER.has(i.name) &&
       (!query || i.label.toLowerCase().includes(query) || i.name.includes(query) || i.description.toLowerCase().includes(query)),
   );
-  const groups = [
-    { title: "On the price", items: choices.filter((i) => i.overlay) },
-    { title: "In their own pane", items: choices.filter((i) => !i.overlay) },
-  ].filter((group) => group.items.length);
+  const groups = byType(catalog, choices, (i) => i.name);
 
   // ---- Legend --------------------------------------------------------------------------------
   const count = data && !data.empty ? data.time.length : 0;
@@ -1385,18 +1385,18 @@ export function IndexChart({
                     {group.items.map((indicator) => {
                       const blocked = indicator.intraday_only && !MINUTES.has(timeframe);
                       return (
-                        <button
-                          key={indicator.name}
-                          type="button"
-                          className="chart-picker-item"
-                          onClick={() => addStudy(indicator)}
-                          title={blocked ? "Needs 5-minute, 15-minute or hourly candles" : indicator.description}
-                        >
-                          <span>{indicator.label}</span>
-                          {(indicator.description || blocked) && (
-                            <small>{blocked ? "Minute candles only" : indicator.description}</small>
-                          )}
-                        </button>
+                        <IndicatorTip key={indicator.name} indicator={indicator} className="indicator-tip-row">
+                          <button
+                            type="button"
+                            className="chart-picker-item"
+                            onClick={() => addStudy(indicator)}
+                          >
+                            <span>{indicator.label}</span>
+                            {(indicator.description || blocked) && (
+                              <small>{blocked ? "Minute candles only" : indicator.description}</small>
+                            )}
+                          </button>
+                        </IndicatorTip>
                       );
                     })}
                   </div>

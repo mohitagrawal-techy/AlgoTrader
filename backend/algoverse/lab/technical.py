@@ -604,6 +604,16 @@ INDICATORS: dict[str, Indicator] = {
     "prev_close": Indicator("Previous close", lambda b: b["close"].shift(1)),
     "prev_high": Indicator("Previous high", lambda b: b["high"].shift(1)),
     "prev_low": Indicator("Previous low", lambda b: b["low"].shift(1)),
+    "candle": Indicator(
+        "Current candle",
+        lambda b: {name: b[name] for name in ("open", "high", "low", "close")},
+        fields={"close": "Close", "open": "Open", "high": "High", "low": "Low"},
+    ),
+    "prev_candle": Indicator(
+        "Previous candle",
+        lambda b: {name: b[name].shift(1) for name in ("open", "high", "low", "close")},
+        fields={"close": "Close", "open": "Open", "high": "High", "low": "Low"},
+    ),
     "sma": Indicator(
         "Simple moving average",
         lambda b, period: b["close"].rolling(int(period)).mean(),
@@ -978,8 +988,264 @@ INDICATORS: dict[str, Indicator] = {
 }
 
 
+# Indicator types, in the order the editor lists them.
+INDICATOR_GROUPS: dict[str, tuple[str, ...]] = {
+    "Price": (
+        "candle",
+        "prev_candle",
+        "close",
+        "open",
+        "high",
+        "low",
+        "prev_close",
+        "prev_high",
+        "prev_low",
+    ),
+    "Moving averages": ("sma", "ema", "wma", "hma", "smma", "alligator"),
+    "Trend": ("supertrend", "psar", "halftrend", "adx", "aroon", "ichimoku", "tii"),
+    "Momentum": (
+        "rsi",
+        "rsi_ma",
+        "stochastic",
+        "stoch_rsi",
+        "macd",
+        "roc",
+        "cci",
+        "williams_r",
+        "awesome",
+        "coppock",
+        "fisher",
+        "qqe",
+    ),
+    "Volatility and channels": (
+        "bbands",
+        "keltner",
+        "donchian",
+        "chandelier",
+        "atr",
+        "atr_pct",
+        "atr_ma",
+        "range_pct",
+    ),
+    "Levels": (
+        "opening_range",
+        "opening_range_body",
+        "cpr",
+        "pivots",
+        "today",
+        "prev_day",
+        "candle_at",
+        "prior_high",
+        "prior_low",
+    ),
+    "Candle size and gaps": ("body_pct", "gap_pct", "change_pct"),
+}
+GROUP_OF = {name: group for group, names in INDICATOR_GROUPS.items() for name in names}
+
+# What each indicator shows, in one line, and how it is worked out. C, O, H and L are the
+# candle's close, open, high and low; [1] is one candle back; N is the period.
+ABOUT: dict[str, tuple[str, str]] = {
+    "candle": (
+        "The latest finished candle on its interval: its open, high, low and close.",
+        "O, H, L, C of the latest candle",
+    ),
+    "prev_candle": (
+        "The candle before the latest one: its open, high, low and close.",
+        "O[1], H[1], L[1], C[1]",
+    ),
+    "close": ("The candle's closing price.", "Close"),
+    "open": ("The candle's opening price.", "Open"),
+    "high": ("The highest price the candle reached.", "High"),
+    "low": ("The lowest price the candle reached.", "Low"),
+    "prev_close": ("The previous candle's close.", "C[1]"),
+    "prev_high": ("The previous candle's high.", "H[1]"),
+    "prev_low": ("The previous candle's low.", "L[1]"),
+    "sma": ("The plain average of the last N closes.", "SMA = (C + C[1] + … + C[N−1]) / N"),
+    "ema": (
+        "An average that weights recent closes more, so it turns sooner.",
+        "EMA = C × k + EMA[1] × (1 − k), where k = 2 / (N + 1)",
+    ),
+    "wma": (
+        "An average whose weights rise linearly towards the latest close.",
+        "WMA = (N × C + (N−1) × C[1] + … + 1 × C[N−1]) / (N(N+1)/2)",
+    ),
+    "hma": (
+        "A fast, smooth average that lags less than an EMA.",
+        "HMA = WMA(2 × WMA(C, N/2) − WMA(C, N), √N)",
+    ),
+    "smma": (
+        "Wilder's smoothing, the slow average RSI and ATR use.",
+        "SMMA = (SMMA[1] × (N − 1) + C) / N",
+    ),
+    "alligator": (
+        "Three smoothed averages of the median price, drawn ahead, that fan out in a trend.",
+        "M = (H + L) / 2; Jaw = SMMA(M, 13) moved 8 ahead, Teeth = SMMA(M, 8) moved 5, "
+        "Lips = SMMA(M, 5) moved 3",
+    ),
+    "supertrend": (
+        "A trailing line an ATR multiple from the candle's middle; it flips when price crosses it.",
+        "Bands = (H + L) / 2 ± m × ATR(N); the line follows the lower band in an uptrend and the "
+        "upper band in a downtrend",
+    ),
+    "psar": (
+        "Stop-and-reverse dots that trail price and close in faster as a trend extends.",
+        "SAR = SAR[1] + AF × (EP − SAR[1]); EP is the trend's extreme, AF starts at the step and "
+        "rises by it at each new extreme, up to the maximum",
+    ),
+    "halftrend": (
+        "A trend line that flips only when the average high or low crosses the other side's "
+        "recent extreme.",
+        "Turns up when SMA(L, A) rises above the lowest recent high and the close beats H[1]; "
+        "turns down the opposite way (A = amplitude)",
+    ),
+    "adx": (
+        "How strong a trend is (ADX) and which way it runs (+DI against −DI).",
+        "+DI = 100 × Wilder(+DM) / ATR, −DI = 100 × Wilder(−DM) / ATR; "
+        "ADX = Wilder(100 × |+DI − −DI| / (+DI + −DI))",
+    ),
+    "aroon": (
+        "How recently the period's highest high and lowest low were made, 0 to 100.",
+        "Up = 100 × (N − candles since the N-candle high) / N; Down likewise from the low; "
+        "Oscillator = Up − Down",
+    ),
+    "ichimoku": (
+        "A trend system of two midpoint lines and a cloud drawn ahead of price.",
+        "Conversion = (9-candle high + low) / 2; Base = (26-candle high + low) / 2; "
+        "Span A = (Conversion + Base) / 2 and Span B = (52-candle high + low) / 2, both moved "
+        "26 ahead",
+    ),
+    "tii": (
+        "The share of the recent distance from the average that was above it, 0 to 100.",
+        "TII = 100 × Σ(C − SMA)⁺ / Σ|C − SMA| over the last N/2 candles; Signal = EMA(TII)",
+    ),
+    "rsi": (
+        "Wilder's relative strength, 0 to 100: above 70 overbought, below 30 oversold.",
+        "RSI = 100 − 100 / (1 + Wilder(gains, N) / Wilder(losses, N))",
+    ),
+    "rsi_ma": ("RSI with a simple average of itself, for crossovers.", "RSI(N); MA = SMA(RSI, M)"),
+    "stochastic": (
+        "Where the close sits in the recent high-low range, 0 to 100.",
+        "%K = 100 × (C − lowest low) / (highest high − lowest low) over K; %D = SMA(%K, D)",
+    ),
+    "stoch_rsi": (
+        "The stochastic formula applied to RSI, so it swings faster than RSI.",
+        "StochRSI = 100 × (RSI − lowest RSI) / (highest RSI − lowest RSI) over S; "
+        "%K = SMA(StochRSI, k); %D = SMA(%K, d)",
+    ),
+    "macd": (
+        "The gap between a fast and a slow EMA, with a signal line and histogram.",
+        "MACD = EMA(C, fast) − EMA(C, slow); Signal = EMA(MACD, signal); Histogram = MACD − Signal",
+    ),
+    "roc": ("The percent change over N candles.", "ROC = (C / C[N] − 1) × 100"),
+    "cci": (
+        "How far the typical price is from its average, in mean deviations.",
+        "TP = (H + L + C) / 3; CCI = (TP − SMA(TP, N)) / (0.015 × mean deviation of TP)",
+    ),
+    "williams_r": (
+        "How far the close is below the recent high, −100 to 0.",
+        "%R = −100 × (highest high − C) / (highest high − lowest low) over N",
+    ),
+    "awesome": (
+        "Momentum of the median price: a 5-candle less a 34-candle average.",
+        "AO = SMA((H + L) / 2, 5) − SMA((H + L) / 2, 34)",
+    ),
+    "coppock": (
+        "Long-term momentum; turning up from below 0 is the classic buy signal.",
+        "Coppock = WMA(ROC(14) + ROC(11), 10)",
+    ),
+    "fisher": (
+        "Turns the price's place in its range into a sharp curve, so turning points stand out.",
+        "x = 0.66 × (place of (H + L)/2 in its N-candle range − 0.5) + 0.67 × x[1]; "
+        "Fisher = 0.5 × ln((1 + x) / (1 − x)) + 0.5 × Fisher[1]; Trigger = Fisher[1]",
+    ),
+    "qqe": (
+        "A smoothed RSI with a trailing line set by its own volatility; crossings are signals.",
+        "RSI MA = EMA(RSI(N), S); band = EMA(EMA(|RSI MA − RSI MA[1]|, 2N − 1), 2N − 1) × factor; "
+        "the trailing line follows RSI MA ± band",
+    ),
+    "bbands": (
+        "An average with bands a set number of standard deviations above and below.",
+        "Middle = SMA(C, N); Upper, Lower = Middle ± k × StdDev(C, N); "
+        "%B = (C − Lower) / (Upper − Lower)",
+    ),
+    "keltner": (
+        "An EMA with bands an ATR multiple above and below.",
+        "Middle = EMA(C, N); Upper, Lower = Middle ± m × ATR(A)",
+    ),
+    "donchian": (
+        "The highest high and lowest low of the last N candles, this one included.",
+        "Upper = highest H over N; Lower = lowest L over N; Middle = (Upper + Lower) / 2",
+    ),
+    "chandelier": (
+        "Trailing stops an ATR multiple from the recent extreme.",
+        "Long stop = highest H over N − m × ATR(N); Short stop = lowest L over N + m × ATR(N)",
+    ),
+    "atr": (
+        "The average candle range, gaps included, in points.",
+        "TR = max(H − L, |H − C[1]|, |L − C[1]|); ATR = Wilder(TR, N)",
+    ),
+    "atr_pct": (
+        "ATR as a percent of the close, to compare volatility across price levels.",
+        "ATR% = ATR(N) / C × 100",
+    ),
+    "atr_ma": (
+        "ATR with a simple average of itself; above it, volatility is expanding.",
+        "ATR(N); MA = SMA(ATR, M)",
+    ),
+    "range_pct": (
+        "The high-low range of the last N candles as a percent of the close; narrow means quiet.",
+        "Range% = (highest H − lowest L over N) / C × 100",
+    ),
+    "opening_range": (
+        "The high and low of the session's first minutes.",
+        "High = max H, Low = min L of the candles from 09:15 for the chosen minutes; known once "
+        "that window ends",
+    ),
+    "opening_range_body": (
+        "The open and close of the session's first minutes, without the wicks.",
+        "Upper = max(first open, last close), Lower = min(first open, last close) of the first "
+        "minutes",
+    ),
+    "cpr": (
+        "The central pivot range and floor pivots from the previous day.",
+        "From yesterday's H, L, C: P = (H + L + C) / 3, BC = (H + L) / 2, TC = 2P − BC; "
+        "R1 = 2P − L, S1 = 2P − H; R2, S2 = P ± (H − L); R3 = H + 2(P − L), S3 = L − 2(H − P)",
+    ),
+    "pivots": (
+        "Floor pivots from the previous candle.",
+        "P = (H + L + C) / 3; R1 = 2P − L; S1 = 2P − H; R2, S2 = P ± (H − L), from the previous "
+        "candle",
+    ),
+    "today": (
+        "Today's open, and its high and low so far.",
+        "Open = the day's first open; High, Low = highest H and lowest L since 09:15",
+    ),
+    "prev_day": ("Yesterday's open, high, low and close.", "O, H, L, C of the previous session"),
+    "candle_at": (
+        "The candle containing a chosen time each day, such as 09:20.",
+        "O, H, L, C of the candle that contains HH:MM, from that candle on",
+    ),
+    "prior_high": (
+        "The highest high of the N candles before this one, for breakouts.",
+        "max(H[1], …, H[N])",
+    ),
+    "prior_low": (
+        "The lowest low of the N candles before this one, for breakdowns.",
+        "min(L[1], …, L[N])",
+    ),
+    "body_pct": ("The candle's body as a percent of its open.", "|C − O| / O × 100"),
+    "gap_pct": (
+        "How far the open gapped from the previous close, in percent.",
+        "(O / C[1] − 1) × 100",
+    ),
+    "change_pct": ("The change from the previous close, in percent.", "(C / C[1] − 1) × 100"),
+}
+
+
 # On a chart, drawn over the candles because they are prices. Anything else gets its own pane.
 CHART_OVERLAY = {
+    "candle",
+    "prev_candle",
     "close",
     "open",
     "high",
@@ -1599,12 +1865,17 @@ def catalog() -> dict:
         "timeframes": [{"value": k, "label": v} for k, v in TIMEFRAMES.items()],
         "candle_types": [{"value": k, "label": v} for k, v in CANDLE_TYPES.items()],
         "operators": [{"value": k, "label": v} for k, v in OPS.items()],
+        # Indicator types and their members, in the order to list them.
+        "indicator_groups": [
+            {"name": group, "indicators": list(names)} for group, names in INDICATOR_GROUPS.items()
+        ],
         "indicators": [
             {
                 "name": name,
                 "label": indicator.label,
                 "unit": indicator.unit,
-                "description": indicator.description,
+                "description": ABOUT[name][0] if name in ABOUT else indicator.description,
+                "formula": ABOUT[name][1] if name in ABOUT else "",
                 "params": [
                     {
                         "name": p.name,
@@ -1619,6 +1890,7 @@ def catalog() -> dict:
                 "fields": [{"value": k, "label": v} for k, v in indicator.fields.items()],
                 "intraday_only": indicator.intraday_only,
                 "overlay": name in CHART_OVERLAY,
+                "group": GROUP_OF.get(name, "Other"),
             }
             for name, indicator in INDICATORS.items()
         ],

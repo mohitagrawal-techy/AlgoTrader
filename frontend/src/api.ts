@@ -940,6 +940,8 @@ export interface TechCatalog {
   timeframes: { value: TechTimeframe; label: string }[];
   candle_types?: { value: CandleType; label: string }[];
   operators: { value: string; label: string }[];
+  /** Indicator types, such as "Momentum", and their members, in the order to list them. */
+  indicator_groups?: { name: string; indicators: string[] }[];
   indicators: {
     name: string;
     label: string;
@@ -949,6 +951,10 @@ export interface TechCatalog {
     fields: { value: string; label: string }[];
     intraday_only?: boolean;
     overlay?: boolean;
+    /** Its type, one of `indicator_groups`. */
+    group?: string;
+    /** How it is worked out, such as "EMA = C × k + EMA[1] × (1 − k)". */
+    formula?: string;
   }[];
   patterns: { name: string; label: string; bias: "bullish" | "bearish" | "neutral"; description: string }[];
 }

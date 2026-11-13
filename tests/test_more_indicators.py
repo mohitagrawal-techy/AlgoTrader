@@ -133,3 +133,20 @@ def test_new_indicators_are_offered_and_readable_in_rules():
     frames = Frames(daily())
     value = frames.value("1d", Operand(name="cpr", field="tc"))
     assert value is not None and np.isfinite(value)
+
+
+def test_every_indicator_has_one_type():
+    from algoverse.lab.technical import INDICATOR_GROUPS
+
+    listed = [name for names in INDICATOR_GROUPS.values() for name in names]
+    assert sorted(listed) == sorted(INDICATORS) and len(listed) == len(set(listed))
+    offered = catalog()
+    names = [group["name"] for group in offered["indicator_groups"]]
+    assert names[:2] == ["Price", "Moving averages"]
+    assert all(item["group"] != "Other" for item in offered["indicators"])
+
+
+def test_every_indicator_explains_itself():
+    for item in catalog()["indicators"]:
+        assert item["description"] and item["formula"], item["name"]
+        assert "\n" not in item["description"], item["name"]

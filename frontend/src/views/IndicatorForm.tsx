@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CandleType, IndicatorPick, TechCatalog, TechTimeframe } from "../api";
-import { MINUTE_FRAMES, normalPick, pickKey, pickStandardText, pickText, PRICE_NAMES } from "./TechRules";
+import { IndicatorTip } from "./IndicatorTip";
+import { byType, MINUTE_FRAMES, normalPick, pickKey, pickStandardText, pickText, PRICE_NAMES } from "./TechRules";
 
 type Indicator = TechCatalog["indicators"][number];
 
@@ -61,10 +62,7 @@ export function IndicatorForm({
   const found = offered.filter((item) =>
     `${item.label} ${item.name} ${item.description}`.toLowerCase().includes(query.trim().toLowerCase()),
   );
-  const groups: { title: string; items: Indicator[] }[] = [
-    { title: "Drawn on the price", items: found.filter((item) => item.overlay) },
-    { title: "Drawn below the chart", items: found.filter((item) => !item.overlay) },
-  ].filter((group) => group.items.length);
+  const groups = byType(catalog, found, (item: Indicator) => item.name);
   const chosen = offered.find((item) => item.name === name);
 
   const choose = (item: Indicator) => {
@@ -169,17 +167,18 @@ export function IndicatorForm({
                   <div key={group.title}>
                     <div className="indicator-form-group">{group.title}</div>
                     {group.items.map((item) => (
-                      <button
-                        key={item.name}
-                        type="button"
-                        role="option"
-                        aria-selected={item.name === name}
-                        className={`indicator-form-option${item.name === name ? " is-chosen" : ""}`}
-                        onClick={() => choose(item)}
-                      >
-                        <span>{item.label}</span>
-                        {item.intraday_only && <small>intraday</small>}
-                      </button>
+                      <IndicatorTip key={item.name} indicator={item} className="indicator-tip-row">
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={item.name === name}
+                          className={`indicator-form-option${item.name === name ? " is-chosen" : ""}`}
+                          onClick={() => choose(item)}
+                        >
+                          <span>{item.label}</span>
+                          {item.intraday_only && <small>intraday</small>}
+                        </button>
+                      </IndicatorTip>
                     ))}
                   </div>
                 ))}
@@ -194,7 +193,8 @@ export function IndicatorForm({
             ) : (
               <>
                 <h3 className="h6 mb-1">{chosen.label}</h3>
-                {chosen.description && <p className="form-text mt-0">{chosen.description}</p>}
+                {chosen.description && <p className="form-text mt-0 mb-1">{chosen.description}</p>}
+                {chosen.formula && <code className="indicator-tip-formula mb-3">{chosen.formula}</code>}
                 <div className="row g-2 mb-2">
                   <div className="col-12 col-md-6">
                     <label className="form-label small mb-1" htmlFor="indicator-label">
