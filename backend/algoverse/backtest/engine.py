@@ -124,21 +124,30 @@ def _spot(day: pd.DataFrame, symbol: str, session: date, bar: pd.Series) -> floa
 
 
 def _extremes(position, bar: pd.Series, ivs: dict[str, float], now: datetime, r: float):
-    """P&L of a position at the day's high and low, or None if a leg has no volatility."""
+    """P&L of a position at the bar's high and low, and each leg's (low, high) price, or None
+    if a leg has no volatility. Legs already closed on their own stop or target keep their
+    exit price."""
     results = []
+    legs: list[list[float]] = [[] for _ in position.legs]
     for spot in (float(bar["high"]), float(bar["low"])):
         total = 0.0
-        for leg in position.legs:
-            iv = ivs.get(leg.instrument_key)
-            if iv is None or not np.isfinite(iv):
-                return None
-            T = max(years_to_expiry(date.fromisoformat(leg.expiry), now), 0.0)
-            value = float(
-                black76_price(spot * np.exp(r * T), leg.strike, T, iv, r, leg.option_type == "CE")
-            )
+        for index, leg in enumerate(position.legs):
+            if leg.closed:
+                value = leg.exit_price
+            else:
+                iv = ivs.get(leg.instrument_key)
+                if iv is None or not np.isfinite(iv):
+                    return None
+                T = max(years_to_expiry(date.fromisoformat(leg.expiry), now), 0.0)
+                value = float(
+                    black76_price(
+                        spot * np.exp(r * T), leg.strike, T, iv, r, leg.option_type == "CE"
+                    )
+                )
+            legs[index].append(value)
             total += leg.side * (value - leg.entry_price) * leg.units
         results.append(total)
-    return min(results), max(results)
+    return min(results), max(results), [(min(values), max(values)) for values in legs]
 
 
 def _bar_extremes(bar_by_day: dict, session: date, ivs: dict, now: datetime, r: float, position):
@@ -198,7 +207,14 @@ def trade_details(ledger: Ledger, labels: dict[int, dict]) -> list[dict]:
                 "costs": float(position.entry_costs + position.exit_costs),
                 "planned_loss": float(position.planned_loss),
                 "target_pnl": float(position.target_pnl),
+                # Exit levels in rupees for the whole position, against its fill prices.
+                "stop_pnl": float(position.stop_pnl),
+                "trail_pnl": None if position.trail_pnl is None else float(position.trail_pnl),
+                "breakeven_pnl": None
+                if position.breakeven_pnl is None
+                else float(position.breakeven_pnl),
                 "settlement_estimated": position.settlement_estimated,
+                "case": position.case,
                 "legs": [
                     {
                         "side": "buy" if leg.side > 0 else "sell",
@@ -208,6 +224,10 @@ def trade_details(ledger: Ledger, labels: dict[int, dict]) -> list[dict]:
                         "units": int(leg.units),
                         "entry_price": leg.entry_price,
                         "exit_price": leg.exit_price,
+                        "stop_price": leg.stop_price,
+                        "target_price": leg.target_price,
+                        "exit_reason": leg.exit_reason,
+                        "closed_at": leg.closed_at,
                     }
                     for leg in position.legs
                 ],

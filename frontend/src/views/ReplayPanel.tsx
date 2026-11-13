@@ -1,6 +1,6 @@
 import type { ReplayData } from "../api";
 import { signedInr } from "../format";
-import { legText, stateAt, wallText } from "./replay";
+import { legText, stateAt, stopAt, wallText } from "./replay";
 
 export const EXIT_REASONS: Record<string, string> = {
   target: "profit target",
@@ -95,7 +95,8 @@ export function ReplayPanel({
   cursor: number;
   intradayTimes: boolean;
 }) {
-  const { closed, open, openPnl } = stateAt(times, data, cursor);
+  const { closed, open, openPnl, until } = stateAt(times, data, cursor);
+  const stop = open ? stopAt(open, until) : null;
   const realised = closed.reduce((sum, trade) => sum + trade.net_pnl, 0);
   const wins = closed.filter((trade) => trade.net_pnl > 0).length;
   const recent = [...closed].reverse().slice(0, 8);
@@ -113,16 +114,52 @@ export function ReplayPanel({
             </p>
             <table className="replay-legs">
               <tbody>
-                {open.legs.map((leg, index) => (
-                  <tr key={index}>
-                    <td className={leg.side === "buy" ? "replay-buy" : "replay-sell"}>{legText(leg, open.lots)}</td>
-                    <td className="right">filled at {leg.entry_price.toFixed(2)}</td>
-                  </tr>
-                ))}
+                {open.legs.map((leg, index) => {
+                  // With one leg, the position's value gives the option's price now.
+                  const sign = leg.side === "buy" ? 1 : -1;
+                  const now = open.legs.length === 1 ? leg.entry_price + openPnl / (leg.units * sign) : null;
+                  return (
+                    <tr key={index}>
+                      <td className={leg.side === "buy" ? "replay-buy" : "replay-sell"}>{legText(leg, open.lots)}</td>
+                      <td className="right">
+                        filled at {leg.entry_price.toFixed(2)}
+                        {now !== null && <>, now {now.toFixed(2)}</>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <table className="replay-levels">
+              <tbody>
+                <tr>
+                  <td>Exits at a profit of</td>
+                  <td className="right">
+                    <Pnl value={open.target_pnl} />
+                  </td>
+                </tr>
+                <tr>
+                  <td>{stop ? `Exits at the ${stop.kind}, a value of` : "Stop loss"}</td>
+                  <td className="right">{stop ? <Pnl value={stop.level} /> : <span className="muted">not recorded</span>}</td>
+                </tr>
+                {stop &&
+                  (openPnl > stop.level ? (
+                    <tr>
+                      <td className="muted">Room left before the stop</td>
+                      <td className="right">{signedInr(openPnl - stop.level).replace("+", "")}</td>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <td className="replay-past" colSpan={2}>
+                        Past the {stop.kind} by {signedInr(stop.level - openPnl).replace("+", "")}: it exits at the next check.
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
             <p className="muted replay-plan">
-              Plans to exit at <Pnl value={open.target_pnl} /> profit or <Pnl value={-Math.abs(open.planned_loss)} /> loss, or by its other exit rules.
+              Levels are the position's value before costs, measured from the fill prices. Exits fill at the
+              next check{data.intraday ? `, every ${data.decide_every}` : ""}, so the fill can be past the level.
             </p>
           </>
         ) : (
@@ -153,7 +190,14 @@ export function ReplayPanel({
                 <span className="muted">{trade.legs.map((leg) => legText(leg, trade.lots)).join(", ")}</span>
                 <span>
                   <Pnl value={trade.net_pnl} />{" "}
-                  <span className="muted">{EXIT_REASONS[trade.exit_reason ?? ""] ?? trade.exit_reason}</span>
+                  <span className="muted">
+                    {EXIT_REASONS[trade.exit_reason ?? ""] ?? trade.exit_reason}
+                    {trade.exit_reason === "stop" && trade.stop_pnl !== null ? ` at ${signedInr(trade.stop_pnl)}` : ""}
+                    {trade.exit_reason === "target" ? ` at ${signedInr(trade.target_pnl)}` : ""}
+                    {trade.legs.length === 1 && trade.legs[0].exit_price !== null
+                      ? `, filled ${trade.legs[0].exit_price.toFixed(2)} from ${trade.legs[0].entry_price.toFixed(2)}`
+                      : ""}
+                  </span>
                 </span>
               </li>
             ))}

@@ -1,4 +1,4 @@
-import type { CandleType, TechCatalog, TechOperand, TechRule, TechTimeframe } from "../api";
+import type { CandleType, IndicatorPick, TechCatalog, TechOperand, TechRule, TechTimeframe } from "../api";
 
 export const MAX_RULES = 8;
 const MAX_BARS_AGO = 50;
@@ -172,6 +172,69 @@ function indicatorOf(catalog: TechCatalog, name: string | null | undefined): Ind
   return catalog.indicators.find((item) => item.name === name);
 }
 
+/** The candle's own prices. Every rule may use them; other indicators are picked first. */
+export const PRICE_NAMES = ["close", "open", "high", "low", "prev_close", "prev_high", "prev_low"];
+
+/** A pick with every setting filled in, so "EMA" and "EMA, period 20, daily candles" are the
+ * same one. */
+export function normalPick(
+  catalog: TechCatalog,
+  name: string,
+  params?: Record<string, number>,
+  rest: Partial<IndicatorPick> = {},
+): IndicatorPick {
+  const indicator = indicatorOf(catalog, name);
+  return {
+    ...rest,
+    name,
+    params: Object.fromEntries((indicator?.params ?? []).map((p) => [p.name, params?.[p.name] ?? p.default])),
+    timeframe: rest.timeframe ?? "1d",
+    candles: rest.candles ?? "normal",
+  };
+}
+
+/** Which indicator this is: its type, settings and candles. Its name is only a label. */
+export function pickKey(catalog: TechCatalog, pick: IndicatorPick): string {
+  const full = normalPick(catalog, pick.name, pick.params, pick);
+  return `${full.name}(${Object.entries(full.params)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(",")})@${full.timeframe}/${full.candles}`;
+}
+
+/** The pick an operand of a rule reads: its indicator, on the rule's candles. */
+export function operandPick(operand: TechOperand, rule: { timeframe: TechTimeframe; candles?: CandleType }): IndicatorPick {
+  return { name: operand.name ?? "", params: operand.params ?? {}, timeframe: rule.timeframe, candles: rule.candles ?? "normal" };
+}
+
+const FRAME_SHORT: Record<string, string> = { "5m": "5m", "15m": "15m", "1h": "1h", "1d": "1D", "1w": "1W", "1mo": "1M" };
+
+/** Its standard name: "EMA (20), 5m", with "Heikin-Ashi" when read on those candles. */
+export function pickStandardText(catalog: TechCatalog, pick: IndicatorPick): string {
+  const indicator = indicatorOf(catalog, pick.name);
+  if (!indicator) return pick.name;
+  const params = indicator.params.map((p) => pick.params?.[p.name] ?? p.default).join(", ");
+  const base = params ? `${indicator.label} (${params})` : indicator.label;
+  const frame = FRAME_SHORT[pick.timeframe ?? "1d"] ?? pick.timeframe;
+  return `${base}, ${frame}${pick.candles === "heikin_ashi" ? " Heikin-Ashi" : ""}`;
+}
+
+/** How the editor lists a pick: the user's name for it, or its standard name. */
+export function pickText(catalog: TechCatalog, pick: IndicatorPick): string {
+  return pick.label?.trim() || pickStandardText(catalog, pick);
+}
+
+/** The operand for a picked indicator: its settings, its first line, the latest candle. */
+function pickedOperand(catalog: TechCatalog, pick: IndicatorPick): TechOperand {
+  const full = normalPick(catalog, pick.name, pick.params);
+  return {
+    kind: "indicator",
+    name: full.name,
+    params: full.params,
+    field: indicatorOf(catalog, pick.name)?.fields[0]?.value ?? null,
+    bars_ago: 0,
+  };
+}
+
 /** An indicator operand with its default settings. */
 function freshIndicator(catalog: TechCatalog, name: string): TechOperand {
   const indicator = indicatorOf(catalog, name);
@@ -286,6 +349,8 @@ function OperandEditor({
   operand,
   allowNumber,
   problems,
+  picked,
+  frame,
   onChange,
 }: {
   id: string;
@@ -293,11 +358,118 @@ function OperandEditor({
   operand: TechOperand;
   allowNumber: boolean;
   problems: Record<string, string>;
-  onChange: (operand: TechOperand) => void;
+  /** When set, only prices and these indicators are offered, with their settings fixed. */
+  picked?: IndicatorPick[];
+  /** The rule's candles, which a picked indicator must be read on to match. */
+  frame: { timeframe: TechTimeframe; candles?: CandleType };
+  /** A picked indicator comes with its candles, which the rule then reads on. */
+  onChange: (operand: TechOperand, pick?: IndicatorPick) => void;
 }) {
   const indicator = operand.kind === "indicator" ? indicatorOf(catalog, operand.name) : undefined;
-  const choice = operand.kind === "value" ? "__number" : (operand.name ?? "");
   const message = Object.entries(problems).find(([key]) => key === id || key.startsWith(`${id}-`))?.[1];
+  const isPrice = PRICE_NAMES.includes(operand.name ?? "");
+  const pickIndex =
+    picked && operand.kind === "indicator" && !isPrice
+      ? picked.findIndex((pick) => pickKey(catalog, pick) === pickKey(catalog, operandPick(operand, frame)))
+      : -1;
+  const choice =
+    operand.kind === "value"
+      ? "__number"
+      : !picked || isPrice
+        ? (operand.name ?? "")
+        : pickIndex >= 0
+          ? `pick:${pickIndex}`
+          : "__other";
+  if (picked) {
+    return (
+      <div className="tech-operand">
+        <select
+          id={`${id}-name`}
+          className="form-select form-select-sm"
+          aria-label="Value to compare"
+          value={choice}
+          onChange={(event) => {
+            const value = event.target.value;
+            if (value === "__other") return;
+            if (value === "__number") onChange({ kind: "value", value: 0 });
+            else if (value.startsWith("pick:")) {
+              const pick = picked[Number(value.slice(5))];
+              onChange(pickedOperand(catalog, pick), pick);
+            }
+            else onChange(freshIndicator(catalog, value));
+          }}
+        >
+          {allowNumber && <option value="__number">A number</option>}
+          <optgroup label="Price">
+            {catalog.indicators
+              .filter((item) => PRICE_NAMES.includes(item.name))
+              .map((item) => (
+                <option key={item.name} value={item.name}>
+                  {item.label}
+                </option>
+              ))}
+          </optgroup>
+          <optgroup label={picked.length ? "Strategy indicators" : "No indicators picked yet"}>
+            {picked.map((pick, index) => (
+              <option key={index} value={`pick:${index}`}>
+                {pickText(catalog, pick)}
+              </option>
+            ))}
+          </optgroup>
+          {choice === "__other" && (
+            <option value="__other">
+              {operandText(catalog, { ...operand, bars_ago: 0 })} (not in Indicators)
+            </option>
+          )}
+        </select>
+        <div className="tech-params">
+          {operand.kind === "value" ? (
+            <SmallNumber
+              id={id}
+              label="Number"
+              value={operand.value}
+              step={0.5}
+              invalid={!!problems[id]}
+              onChange={(value) => onChange({ ...operand, value })}
+            />
+          ) : (
+            <>
+              {indicator && indicator.fields.length > 0 && (
+                <div className="tech-param">
+                  <label className="form-label small text-body-secondary mb-0" htmlFor={`${id}-field`}>
+                    Line
+                  </label>
+                  <select
+                    id={`${id}-field`}
+                    className="form-select form-select-sm"
+                    value={operand.field ?? ""}
+                    onChange={(event) => onChange({ ...operand, field: event.target.value })}
+                  >
+                    {indicator.fields.map((field) => (
+                      <option key={field.value} value={field.value}>
+                        {field.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <SmallNumber
+                id={`${id}-ago`}
+                label="Candles ago"
+                value={operand.bars_ago ?? 0}
+                invalid={!!problems[`${id}-ago`]}
+                onChange={(value) => onChange({ ...operand, bars_ago: value ?? 0 })}
+              />
+            </>
+          )}
+        </div>
+        {!isPrice && operand.kind === "indicator" && indicator && indicator.params.length > 0 && (
+          <div className="form-text">Settings come from the Indicators section.</div>
+        )}
+        {message && <div className="invalid-feedback d-block">{message}</div>}
+      </div>
+    );
+  }
   return (
     <div className="tech-operand">
       <select
@@ -391,6 +563,7 @@ export function TechRulesEditor({
   prefix = "rule",
   addLabel = "Add a rule",
   quickAdd = false,
+  picked,
 }: {
   catalog: TechCatalog;
   rules: TechRule[];
@@ -403,7 +576,42 @@ export function TechRulesEditor({
   addLabel?: string;
   /** Show the ready-made rules as one-click buttons above the list. */
   quickAdd?: boolean;
+  /** The strategy's indicators: when set, rules choose only from prices and these. */
+  picked?: IndicatorPick[];
 }) {
+  // A new comparison starts at the close against the first picked indicator, on its candles,
+  // or against a number.
+  const firstRight = (): TechOperand =>
+    !picked
+      ? freshIndicator(catalog, "ema")
+      : picked.length
+        ? pickedOperand(catalog, picked[0])
+        : { kind: "value", value: 0 };
+  const firstFrame = (fallback: { timeframe: TechTimeframe; candles?: CandleType }) =>
+    picked?.length
+      ? { timeframe: picked[0].timeframe ?? "1d", candles: picked[0].candles ?? "normal" }
+      : fallback;
+  // The picked indicator a compare rule reads, which sets the candles it is read on.
+  const pickOf = (rule: TechRule): IndicatorPick | undefined => {
+    if (!picked || rule.type !== "compare") return undefined;
+    for (const operand of [rule.left, rule.right]) {
+      if (operand.kind !== "indicator" || PRICE_NAMES.includes(operand.name ?? "")) continue;
+      const key = pickKey(catalog, operandPick(operand, rule));
+      const found = picked.find((pick) => pickKey(catalog, pick) === key);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  // Indicators a rule reads that are not among the strategy's on its candles.
+  const strays = (rule: TechRule): TechOperand[] =>
+    !picked || rule.type !== "compare"
+      ? []
+      : [rule.left, rule.right].filter(
+          (operand) =>
+            operand.kind === "indicator" &&
+            !PRICE_NAMES.includes(operand.name ?? "") &&
+            !picked.some((pick) => pickKey(catalog, pick) === pickKey(catalog, operandPick(operand, rule))),
+        );
   const frames = catalog.timeframes.filter(
     (frame) => intraday || !MINUTE_FRAMES.includes(frame.value) || rules.some((r) => r.timeframe === frame.value),
   );
@@ -424,15 +632,17 @@ export function TechRulesEditor({
           }
         : {
             type,
-            timeframe: rules[index].timeframe,
-            candles: rules[index].candles,
+            ...firstFrame({ timeframe: rules[index].timeframe, candles: rules[index].candles }),
             left: freshIndicator(catalog, "close"),
             op: "above",
-            right: freshIndicator(catalog, "ema"),
+            right: firstRight(),
           },
     );
 
-  const offered = PRESETS.filter((preset) => intraday || !MINUTE_FRAMES.includes(preset.rule.timeframe));
+  // With strategy indicators, only ready-made rules built from prices and those are offered.
+  const usesOnlyPicked = (rule: TechRule) => strays(rule).length === 0;
+  const presets = PRESETS.filter((preset) => usesOnlyPicked(preset.rule));
+  const offered = presets.filter((preset) => intraday || !MINUTE_FRAMES.includes(preset.rule.timeframe));
   return (
     <div className="vstack gap-2">
       {quickAdd && rules.length < MAX_RULES && (
@@ -461,6 +671,13 @@ export function TechRulesEditor({
               <option value="compare">Indicator or price</option>
               <option value="pattern">Candle pattern</option>
             </select>
+            {pickOf(rule) ? (
+              <span className="small text-body-secondary">
+                On {catalog.timeframes.find((t) => t.value === rule.timeframe)?.label.toLowerCase() ?? rule.timeframe}
+                {rule.candles === "heikin_ashi" ? " Heikin-Ashi" : ""} candles, set by{" "}
+                <strong className="text-body">{pickText(catalog, pickOf(rule) as IndicatorPick)}</strong>
+              </span>
+            ) : (
             <select
               className="form-select form-select-sm w-auto"
               aria-label="Timeframe"
@@ -473,7 +690,8 @@ export function TechRulesEditor({
                 </option>
               ))}
             </select>
-            {candleTypes.length > 0 && (
+            )}
+            {!pickOf(rule) && candleTypes.length > 0 && (
               <select
                 className="form-select form-select-sm w-auto"
                 aria-label="Candle type"
@@ -504,7 +722,15 @@ export function TechRulesEditor({
                 operand={rule.left}
                 allowNumber={false}
                 problems={problems}
-                onChange={(left) => update(index, { ...rule, left })}
+                picked={picked}
+                frame={rule}
+                onChange={(left, pick) =>
+                  update(index, {
+                    ...rule,
+                    left,
+                    ...(pick ? { timeframe: pick.timeframe ?? "1d", candles: pick.candles ?? "normal" } : {}),
+                  })
+                }
               />
               <select
                 className="form-select form-select-sm tech-op"
@@ -524,8 +750,25 @@ export function TechRulesEditor({
                 operand={rule.right}
                 allowNumber
                 problems={problems}
-                onChange={(right) => update(index, { ...rule, right })}
+                picked={picked}
+                frame={rule}
+                onChange={(right, pick) =>
+                  update(index, {
+                    ...rule,
+                    right,
+                    ...(pick ? { timeframe: pick.timeframe ?? "1d", candles: pick.candles ?? "normal" } : {}),
+                  })
+                }
               />
+              {strays(rule).length > 0 && (
+                <div className="form-text text-warning w-100">
+                  {strays(rule)
+                    .map((operand) => pickStandardText(catalog, operandPick(operand, rule)))
+                    .join(" and ")}{" "}
+                  {strays(rule).length === 1 ? "is" : "are"} not among the strategy's indicators on these candles. Choose
+                  one from the list, or add it under Indicators.
+                </div>
+              )}
             </div>
           ) : (
             <div className="d-flex flex-wrap gap-2 align-items-end mt-2">
@@ -583,28 +826,28 @@ export function TechRulesEditor({
                 ...rules,
                 {
                   type: "compare",
-                  timeframe: "1d",
+                  ...firstFrame({ timeframe: "1d" }),
                   left: freshIndicator(catalog, "close"),
                   op: "above",
-                  right: freshIndicator(catalog, "ema"),
+                  right: firstRight(),
                 },
               ])
             }
           >
             {addLabel}
           </button>
-          {!quickAdd && (
+          {!quickAdd && presets.length > 0 && (
             <select
               className="form-select form-select-sm w-auto"
               aria-label="Add a ready-made rule"
               value=""
               onChange={(event) => {
-                const preset = PRESETS[Number(event.target.value)];
+                const preset = presets[Number(event.target.value)];
                 if (preset) onChange([...rules, structuredClone(preset.rule)]);
               }}
             >
               <option value="">Add a ready-made rule…</option>
-              {PRESETS.map((preset, i) => (
+              {presets.map((preset, i) => (
                 <option key={preset.label} value={i}>
                   {preset.label}
                 </option>

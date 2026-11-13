@@ -385,6 +385,7 @@ export function LabBacktestView({ id }: { id: string }) {
             >
               <IndexChart
                 key={windowKey}
+                strategyPreview
                 catalog={data.technical}
                 symbols={data.chart_symbols ?? data.symbols ?? symbols}
                 tradable={data.symbols}

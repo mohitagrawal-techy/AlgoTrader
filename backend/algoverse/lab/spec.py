@@ -7,7 +7,7 @@ import json
 import re
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time
 from typing import Literal
 
@@ -16,7 +16,16 @@ from pydantic import BaseModel, Field, model_validator
 
 from algoverse.evaluation.config import Weight
 from algoverse.evaluation.context import MarketContext
-from algoverse.lab.technical import Frames, TechRule, needs_minutes, rule_failure, rule_text
+from algoverse.lab.technical import (
+    INDICATORS,
+    CandleType,
+    Frames,
+    TechRule,
+    Timeframe,
+    needs_minutes,
+    rule_failure,
+    rule_text,
+)
 from algoverse.risk.config import ExitRule
 from algoverse.strategies.base import BUY, SELL, Candidate, ExpiryView, make_leg
 
@@ -67,22 +76,43 @@ SIMPLE_MAX_FILTERS = 1
 MODERATE_MAX_FILTERS = 2
 
 
+LegUnit = Literal["pct", "points"]
+LEG_UNIT_RANGES = {"pct": (1.0, 500.0), "points": (0.05, 10_000.0)}
+
+
 class LegSpec(BaseModel):
     action: Literal["buy", "sell"]
     option_type: Literal["CE", "PE"]
     ratio: int = Field(default=1, ge=1, le=4)
     # delta: absolute delta to target. atm_offset: listed strikes above (+) or below (-) ATM.
-    select: Literal["delta", "atm_offset"]
+    # premium: the strike whose option price is nearest this many rupees.
+    select: Literal["delta", "atm_offset", "premium"]
     value: float
     # 0 is the entry expiry, 1 the next one after it, and so on.
     expiry: int = Field(default=0, ge=0, le=2)
+    # This leg's own stop loss and profit target, against its fill price: "pct" is a percent
+    # of the premium, "points" option points. Hitting one closes only this leg. None: unused.
+    stop: float | None = None
+    stop_unit: LegUnit = "pct"
+    target: float | None = None
+    target_unit: LegUnit = "pct"
 
     @model_validator(mode="after")
     def _check_value(self) -> LegSpec:
+        for name, amount, unit in (
+            ("leg stop", self.stop, self.stop_unit),
+            ("leg target", self.target, self.target_unit),
+        ):
+            if amount is not None:
+                low, high = LEG_UNIT_RANGES[unit]
+                if not low <= amount <= high:
+                    raise ValueError(f"{name} in {unit} must be between {low:g} and {high:g}")
         if self.select == "delta" and not 0.05 <= self.value <= 0.95:
             raise ValueError("delta must be between 0.05 and 0.95")
         if self.select == "atm_offset" and (self.value != int(self.value) or abs(self.value) > 20):
             raise ValueError("atm_offset must be a whole number between -20 and 20")
+        if self.select == "premium" and not 0.5 <= self.value <= 5000:
+            raise ValueError("premium must be between 0.5 and 5000 rupees")
         return self
 
 
@@ -114,6 +144,14 @@ class EntryRules(BaseModel):
     max_trades_per_day: int | None = Field(default=None, ge=1, le=50)
     # False: after a stop-out, no new trade for the rest of the day.
     reenter_after_stop: bool = True
+    # False: after a profit target, no new trade for the rest of the day.
+    reenter_after_target: bool = True
+    # Wait and trade: once the rules hold, wait until the chosen contracts' premium moves this
+    # far ("pct" percent or "points") in `wait_direction`, then enter. Intraday only; a wait
+    # lapses at the end of the day. None enters at once.
+    wait_move: float | None = None
+    wait_unit: LegUnit = "pct"
+    wait_direction: Literal["up", "down"] = "up"
 
     @model_validator(mode="after")
     def _check_ranges(self) -> EntryRules:
@@ -130,6 +168,10 @@ class EntryRules(BaseModel):
                 raise ValueError("entry times must be between 09:15 and 15:25")
         if self.time_from and self.time_to and self.time_from >= self.time_to:
             raise ValueError("time_from must be before time_to")
+        if self.wait_move is not None:
+            low, high = LEG_UNIT_RANGES[self.wait_unit]
+            if not low <= self.wait_move <= high:
+                raise ValueError(f"wait in {self.wait_unit} must be between {low:g} and {high:g}")
         return self
 
 
@@ -180,15 +222,57 @@ class ExitRules(BaseModel):
         return self
 
 
+class Budget(BaseModel):
+    """The account a strategy is tested as. Every limit the risk engine expresses as a share of
+    capital applies to this capital instead of the whole account's."""
+
+    capital: float = Field(default=100_000, ge=10_000, le=100_000_000)
+    # What one trade may lose, as a percent of `capital`. Lots are sized from this.
+    # The default, 5% of ₹1,00,000, is ₹5,000: what one trade could risk on the whole account.
+    risk_per_trade_pct: float = Field(default=5.0, gt=0, le=25)
+    # How many of this strategy's positions may be open at once.
+    max_open: int = Field(default=5, ge=1, le=10)
+    # "budget": spend up to `deploy_pct` of capital per trade, as many lots as that buys.
+    # "risk": size so one trade risks at most `risk_per_trade_pct`, within the account's
+    # Greek and stress limits.
+    sizing: Literal["budget", "risk"] = "budget"
+    deploy_pct: float = Field(default=100.0, ge=1, le=100)
+
+    @property
+    def risk_per_trade(self) -> float:
+        return self.capital * self.risk_per_trade_pct / 100
+
+
+class IndicatorPick(BaseModel):
+    """An indicator chosen for the strategy: its settings, the candles it is read on, and a
+    name of the user's choosing. Rules in every case pick from these, and a rule reads them on
+    their candles. It only shapes the editor: trades follow the rules alone."""
+
+    name: str
+    params: dict[str, float] = Field(default_factory=dict)
+    label: str | None = Field(default=None, max_length=40)
+    timeframe: Timeframe = "1d"
+    candles: CandleType = "normal"
+
+    @model_validator(mode="after")
+    def _known(self) -> IndicatorPick:
+        if self.name not in INDICATORS:
+            raise ValueError(f"unknown indicator {self.name}")
+        return self
+
+
 class EntryCase(BaseModel):
-    """Another way into the same strategy: its own legs and indicator rules. The time window,
-    expiry window, market filters, day limits and exits are the strategy's own."""
+    """Another way into the same strategy: its own legs, indicator rules and, optionally, exit
+    rules. The time window, expiry window, market filters, day limits, stop and target are the
+    strategy's own."""
 
     name: str = Field(min_length=1, max_length=40)
     bias: Literal["bullish", "bearish", "neutral"] = "neutral"
     legs: list[LegSpec] = Field(min_length=1, max_length=4)
     rules: list[TechRule] = Field(default_factory=list, max_length=8)
     any_rules: list[TechRule] = Field(default_factory=list, max_length=8)
+    # This case's own exit rules. None uses the strategy's.
+    exit_rules: list[TechRule] | None = Field(default=None, max_length=8)
 
 
 class StrategySpec(BaseModel):
@@ -213,6 +297,9 @@ class StrategySpec(BaseModel):
     # More cases after the first (the legs and entry rules above). The first whose rules hold
     # trades; the day's trade limit counts them together.
     cases: list[EntryCase] = Field(default_factory=list, max_length=3)
+    budget: Budget = Field(default_factory=Budget)
+    # The indicators the strategy's rules choose from. Not part of the signature.
+    indicators: list[IndicatorPick] = Field(default_factory=list, max_length=24)
 
     @model_validator(mode="after")
     def _check_exit_window(self) -> StrategySpec:
@@ -234,6 +321,7 @@ class StrategySpec(BaseModel):
                 self.exits.rules,
                 *[case.rules for case in self.cases],
                 *[case.any_rules for case in self.cases],
+                *[case.exit_rules or [] for case in self.cases],
             )
         )
         if self.decide_every == "day" and (intraday_only or minute_rules):
@@ -241,6 +329,8 @@ class StrategySpec(BaseModel):
                 "entry times, square-off and 5m/15m/1h rules need a decision every 5, 15 or 60 "
                 "minutes"
             )
+        if self.decide_every == "day" and self.entry.wait_move is not None:
+            raise ValueError("wait and trade needs a decision every 5, 15 or 60 minutes")
         return self
 
 
@@ -250,9 +340,15 @@ def signature(spec: StrategySpec) -> str:
         include={"symbols", "legs", "entry", "exits", "bias", "decide_every", "cases"},
         mode="json",
     )
+    for leg in rules["legs"] + [leg for case in rules["cases"] for leg in case["legs"]]:
+        for key, default in LATER_LEG_SETTINGS:
+            if leg.get(key) == default:
+                del leg[key]
     rules["legs"] = sorted(rules["legs"], key=lambda leg: json.dumps(leg, sort_keys=True))
     for case in rules["cases"]:
-        for rule in case["rules"] + case["any_rules"]:
+        if case.get("exit_rules") is None:
+            case.pop("exit_rules", None)
+        for rule in case["rules"] + case["any_rules"] + (case.get("exit_rules") or []):
             if rule.get("candles") == "normal":
                 del rule["candles"]
     rules["symbols"] = sorted(rules["symbols"])
@@ -288,6 +384,16 @@ LATER_SETTINGS = (
     ("entry", "any_rules", []),
     (None, "decide_every", "day"),
     (None, "cases", []),
+    ("entry", "reenter_after_target", True),
+    ("entry", "wait_move", None),
+    ("entry", "wait_unit", "pct"),
+    ("entry", "wait_direction", "up"),
+)
+LATER_LEG_SETTINGS = (
+    ("stop", None),
+    ("stop_unit", "pct"),
+    ("target", None),
+    ("target_unit", "pct"),
 )
 
 
@@ -301,14 +407,25 @@ def profile_key(spec: StrategySpec) -> str:
 
 
 def variants(spec: StrategySpec) -> list[StrategySpec]:
-    """The strategy's first case, then each further one as the same strategy (same id, limits
-    and exits) with that case's legs and indicator rules."""
+    """The strategy's first case, then each further one as the same strategy (same id, limits,
+    stop and target) with that case's legs, indicator rules and any exit rules of its own."""
     found = [spec.model_copy(update={"cases": []})]
     for case in spec.cases:
         entry = spec.entry.model_copy(update={"rules": case.rules, "any_rules": case.any_rules})
+        exits = (
+            spec.exits
+            if case.exit_rules is None
+            else spec.exits.model_copy(update={"rules": case.exit_rules})
+        )
         found.append(
             spec.model_copy(
-                update={"legs": case.legs, "entry": entry, "bias": case.bias, "cases": []}
+                update={
+                    "legs": case.legs,
+                    "entry": entry,
+                    "exits": exits,
+                    "bias": case.bias,
+                    "cases": [],
+                }
             )
         )
     return found
@@ -366,6 +483,11 @@ def describe_entry(spec: StrategySpec) -> str:
         parts.append(f"between {start} and {end}")
     if spec.decide_every != "day":
         parts.append(f"checked every {spec.decide_every}")
+    if entry.wait_move is not None:
+        amount = (
+            f"{entry.wait_move:g}%" if entry.wait_unit == "pct" else f"{entry.wait_move:g} points"
+        )
+        parts.append(f"then wait for the premium to move {entry.wait_direction} {amount}")
     text = ", ".join(parts)
     for case in spec.cases:
         rules = [rule_text(rule) for rule in case.rules]
@@ -383,12 +505,23 @@ def describe_legs(spec: StrategySpec) -> str:
         pick = (
             f"delta {leg.value:g}"
             if leg.select == "delta"
+            else f"premium near {leg.value:g}"
+            if leg.select == "premium"
             else f"ATM{int(leg.value):+d}"
             if leg.value
             else "ATM"
         )
         later = f" expiry+{leg.expiry}" if leg.expiry else ""
-        parts.append(f"{sign}{leg.ratio} {leg.option_type} {pick}{later}")
+        levels = [
+            f"{name} {amount:g}{'%' if unit == 'pct' else ' pts'}"
+            for name, amount, unit in (
+                ("SL", leg.stop, leg.stop_unit),
+                ("TP", leg.target, leg.target_unit),
+            )
+            if amount is not None
+        ]
+        own = f" ({', '.join(levels)})" if levels else ""
+        parts.append(f"{sign}{leg.ratio} {leg.option_type} {pick}{later}{own}")
     return ", ".join(parts)
 
 
@@ -413,13 +546,23 @@ def build_candidate(
         view = views[base + leg.expiry]
         if leg.select == "delta":
             row = view.by_delta(leg.option_type, leg.value)
+        elif leg.select == "premium":
+            row = view.by_premium(leg.option_type, leg.value)
         else:
             atm = view.atm(leg.option_type)
             row = None if atm is None else view.offset(atm, int(leg.value))
         if row is None or row["instrument_key"] in used:
             return None
         used.add(row["instrument_key"])
-        legs.append(make_leg(row, BUY if leg.action == "buy" else SELL, leg.ratio))
+        legs.append(
+            replace(
+                make_leg(row, BUY if leg.action == "buy" else SELL, leg.ratio),
+                stop=leg.stop,
+                stop_unit=leg.stop_unit,
+                target=leg.target,
+                target_unit=leg.target_unit,
+            )
+        )
     return Candidate(symbol, spec.id, profile_key(spec), spec.bias, tuple(legs))
 
 
@@ -522,7 +665,27 @@ def entry_failures(
     return reasons
 
 
-STOPPED_OUT = {"stop", "trailing_stop", "stop_at_cost"}
+STOPPED_OUT = {"stop", "trailing_stop", "stop_at_cost", "leg_stop"}
+TARGET_HIT = {"target", "leg_target"}
+
+
+@dataclass
+class _Wait:
+    day: date
+    candidate: Candidate
+    # The net premium per unit when the rules held.
+    premium: float
+
+
+def _premium(legs) -> float:
+    """Net premium per lot unit at mid: what a debit costs or a credit brings in."""
+    return abs(sum(leg.side * leg.ratio * leg.mid for leg in legs))
+
+
+def _wait_reason(entry: EntryRules, start: float, now: float | None) -> str:
+    amount = f"{entry.wait_move:g}%" if entry.wait_unit == "pct" else f"{entry.wait_move:g} points"
+    seen = "" if now is None else f", now {now:.2f}"
+    return f"wait and trade: premium {start:.2f} to move {entry.wait_direction} {amount}{seen}"
 
 
 def _day(moment: str | None):
@@ -539,6 +702,9 @@ class CustomSet:
         self.no_contracts: Counter = Counter()
         # The broker whose positions the daily limits count. Set by the cycle.
         self.broker = None
+        # Wait and trade: signals waiting for their premium to move, by (strategy, symbol,
+        # case).
+        self.waiting: dict[tuple[str, str, int], _Wait] = {}
 
     def _positions(self, spec: StrategySpec) -> list:
         if self.broker is None:
@@ -561,6 +727,7 @@ class CustomSet:
         if (
             entry.max_trades_per_day is None
             and entry.reenter_after_stop
+            and entry.reenter_after_target
             and exits.daily_stop is None
             and exits.daily_target is None
         ):
@@ -575,6 +742,11 @@ class CustomSet:
             for p in positions
         ):
             reasons.append("entry rule: no re-entry after a stop today")
+        if not entry.reenter_after_target and any(
+            p.status == "closed" and _day(p.closed_at) == today and p.exit_reason in TARGET_HIT
+            for p in positions
+        ):
+            reasons.append("entry rule: no new trade after a target today")
         pnl = self._day_pnl(positions, today)
         if exits.daily_stop is not None and pnl <= -exits.daily_stop:
             reasons.append("entry rule: the day's loss limit is reached")
@@ -601,6 +773,11 @@ class CustomSet:
         for spec in self.specs:
             if spec.symbols and symbol not in spec.symbols:
                 continue
+            if any(
+                key[:2] == (spec.id, symbol) and wait.day == now.date()
+                for key, wait in self.waiting.items()
+            ):
+                return None
             # Idle only when every case fails; the first case's reason is reported.
             per_case = [quick_failures(variant, now, shared) for variant in variants(spec)]
             failures = [] if any(not found for found in per_case) else per_case[0]
@@ -618,24 +795,29 @@ class CustomSet:
         requests = []
         for spec in self.specs:
             exits = spec.exits
-            if not (exits.rules or exits.daily_stop or exits.daily_target):
+            case_rules = [variant.exits.rules for variant in variants(spec)]
+            if not (any(case_rules) or exits.daily_stop or exits.daily_target):
                 continue
             positions = self._positions(spec)
             mine = [p for p in positions if p.status == "open" and p.symbol == ctx.symbol]
             if not mine:
                 continue
-            reason = None
             pnl = self._day_pnl(positions, ctx.now.date())
             if exits.daily_stop is not None and pnl <= -exits.daily_stop:
-                reason = "daily_stop"
-            elif exits.daily_target is not None and pnl >= exits.daily_target:
-                reason = "daily_target"
-            elif exits.rules:
-                frames = Frames(ctx.bars, getattr(ctx, "intraday", None))
-                if any(rule_failure(rule, frames) is None for rule in exits.rules):
-                    reason = "exit_rule"
-            if reason:
-                requests += [(position.id, reason) for position in mine]
+                requests += [(position.id, "daily_stop") for position in mine]
+                continue
+            if exits.daily_target is not None and pnl >= exits.daily_target:
+                requests += [(position.id, "daily_target") for position in mine]
+                continue
+            frames = Frames(ctx.bars, getattr(ctx, "intraday", None))
+            fired: dict[int, bool] = {}
+            for position in mine:
+                case = getattr(position, "case", 0)
+                rules = case_rules[case] if case < len(case_rules) else exits.rules
+                if case not in fired:
+                    fired[case] = any(rule_failure(rule, frames) is None for rule in rules)
+                if fired[case]:
+                    requests.append((position.id, "exit_rule"))
         return requests
 
     def candidates(
@@ -648,14 +830,96 @@ class CustomSet:
             if spec.symbols and ctx.symbol not in spec.symbols:
                 continue
             limits = self.limit_failures(spec, ctx.now.date())
-            for variant in variants(spec):
+            for case, variant in enumerate(variants(spec)):
+                key = (spec.id, ctx.symbol, case)
+                wait = self.waiting.get(key)
+                if wait is not None and wait.day != ctx.now.date():
+                    del self.waiting[key]
+                    wait = None
+                if wait is not None:
+                    found += self._waited(key, wait, spec, live, limits)
+                    continue
                 candidate = build_candidate(variant, ctx.symbol, views, ctx.now.date())
                 if candidate is None:
                     self.no_contracts[spec.id] += 1
                     continue
-                failures = entry_failures(variant, ctx, candidate.front_expiry)
-                found.append((candidate, failures + limits))
+                candidate = replace(candidate, case=case)
+                failures = entry_failures(variant, ctx, candidate.front_expiry) + limits
+                if not failures and spec.entry.wait_move is not None:
+                    # The signal arms a wait; the trade comes once the premium has moved.
+                    self.waiting[key] = _Wait(ctx.now.date(), candidate, _premium(candidate.legs))
+                    failures = [_wait_reason(spec.entry, self.waiting[key].premium, None)]
+                found.append((candidate, failures))
         return found
+
+    def _waited(self, key, wait: _Wait, spec: StrategySpec, chain: pd.DataFrame, limits):
+        """The waiting contracts at today's quotes, as a candidate once the move is made."""
+        rows = chain.set_index("instrument_key")
+        legs = []
+        for leg in wait.candidate.legs:
+            if leg.instrument_key not in rows.index:
+                return []
+            row = rows.loc[leg.instrument_key]
+            if isinstance(row, pd.DataFrame):
+                row = row.iloc[0]
+            row = row.copy()
+            row["instrument_key"] = leg.instrument_key
+            legs.append(
+                replace(
+                    make_leg(row, leg.side, leg.ratio),
+                    stop=leg.stop,
+                    stop_unit=leg.stop_unit,
+                    target=leg.target,
+                    target_unit=leg.target_unit,
+                )
+            )
+        candidate = replace(wait.candidate, legs=tuple(legs))
+        now = _premium(candidate.legs)
+        entry = spec.entry
+        move = now - wait.premium
+        if entry.wait_direction == "down":
+            move = -move
+        needed = (
+            wait.premium * entry.wait_move / 100 if entry.wait_unit == "pct" else entry.wait_move
+        )
+        if move < needed:
+            return [(candidate, [_wait_reason(entry, wait.premium, now)])]
+        del self.waiting[key]
+        return [(candidate, list(limits))]
+
+
+def with_budget(services, spec: StrategySpec):
+    """Services that size and limit trades for this strategy's own budget: its capital, its
+    risk per trade and its open-position limit, with margin and the day's loss as shares of
+    that capital. Limits on open and per-underlying risk are raised where needed, so
+    `max_open` positions at full risk fit.
+
+    The Greek and stress limits guard the whole account, so they keep the account's rupee
+    amounts: on a smaller budget they would otherwise block a single lot."""
+    budget = spec.budget
+    risk = services.risk.model_copy(deep=True)
+    share = risk.undefined_risk_loss_per_trade_pct / risk.max_loss_per_trade_pct
+    scale = risk.capital / budget.capital
+    risk.max_vega_pct *= scale
+    risk.max_gamma_1pct_pct *= scale
+    risk.max_stress_loss_pct *= scale
+    risk.max_delta_notional_multiple *= scale
+    risk.capital = budget.capital
+    risk.max_loss_per_trade_pct = budget.risk_per_trade_pct
+    risk.undefined_risk_loss_per_trade_pct = budget.risk_per_trade_pct * share
+    room = budget.risk_per_trade_pct * budget.max_open
+    risk.max_open_risk_pct = max(risk.max_open_risk_pct, room)
+    risk.max_underlying_risk_pct = max(risk.max_underlying_risk_pct, room)
+    risk.max_daily_loss_pct = max(risk.max_daily_loss_pct, budget.risk_per_trade_pct)
+    risk.max_open_positions = budget.max_open
+    if budget.sizing == "budget":
+        risk.size_by_budget = True
+        risk.max_margin_use_pct = budget.deploy_pct
+        risk.max_lots_per_trade = 1000
+        # Positions this size would trip the account's daily halt on an ordinary stop; the
+        # strategy's own daily stop, if it has one, still applies.
+        risk.max_daily_loss_pct = 100.0
+    return replace(services, risk=risk)
 
 
 def apply_specs(services, specs: list[StrategySpec]):

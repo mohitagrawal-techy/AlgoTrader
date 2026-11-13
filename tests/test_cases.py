@@ -73,3 +73,56 @@ def test_expiry_day_entries_only_for_strategies_that_square_off():
         )
     with pytest.raises(ValueError, match="dte_min"):
         make(entry=entry, exits={**exits, "square_off": None})
+
+
+def run_with_budget(dirs, strategy, every=15, days=8):
+    """Like the lab's own replays: the strategy's budget sets its risk limits."""
+    from algoverse.backtest.dataview import History
+    from algoverse.backtest.engine import ReplaySpec
+    from algoverse.backtest.intraday import replay_intraday
+    from algoverse.backtest.walkforward import load_services
+    from algoverse.data.candles import MINUTE, CandleStore
+    from algoverse.lab.spec import CustomSet, apply_specs, with_budget
+    from test_intraday_backtest import NIFTY
+
+    data, config_dir = dirs
+    services = with_budget(apply_specs(load_services(config_dir), [strategy]), strategy)
+    sessions = History(data).sessions
+    return replay_intraday(
+        History(data),
+        services,
+        ReplaySpec(sessions[-days], sessions[-1], 0.0),
+        {"NIFTY": CandleStore(data).read(NIFTY, MINUTE)},
+        every,
+        custom=CustomSet([strategy]),
+    )
+
+
+def test_budget_sizing_buys_as_many_lots_as_the_money_allows(intraday_dirs):  # noqa: F811
+    entry = {**SPREAD["entry"], "rules": [ALWAYS], "max_trades_per_day": 1}
+    by_risk = run_with_budget(intraday_dirs, make(legs=PUT, entry=entry, budget={"sizing": "risk"}))
+    by_budget = run_with_budget(
+        intraday_dirs, make(legs=PUT, entry=entry, budget={"sizing": "budget"})
+    )
+    assert by_risk.details and by_budget.details
+    risk_lots = max(t["lots"] for t in by_risk.details)
+    for trade in by_budget.details:
+        leg = trade["legs"][0]
+        cost = leg["entry_price"] * leg["units"] / trade["lots"]
+        # Spent up to the ₹1,00,000 budget: one more lot would not have fitted.
+        assert trade["lots"] * cost <= 100_000 * 1.2 and (trade["lots"] + 1) * cost > 100_000 * 0.8
+    assert max(t["lots"] for t in by_budget.details) > risk_lots
+
+
+def test_strikes_can_be_picked_by_premium(intraday_dirs):  # noqa: F811
+    target = 60.0
+    legs = [{**PUT[0], "select": "premium", "value": target}]
+    entry = {**SPREAD["entry"], "rules": [ALWAYS], "max_trades_per_day": 1}
+    result = run(intraday_dirs, make(legs=legs, entry=entry))
+    assert result.details
+    prices = [trade["legs"][0]["entry_price"] for trade in result.details]
+    # Fills are at the ask, a little above the mid the strike was chosen by.
+    assert all(abs(price - target) < target * 0.5 for price in prices)
+    from algoverse.lab.spec import describe_legs
+
+    assert describe_legs(make(legs=legs)) == "+1 PE premium near 60"

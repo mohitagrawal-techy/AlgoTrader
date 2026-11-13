@@ -58,6 +58,22 @@ class PaperLeg:
     delta: float = 0.0
     gamma: float = 0.0
     vega: float = 0.0
+    # The leg's own stop loss and profit target, as set by the strategy ("pct" or "points"),
+    # and the option prices they become once the leg fills. None when unused.
+    stop: float | None = None
+    stop_unit: str = "pct"
+    target: float | None = None
+    target_unit: str = "pct"
+    stop_price: float | None = None
+    target_price: float | None = None
+    # Set when the leg closes before the rest of the position: "leg_stop" or "leg_target".
+    # The leg waits for a quote while `exit_price` is still None.
+    exit_reason: str | None = None
+    closed_at: str | None = None
+
+    @property
+    def closed(self) -> bool:
+        return self.exit_reason is not None and self.exit_price is not None
 
 
 @dataclass
@@ -92,6 +108,8 @@ class Position:
     trail_pnl: float | None = None
     breakeven_pnl: float | None = None
     peak_pnl: float = 0.0
+    # Which case of a custom strategy opened it: 0 is the first.
+    case: int = 0
 
     @property
     def front_expiry(self) -> date:

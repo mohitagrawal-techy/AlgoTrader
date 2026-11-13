@@ -89,6 +89,24 @@ def _reject(reason: str, plan: ExitPlan, structure: StructureMetrics) -> RiskDec
     return RiskDecision(False, 0, plan.planned_loss, structure.margin, (reason,))
 
 
+def _size_by_budget(
+    structure: StructureMetrics, plan: ExitPlan, state: PortfolioState, config: RiskConfig
+) -> RiskDecision:
+    """As many lots as the money left allows: the budget's share for trading, less what open
+    positions already tie up, over one lot's premium or margin."""
+    if structure.margin <= 0:
+        return _reject("structure ties up no money to size from", plan, structure)
+    left = config.amount(config.max_margin_use_pct) - state.margin_used
+    lots = min(math.floor(left / structure.margin), config.max_lots_per_trade)
+    if lots <= 0:
+        return _reject(
+            f"budget: one lot needs {structure.margin:,.0f} and {max(left, 0):,.0f} is free",
+            plan,
+            structure,
+        )
+    return RiskDecision(True, lots, plan.planned_loss * lots, structure.margin * lots, ())
+
+
 def evaluate_risk(
     candidate: Candidate,
     structure: StructureMetrics,
@@ -106,6 +124,9 @@ def evaluate_risk(
         return _reject("maximum open positions reached", plan, structure)
     if plan.planned_loss <= 0:
         return _reject("structure has no measurable planned loss", plan, structure)
+
+    if config.size_by_budget:
+        return _size_by_budget(structure, plan, state, config)
 
     per_trade_pct = (
         config.max_loss_per_trade_pct

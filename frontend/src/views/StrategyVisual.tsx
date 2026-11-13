@@ -28,6 +28,7 @@ function amount(value: number | null | undefined, unit: ExitUnit | undefined): s
 
 function strikeText(leg: LabLeg): string {
   if (leg.select === "delta") return `delta ${leg.value}`;
+  if (leg.select === "premium") return `near ₹${leg.value}`;
   if (!leg.value) return "ATM";
   return `ATM${leg.value > 0 ? "+" : ""}${leg.value}`;
 }
@@ -268,11 +269,33 @@ export function StrategyVisual({
           </p>
         </Step>
         <Step title="Trades">
+          {(spec.cases ?? []).length > 0 && <p className="muted">When the rules above hold</p>}
           <div className="sv-legs">
             {spec.legs.map((leg, i) => (
               <LegToken leg={leg} key={i} />
             ))}
           </div>
+          {(spec.cases ?? []).map((item, index) => (
+            <div className="sv-case" key={index}>
+              <p className="muted">
+                Or, {item.name.trim() || `case ${index + 2}`}, when
+              </p>
+              {(item.rules ?? []).length > 0 ? (
+                <ul className="sv-rules">
+                  {(item.rules ?? []).map((rule, i) => (
+                    <li key={i}>{text(rule)}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">the shared rules hold</p>
+              )}
+              <div className="sv-legs">
+                {item.legs.map((leg, i) => (
+                  <LegToken leg={leg} key={i} />
+                ))}
+              </div>
+            </div>
+          ))}
         </Step>
         <Step title="Exits on the first of">
           <ul className="sv-exits">

@@ -16,7 +16,7 @@ import pandas as pd
 from algoverse.backtest.config import load_backtest_config
 from algoverse.backtest.dataview import History
 from algoverse.lab.evaluate import run_tasks
-from algoverse.lab.spec import StrategySpec
+from algoverse.lab.spec import ExitRules, StrategySpec
 
 IST = "Asia/Kolkata"
 IST_SECONDS = 19_800
@@ -116,6 +116,9 @@ def position_path(sessions: _Sessions, trade: dict) -> list[dict]:
         value, complete = 0.0, True
         for leg in legs:
             price = row.get((leg["expiry"], float(leg["strike"]), leg["option_type"]))
+            # A leg closed on its own stop or target is worth its exit from then on.
+            if leg.get("closed_at") and time >= wall_seconds(leg["closed_at"]):
+                price = leg["exit_price"]
             if price is None or pd.isna(price):
                 complete = False
                 break
@@ -126,7 +129,42 @@ def position_path(sessions: _Sessions, trade: dict) -> list[dict]:
     return points
 
 
-def package(history: History, trades: list[dict], symbol: str, intraday: bool) -> list[dict]:
+def _exit_levels(trade: dict, exits: ExitRules | None) -> dict:
+    """The trade's stop, trail and move-to-cost levels in rupees. Backtests from before these
+    were recorded have only the target, so the rest is worked out from the strategy's exit
+    settings: amounts in premium are fractions of the same basis the target used."""
+    if "stop_pnl" in trade:
+        return {key: trade.get(key) for key in ("stop_pnl", "trail_pnl", "breakeven_pnl")}
+    if exits is None:
+        return {"stop_pnl": None, "trail_pnl": None, "breakeven_pnl": None}
+    units = trade["legs"][0]["units"] if trade["legs"] else 0
+    lot_units = units / max(trade["lots"], 1)
+    basis = trade["target_pnl"] / exits.target_frac if exits.target_unit == "premium" else None
+
+    def rupees(value: float | None, unit: str) -> float | None:
+        if value is None:
+            return None
+        if unit == "rupees":
+            return value * trade["lots"]
+        if unit == "points":
+            return value * lot_units * trade["lots"]
+        return None if basis is None else value * basis
+
+    stop = rupees(exits.stop_frac, exits.stop_unit)
+    return {
+        "stop_pnl": None if stop is None else -stop,
+        "trail_pnl": rupees(exits.trail, exits.trail_unit),
+        "breakeven_pnl": rupees(exits.breakeven_at, exits.breakeven_unit),
+    }
+
+
+def package(
+    history: History,
+    trades: list[dict],
+    symbol: str,
+    intraday: bool,
+    exits: ExitRules | None = None,
+) -> list[dict]:
     """Backtest trades on one underlying, in the shape the chart's replay reads."""
     sessions = _Sessions(history, intraday)
     found = []
@@ -146,6 +184,7 @@ def package(history: History, trades: list[dict], symbol: str, intraday: bool) -
                 "costs": trade["costs"],
                 "planned_loss": trade["planned_loss"],
                 "target_pnl": trade["target_pnl"],
+                **_exit_levels(trade, exits),
                 "legs": [
                     {
                         "side": leg["side"],
@@ -155,9 +194,16 @@ def package(history: History, trades: list[dict], symbol: str, intraday: bool) -
                         "units": leg["units"],
                         "entry_price": leg["entry_price"],
                         "exit_price": leg["exit_price"],
+                        "stop_price": leg.get("stop_price"),
+                        "target_price": leg.get("target_price"),
+                        "exit_reason": leg.get("exit_reason"),
+                        "close_time": wall_seconds(leg["closed_at"])
+                        if leg.get("closed_at")
+                        else None,
                     }
                     for leg in trade["legs"]
                 ],
+                "case": trade.get("case", 0),
                 "path": position_path(sessions, trade),
             }
         )
@@ -196,7 +242,7 @@ def replay(
     spec = draft.model_copy(update={"id": "replay_draft", "symbols": [symbol]})
     task = (str(data_dir), str(config_dir), spec.model_dump_json(), start, end, 1.0)
     result = run_tasks([task], workers)[0]
-    trades = package(history, result["trades"], symbol, intraday)
+    trades = package(history, result["trades"], symbol, intraday, draft.exits)
     return {
         "symbol": symbol,
         "start": start.isoformat(),
@@ -226,7 +272,7 @@ def stored_replay(
     end = windows.get(WINDOWS[parts[-1]][1])
     intraday = spec.decide_every != "day"
     raw = [trade for part in parts for trade in detail[part].get("trades", [])]
-    trades = package(History(data_dir), raw, symbol, intraday)
+    trades = package(History(data_dir), raw, symbol, intraday, spec.exits)
     blocked: dict[str, int] = {}
     for part in parts:
         for reason, count in (result.get(part) or {}).get("blocked", {}).items():

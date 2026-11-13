@@ -737,10 +737,18 @@ export interface LabLeg {
   action: "buy" | "sell";
   option_type: "CE" | "PE";
   ratio: number;
-  select: "delta" | "atm_offset";
+  select: "delta" | "atm_offset" | "premium";
   value: number;
   expiry: number;
+  /** The leg's own stop loss and profit target; hitting one closes only this leg. */
+  stop?: number | null;
+  stop_unit?: LegUnit;
+  target?: number | null;
+  target_unit?: LegUnit;
 }
+
+/** A percent of the leg's premium, or option points. */
+export type LegUnit = "pct" | "points";
 
 export interface LabCondition {
   signal: string;
@@ -838,6 +846,10 @@ export interface ReplayTrade {
   costs: number;
   planned_loss: number;
   target_pnl: number;
+  /** Exit levels in rupees for the whole position, against its fill prices. */
+  stop_pnl: number | null;
+  trail_pnl: number | null;
+  breakeven_pnl: number | null;
   legs: {
     side: "buy" | "sell";
     option_type: string;
@@ -941,6 +953,17 @@ export interface TechCatalog {
   patterns: { name: string; label: string; bias: "bullish" | "bearish" | "neutral"; description: string }[];
 }
 
+/** An indicator chosen for a strategy, with its settings; its rules pick from these. */
+export interface IndicatorPick {
+  name: string;
+  params: Record<string, number>;
+  /** The user's own name for it, such as "fast EMA". Empty shows its standard name. */
+  label?: string | null;
+  /** The candles it is read on. */
+  timeframe?: TechTimeframe;
+  candles?: CandleType;
+}
+
 /** Another way into a strategy: its own legs and indicator rules, sharing everything else. */
 export interface LabCase {
   name: string;
@@ -948,6 +971,8 @@ export interface LabCase {
   legs: LabLeg[];
   rules?: TechRule[];
   any_rules?: TechRule[];
+  /** The case's own exit rules; null or missing uses the strategy's. */
+  exit_rules?: TechRule[] | null;
 }
 
 export interface LabSpec {
@@ -960,6 +985,17 @@ export interface LabSpec {
   legs: LabLeg[];
   /** More cases after the first; the first whose rules hold trades. */
   cases?: LabCase[];
+  /** The indicators the rules of every case choose from. */
+  indicators?: IndicatorPick[];
+  /** The account the strategy is tested as. */
+  budget?: {
+    capital: number;
+    risk_per_trade_pct: number;
+    max_open: number;
+    /** "budget" buys as many lots as `deploy_pct` of capital allows; "risk" sizes by risk. */
+    sizing?: "budget" | "risk";
+    deploy_pct?: number;
+  };
   entry: {
     trend: ("up" | "down" | "range")[];
     iv_rank_min: number | null;
@@ -976,6 +1012,12 @@ export interface LabSpec {
     time_to?: string | null;
     max_trades_per_day?: number | null;
     reenter_after_stop?: boolean;
+    /** False: no new trade after a profit target the same day. */
+    reenter_after_target?: boolean;
+    /** Wait and trade: after the rules hold, wait for the premium to move this far. */
+    wait_move?: number | null;
+    wait_unit?: LegUnit;
+    wait_direction?: "up" | "down";
   };
   exits: {
     /** Amounts in the unit beside each: a fraction of premium, rupees per lot, or points. */
@@ -1038,6 +1080,11 @@ export interface LabTradeLeg {
   units: number;
   entry_price: number | null;
   exit_price: number | null;
+  /** The leg's own exit levels and how it closed, when it closed before the rest. */
+  stop_price?: number | null;
+  target_price?: number | null;
+  exit_reason?: string | null;
+  closed_at?: string | null;
 }
 
 export interface LabTrade {

@@ -41,6 +41,7 @@ from algoverse.lab.replay import ReplayError, replay, stored_replay
 from algoverse.lab.seeds import TEMPLATES
 from algoverse.lab.spec import (
     SIGNALS,
+    Budget,
     StrategySpec,
     complexity_level,
     describe_entry,
@@ -59,7 +60,6 @@ from algoverse.lab.tuner import (
     new_node,
     public,
 )
-from algoverse.risk.config import load_risk_config
 from algoverse.settings import load_universe
 
 log = logging.getLogger(__name__)
@@ -140,7 +140,12 @@ class LabService:
             result = json.loads(self._result_path(spec.id).read_text())
         except FileNotFoundError:
             return None
-        return result if result.get("signature") == signature(spec) else None
+        if result.get("signature") != signature(spec):
+            return None
+        # Tested with another budget, or before budgets existed: the figures no longer apply.
+        if result.get("budget") != spec.budget.model_dump():
+            return None
+        return result
 
     def save(self, payload: dict, now: datetime) -> StrategySpec:
         """Create or replace a user strategy. Templates cannot be overwritten."""
@@ -258,7 +263,7 @@ class LabService:
                 "entry_text": describe_entry(spec),
                 "undefined_risk": has_undefined_risk(spec),
                 "level": complexity_level(spec),
-                "capital": load_risk_config(self.config_dir).capital,
+                "capital": spec.budget.capital,
                 "result": result,
                 "bars": bars,
                 "technical": technical_catalog(),
@@ -383,12 +388,14 @@ class LabService:
         self._require_history()
         client = self._design_client()
         config = load_backtest_config(self.config_dir)
-        risk = load_risk_config(self.config_dir)
         rounds = rounds or config.lab.rounds
         per_round = per_round or config.lab.per_round
+        # New strategies get the default budget, which is the account each one is tested as.
+        budget = Budget()
         account = {
-            "capital_inr": risk.capital,
-            "max_loss_per_trade_inr": risk.amount(risk.max_loss_per_trade_pct),
+            "capital_inr": budget.capital,
+            "max_loss_per_trade_inr": budget.risk_per_trade,
+            "max_open_positions": budget.max_open,
             "underlyings": config.symbols,
         }
         untested = [s for s in TEMPLATES if self.result(s) is None]
@@ -487,10 +494,10 @@ class LabService:
         return public(self._tuning(session_id))
 
     def _suggester(self, now: datetime, use_ai: bool, guidance: str, note):
-        risk = load_risk_config(self.config_dir)
+        budget = Budget()
         account = {
-            "capital_inr": risk.capital,
-            "max_loss_per_trade_inr": risk.amount(risk.max_loss_per_trade_pct),
+            "capital_inr": budget.capital,
+            "max_loss_per_trade_inr": budget.risk_per_trade,
         }
         client = self._design_client() if use_ai else None
         ai_log = AiLog(self.data_dir / "ai.sqlite")

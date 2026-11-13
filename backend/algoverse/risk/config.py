@@ -68,6 +68,9 @@ class RiskConfig(BaseModel):
     max_delta_notional_multiple: float = Field(gt=0)
     max_open_positions: int = Field(gt=0)
     max_lots_per_trade: int = Field(gt=0)
+    # Size each trade by money rather than by risk: as many lots as the margin room allows,
+    # with no loss-based, stress or Greek caps. Set for strategies tested on their own budget.
+    size_by_budget: bool = False
     stop_gap_buffer: float = Field(ge=1)
     stress: StressConfig
     margin: MarginConfig

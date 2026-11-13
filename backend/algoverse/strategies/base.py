@@ -46,6 +46,12 @@ class Leg:
     volume: float
     T: float
     forward: float
+    # The leg's own stop loss and profit target ("pct" of its fill price, or "points"), for
+    # custom strategies that set them. None when unused.
+    stop: float | None = None
+    stop_unit: str = "pct"
+    target: float | None = None
+    target_unit: str = "pct"
 
     @property
     def units(self) -> int:
@@ -75,6 +81,8 @@ class Candidate:
     profile: str
     bias: str  # bullish, bearish or neutral
     legs: tuple[Leg, ...]
+    # Which of a custom strategy's cases this came from: 0 is the first.
+    case: int = 0
 
     @property
     def front_expiry(self) -> date:
@@ -123,6 +131,13 @@ class ExpiryView:
         if side.empty:
             return None
         return side.loc[(side["delta"].abs() - delta).abs().idxmin()]
+
+    def by_premium(self, option_type: str, price: float) -> pd.Series | None:
+        """The contract whose mid price is nearest `price` rupees."""
+        side = self._sides[option_type]
+        if side.empty:
+            return None
+        return side.loc[(side["mid"] - price).abs().idxmin()]
 
     def atm(self, option_type: str) -> pd.Series | None:
         side = self._sides[option_type]

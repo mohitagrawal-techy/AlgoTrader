@@ -263,6 +263,309 @@ def heikin_ashi(bars: pd.DataFrame) -> pd.DataFrame:
     return frame.reset_index(drop=True)
 
 
+def _hma(series: pd.Series, period: int) -> pd.Series:
+    """Hull moving average: a weighted average of a sharpened weighted average."""
+    half = _wma(series, max(period // 2, 1))
+    full = _wma(series, period)
+    return _wma(2 * half - full, max(int(round(np.sqrt(period))), 1))
+
+
+def _keltner(bars: pd.DataFrame, period: int, atr_period: int, multiplier: float):
+    middle = _ema(bars["close"], period)
+    width = multiplier * _atr(bars, atr_period)
+    return {"upper": middle + width, "middle": middle, "lower": middle - width}
+
+
+def _midpoint(bars: pd.DataFrame, period: int) -> pd.Series:
+    return (bars["high"].rolling(period).max() + bars["low"].rolling(period).min()) / 2
+
+
+def _ichimoku(bars: pd.DataFrame, conversion: int, base: int, span: int) -> dict[str, pd.Series]:
+    """Ichimoku lines. The cloud is plotted `base` candles ahead, so each candle reads the cloud
+    values worked out that many candles earlier; nothing reads the future. The lagging line
+    (today's close plotted in the past) is left out because a rule could not use it."""
+    tenkan = _midpoint(bars, conversion)
+    kijun = _midpoint(bars, base)
+    return {
+        "conversion": tenkan,
+        "base": kijun,
+        "span_a": ((tenkan + kijun) / 2).shift(base),
+        "span_b": _midpoint(bars, span).shift(base),
+    }
+
+
+def _psar(bars: pd.DataFrame, step: float, maximum: float) -> dict[str, pd.Series]:
+    """Parabolic SAR, Wilder's stop-and-reverse."""
+    high, low, close = (bars[c].to_numpy(float) for c in ("high", "low", "close"))
+    n = len(bars)
+    sar, direction = np.full(n, np.nan), np.full(n, np.nan)
+    if n >= 2:
+        up = close[1] >= close[0]
+        extreme = high[0] if up else low[0]
+        level = low[0] if up else high[0]
+        factor = step
+        for i in range(1, n):
+            level = level + factor * (extreme - level)
+            if up:
+                level = min(level, low[i - 1], low[max(i - 2, 0)])
+                if low[i] < level:
+                    up, level, extreme, factor = False, extreme, low[i], step
+                elif high[i] > extreme:
+                    extreme, factor = high[i], min(factor + step, maximum)
+            else:
+                level = max(level, high[i - 1], high[max(i - 2, 0)])
+                if high[i] > level:
+                    up, level, extreme, factor = True, extreme, high[i], step
+                elif low[i] < extreme:
+                    extreme, factor = low[i], min(factor + step, maximum)
+            sar[i], direction[i] = level, 1.0 if up else -1.0
+    return {
+        "sar": pd.Series(sar, index=bars.index),
+        "direction": pd.Series(direction, index=bars.index),
+    }
+
+
+def _aroon(bars: pd.DataFrame, period: int) -> dict[str, pd.Series]:
+    window = period + 1
+    up = bars["high"].rolling(window).apply(lambda v: float(np.argmax(v)), raw=True) / period * 100
+    down = bars["low"].rolling(window).apply(lambda v: float(np.argmin(v)), raw=True) / period * 100
+    return {"up": up, "down": down, "oscillator": up - down}
+
+
+def _awesome(bars: pd.DataFrame, fast: int, slow: int) -> pd.Series:
+    median = (bars["high"] + bars["low"]) / 2
+    return median.rolling(fast).mean() - median.rolling(slow).mean()
+
+
+def _chandelier(bars: pd.DataFrame, period: int, multiplier: float) -> dict[str, pd.Series]:
+    """Chandelier exit: a trailing stop an ATR multiple from the highest high (for longs) or
+    the lowest low (for shorts) of the last N candles."""
+    atr = _atr(bars, period) * multiplier
+    return {
+        "long": bars["high"].rolling(period).max() - atr,
+        "short": bars["low"].rolling(period).min() + atr,
+    }
+
+
+def _coppock(bars: pd.DataFrame, long: int, short: int, smoothing: int) -> pd.Series:
+    close = bars["close"]
+    return _wma(close.pct_change(long) * 100 + close.pct_change(short) * 100, smoothing)
+
+
+def _fisher(bars: pd.DataFrame, period: int) -> dict[str, pd.Series]:
+    """Ehlers' Fisher transform of the median price's place in its recent range."""
+    median = ((bars["high"] + bars["low"]) / 2).to_numpy(float)
+    highest = pd.Series(median).rolling(period).max().to_numpy()
+    lowest = pd.Series(median).rolling(period).min().to_numpy()
+    n = len(bars)
+    fisher = np.full(n, np.nan)
+    value = previous = 0.0
+    for i in range(n):
+        if np.isnan(highest[i]):
+            continue
+        span = highest[i] - lowest[i]
+        position = (median[i] - lowest[i]) / span - 0.5 if span > 0 else 0.0
+        value = float(np.clip(0.66 * position + 0.67 * value, -0.999, 0.999))
+        previous = 0.5 * np.log((1 + value) / (1 - value)) + 0.5 * previous
+        fisher[i] = previous
+    line = pd.Series(fisher, index=bars.index)
+    return {"fisher": line, "trigger": line.shift(1)}
+
+
+def _half_trend(bars: pd.DataFrame, amplitude: int) -> dict[str, pd.Series]:
+    """HalfTrend: a trend line that flips only when the averages of highs or lows cross the
+    opposite extreme of the last `amplitude` candles."""
+    high, low, close = (bars[c].to_numpy(float) for c in ("high", "low", "close"))
+    highest = bars["high"].rolling(amplitude).max().to_numpy()
+    lowest = bars["low"].rolling(amplitude).min().to_numpy()
+    high_ma = bars["high"].rolling(amplitude).mean().to_numpy()
+    low_ma = bars["low"].rolling(amplitude).mean().to_numpy()
+    n = len(bars)
+    line, direction = np.full(n, np.nan), np.full(n, np.nan)
+    trend, next_trend = 0, 0
+    max_low = low[0] if n else np.nan
+    min_high = high[0] if n else np.nan
+    up = down = np.nan
+    previous_trend = None
+    for i in range(1, n):
+        if np.isnan(high_ma[i]):
+            continue
+        if next_trend == 1:
+            max_low = max(lowest[i], max_low)
+            if high_ma[i] < max_low and close[i] < low[i - 1]:
+                trend, next_trend, min_high = 1, 0, highest[i]
+        else:
+            min_high = min(highest[i], min_high)
+            if low_ma[i] > min_high and close[i] > high[i - 1]:
+                trend, next_trend, max_low = 0, 1, lowest[i]
+        if trend == 0:
+            if previous_trend is not None and previous_trend != 0:
+                up = down if not np.isnan(down) else max_low
+            else:
+                up = max_low if np.isnan(up) else max(max_low, up)
+            line[i] = up
+        else:
+            if previous_trend is not None and previous_trend != 1:
+                down = up if not np.isnan(up) else min_high
+            else:
+                down = min_high if np.isnan(down) else min(min_high, down)
+            line[i] = down
+        direction[i] = 1.0 if trend == 0 else -1.0
+        previous_trend = trend
+    return {
+        "line": pd.Series(line, index=bars.index),
+        "direction": pd.Series(direction, index=bars.index),
+    }
+
+
+def _stoch_rsi(bars: pd.DataFrame, period: int, stoch: int, k: int, d: int):
+    strength = rsi(bars["close"], period)
+    lowest = strength.rolling(stoch).min()
+    highest = strength.rolling(stoch).max()
+    raw = 100 * (strength - lowest) / (highest - lowest).replace(0, np.nan)
+    fast = raw.rolling(k).mean()
+    return {"k": fast, "d": fast.rolling(d).mean()}
+
+
+def _trend_intensity(bars: pd.DataFrame, period: int, signal: int) -> dict[str, pd.Series]:
+    """Trend intensity index: the share of the last half-period's distance from the moving
+    average that was above it, 0 to 100."""
+    close = bars["close"]
+    gap = close - close.rolling(period).mean()
+    half = max(period // 2, 1)
+    above = gap.clip(lower=0).rolling(half).sum()
+    below = (-gap).clip(lower=0).rolling(half).sum()
+    index = 100 * above / (above + below).replace(0, np.nan)
+    return {"tii": index, "signal": _ema(index, signal)}
+
+
+def _alligator(bars: pd.DataFrame, jaw: int, teeth: int, lips: int) -> dict[str, pd.Series]:
+    """Williams Alligator: smoothed averages of the median price, each plotted some candles
+    ahead (8, 5 and 3), so each candle reads values worked out earlier."""
+    median = (bars["high"] + bars["low"]) / 2
+    return {
+        "jaw": _wilder(median, jaw).shift(8),
+        "teeth": _wilder(median, teeth).shift(5),
+        "lips": _wilder(median, lips).shift(3),
+    }
+
+
+def _qqe(bars: pd.DataFrame, period: int, smoothing: int, factor: float) -> dict[str, pd.Series]:
+    """QQE: a smoothed RSI and a trailing line set by the RSI's own volatility. Signals are the
+    smoothed RSI crossing the trailing line, or crossing 50."""
+    smoothed = _ema(rsi(bars["close"], period), smoothing)
+    wilders = period * 2 - 1
+    band = _ema(_ema((smoothed - smoothed.shift(1)).abs(), wilders), wilders) * factor
+    values, widths = smoothed.to_numpy(float), band.to_numpy(float)
+    n = len(values)
+    trailing = np.full(n, np.nan)
+    long_band = short_band = np.nan
+    trend = 1
+    for i in range(1, n):
+        if np.isnan(values[i]) or np.isnan(widths[i]) or np.isnan(values[i - 1]):
+            continue
+        new_long, new_short = values[i] - widths[i], values[i] + widths[i]
+        if np.isnan(long_band):
+            long_band, short_band = new_long, new_short
+        else:
+            last_long, last_short = long_band, short_band
+            long_band = (
+                max(last_long, new_long)
+                if values[i - 1] > last_long and values[i] > last_long
+                else new_long
+            )
+            short_band = (
+                min(last_short, new_short)
+                if values[i - 1] < last_short and values[i] < last_short
+                else new_short
+            )
+            if values[i - 1] <= last_short < values[i]:
+                trend = 1
+            elif values[i - 1] >= last_long > values[i]:
+                trend = -1
+        trailing[i] = long_band if trend == 1 else short_band
+    return {"rsi_ma": smoothed, "trailing": pd.Series(trailing, index=bars.index)}
+
+
+def _days(bars: pd.DataFrame) -> pd.Series:
+    """Each candle's calendar day, in India time."""
+    times = pd.to_datetime(bars["ts"])
+    local = times.dt.tz_convert("Asia/Kolkata") if times.dt.tz is not None else times
+    return local.dt.normalize().set_axis(bars.index)
+
+
+def _previous_day(bars: pd.DataFrame) -> pd.DataFrame:
+    """The previous session's open, high, low and close, beside each candle. On daily or
+    longer candles that is simply the previous candle."""
+    day = _days(bars)
+    grouped = bars.groupby(day)
+    sessions = pd.DataFrame(
+        {
+            "open": grouped["open"].first(),
+            "high": grouped["high"].max(),
+            "low": grouped["low"].min(),
+            "close": grouped["close"].last(),
+        }
+    ).shift(1)
+    return sessions.loc[day.to_numpy()].set_axis(bars.index)
+
+
+def _today(bars: pd.DataFrame) -> dict[str, pd.Series]:
+    """The session so far: its open, and the high and low up to this candle."""
+    grouped = bars.groupby(_days(bars))
+    return {
+        "open": grouped["open"].transform("first"),
+        "high": grouped["high"].cummax(),
+        "low": grouped["low"].cummin(),
+    }
+
+
+def _cpr(bars: pd.DataFrame) -> dict[str, pd.Series]:
+    """Central pivot range and floor pivots from the previous session (the previous candle on
+    daily or longer candles)."""
+    day = _previous_day(bars)
+    high, low, close = day["high"], day["low"], day["close"]
+    pivot = (high + low + close) / 3
+    bottom = (high + low) / 2
+    top = 2 * pivot - bottom
+    return {
+        "p": pivot,
+        "tc": np.fmax(top, bottom),
+        "bc": np.fmin(top, bottom),
+        "r1": 2 * pivot - low,
+        "s1": 2 * pivot - high,
+        "r2": pivot + (high - low),
+        "s2": pivot - (high - low),
+        "r3": high + 2 * (pivot - low),
+        "s3": low - 2 * (high - pivot),
+    }
+
+
+def _candle_at(bars: pd.DataFrame, at: int) -> dict[str, pd.Series]:
+    """The candle that contains `at` (HHMM, India time) each session, from that candle on: on
+    15-minute candles 09:20 is the 09:15 candle. Its values are final then, since only finished
+    candles are read."""
+    empty = pd.Series(np.nan, index=bars.index, dtype=float)
+    hours, minutes = divmod(int(at), 100)
+    # Any intraday candle size will do; daily or longer candles have no time of day.
+    found = _session_offsets(bars, 24 * 60)
+    if found is None or minutes >= 60:
+        return dict.fromkeys(("open", "high", "low", "close"), empty)
+    day, offset = found
+    gaps = offset.groupby(day).diff()
+    size = float(gaps[gaps > 0].min())
+    target = hours * 60 + minutes - (9 * 60 + 15)
+    hit = (offset <= target) & (target < offset + size)
+    return {
+        name: bars[name].where(hit).groupby(day).ffill()
+        for name in ("open", "high", "low", "close")
+    }
+
+
+def _with_average(values: pd.Series, period: int, field: str) -> dict[str, pd.Series]:
+    return {field: values, "ma": values.rolling(period).mean()}
+
+
 @dataclass(frozen=True)
 class Param:
     name: str
@@ -476,6 +779,202 @@ INDICATORS: dict[str, Indicator] = {
         _pivots,
         fields={"p": "Pivot", "r1": "R1", "s1": "S1", "r2": "R2", "s2": "S2"},
     ),
+    "hma": Indicator(
+        "Hull moving average",
+        lambda b, period: _hma(b["close"], int(period)),
+        (_p("period", "Period", 20, 4, 400),),
+        description="A fast moving average that lags less than an EMA",
+    ),
+    "smma": Indicator(
+        "Smoothed moving average (SMMA, Wilder)",
+        lambda b, period: _wilder(b["close"], int(period)),
+        (_p("period", "Period", 14, 2, 400),),
+        description="Wilder's smoothing, as RSI and ATR use",
+    ),
+    "keltner": Indicator(
+        "Keltner channel",
+        lambda b, period, atr_period, multiplier: _keltner(
+            b, int(period), int(atr_period), float(multiplier)
+        ),
+        (
+            _p("period", "EMA period", 20, 2, 200),
+            _p("atr_period", "ATR period", 10, 2, 100),
+            _p("multiplier", "ATR multiple", 2, 0.5, 5, whole=False),
+        ),
+        {"upper": "Upper", "middle": "Middle (EMA)", "lower": "Lower"},
+        description="An EMA with bands an ATR multiple above and below",
+    ),
+    "ichimoku": Indicator(
+        "Ichimoku cloud",
+        lambda b, conversion, base, span: _ichimoku(b, int(conversion), int(base), int(span)),
+        (
+            _p("conversion", "Conversion", 9, 2, 100),
+            _p("base", "Base", 26, 2, 200),
+            _p("span", "Leading span B", 52, 2, 300),
+        ),
+        {
+            "conversion": "Conversion line (Tenkan)",
+            "base": "Base line (Kijun)",
+            "span_a": "Leading span A",
+            "span_b": "Leading span B",
+        },
+        description="Price above both leading spans is above the cloud",
+    ),
+    "psar": Indicator(
+        "Parabolic SAR",
+        lambda b, step, maximum: _psar(b, float(step), float(maximum)),
+        (
+            _p("step", "Step", 0.02, 0.005, 0.2, whole=False),
+            _p("maximum", "Maximum", 0.2, 0.05, 1, whole=False),
+        ),
+        {"sar": "SAR", "direction": "Direction (+1 up, -1 down)"},
+        description="A trailing stop that speeds up as a trend extends",
+    ),
+    "aroon": Indicator(
+        "Aroon",
+        lambda b, period: _aroon(b, int(period)),
+        (_p("period", "Period", 25, 2, 200),),
+        {"up": "Aroon up", "down": "Aroon down", "oscillator": "Oscillator (up minus down)"},
+        unit="index",
+        description="How recently the highest high and lowest low were made, 0 to 100",
+    ),
+    "awesome": Indicator(
+        "Awesome oscillator",
+        lambda b, fast, slow: _awesome(b, int(fast), int(slow)),
+        (_p("fast", "Fast", 5, 2, 50), _p("slow", "Slow", 34, 3, 200)),
+        unit="ratio",
+        description="5- less 34-candle average of the median price; above 0 is bullish",
+    ),
+    "chandelier": Indicator(
+        "Chandelier exit",
+        lambda b, period, multiplier: _chandelier(b, int(period), float(multiplier)),
+        (
+            _p("period", "Period", 22, 2, 200),
+            _p("multiplier", "ATR multiple", 3, 0.5, 10, whole=False),
+        ),
+        {"long": "Long stop", "short": "Short stop"},
+        description="Trailing stops an ATR multiple from the recent extreme",
+    ),
+    "coppock": Indicator(
+        "Coppock curve",
+        lambda b, long, short, smoothing: _coppock(b, int(long), int(short), int(smoothing)),
+        (
+            _p("long", "Long ROC", 14, 2, 100),
+            _p("short", "Short ROC", 11, 1, 100),
+            _p("smoothing", "WMA period", 10, 2, 100),
+        ),
+        unit="ratio",
+        description="Momentum turning up from below 0 is a buy signal",
+    ),
+    "fisher": Indicator(
+        "Fisher transform",
+        lambda b, period: _fisher(b, int(period)),
+        (_p("period", "Period", 9, 2, 100),),
+        {"fisher": "Fisher", "trigger": "Trigger (previous value)"},
+        unit="ratio",
+        description="Turning points stand out as sharp peaks",
+    ),
+    "halftrend": Indicator(
+        "HalfTrend",
+        lambda b, amplitude: _half_trend(b, int(amplitude)),
+        (_p("amplitude", "Amplitude", 2, 1, 50),),
+        {"line": "HalfTrend line", "direction": "Direction (+1 up, -1 down)"},
+        description="A trend line that flips only on a clear change of trend",
+    ),
+    "stoch_rsi": Indicator(
+        "Stochastic RSI",
+        lambda b, period, stoch, k, d: _stoch_rsi(b, int(period), int(stoch), int(k), int(d)),
+        (
+            _p("period", "RSI period", 14, 2, 100),
+            _p("stoch", "Stochastic period", 14, 2, 100),
+            _p("k", "%K smoothing", 3, 1, 20),
+            _p("d", "%D smoothing", 3, 1, 20),
+        ),
+        {"k": "%K", "d": "%D"},
+        unit="index",
+        description="RSI's place in its recent range, 0 to 100",
+    ),
+    "tii": Indicator(
+        "Trend intensity index",
+        lambda b, period, signal: _trend_intensity(b, int(period), int(signal)),
+        (_p("period", "Period", 30, 4, 200), _p("signal", "Signal EMA", 9, 2, 50)),
+        {"tii": "TII", "signal": "Signal"},
+        unit="index",
+        description="Above 80 a strong uptrend, below 20 a strong downtrend",
+    ),
+    "alligator": Indicator(
+        "Williams Alligator",
+        lambda b, jaw, teeth, lips: _alligator(b, int(jaw), int(teeth), int(lips)),
+        (
+            _p("jaw", "Jaw", 13, 2, 100),
+            _p("teeth", "Teeth", 8, 2, 100),
+            _p("lips", "Lips", 5, 2, 100),
+        ),
+        {"jaw": "Jaw", "teeth": "Teeth", "lips": "Lips"},
+        description="Lips above teeth above jaw is an uptrend",
+    ),
+    "qqe": Indicator(
+        "QQE",
+        lambda b, period, smoothing, factor: _qqe(b, int(period), int(smoothing), float(factor)),
+        (
+            _p("period", "RSI period", 14, 2, 100),
+            _p("smoothing", "Smoothing", 5, 1, 50),
+            _p("factor", "Factor", 4.236, 1, 10, whole=False),
+        ),
+        {"rsi_ma": "Smoothed RSI", "trailing": "Trailing line"},
+        unit="index",
+        description="Signals when the smoothed RSI crosses the trailing line or 50",
+    ),
+    "rsi_ma": Indicator(
+        "RSI with moving average",
+        lambda b, period, ma: _with_average(rsi(b["close"], int(period)), int(ma), "rsi"),
+        (PERIOD, _p("ma", "Average period", 14, 2, 100)),
+        {"rsi": "RSI", "ma": "Average of RSI"},
+        unit="index",
+    ),
+    "atr_ma": Indicator(
+        "ATR with moving average",
+        lambda b, period, ma: _with_average(_atr(b, int(period)), int(ma), "atr"),
+        (PERIOD, _p("ma", "Average period", 14, 2, 100)),
+        {"atr": "ATR", "ma": "Average of ATR"},
+        description="ATR above its average means volatility is expanding",
+    ),
+    "cpr": Indicator(
+        "CPR and pivot points (previous day)",
+        _cpr,
+        fields={
+            "p": "Pivot",
+            "tc": "CPR top",
+            "bc": "CPR bottom",
+            "r1": "R1",
+            "s1": "S1",
+            "r2": "R2",
+            "s2": "S2",
+            "r3": "R3",
+            "s3": "S3",
+        },
+        description="From the previous session's high, low and close",
+    ),
+    "today": Indicator(
+        "Today's candle so far",
+        _today,
+        fields={"open": "Open", "high": "High so far", "low": "Low so far"},
+        description="The session's open, and its high and low up to this candle",
+    ),
+    "prev_day": Indicator(
+        "Previous day's candle",
+        lambda b: {name: values for name, values in _previous_day(b).items()},
+        fields={"open": "Open", "high": "High", "low": "Low", "close": "Close"},
+        description="Yesterday's open, high, low and close",
+    ),
+    "candle_at": Indicator(
+        "Candle at a time",
+        lambda b, at: _candle_at(b, int(at)),
+        (_p("at", "Starts at (HHMM)", 920, 915, 1525),),
+        {"open": "Open", "high": "High", "low": "Low", "close": "Close"},
+        description="The candle starting at this time each day, for example 920 for 09:20",
+        intraday_only=True,
+    ),
 }
 
 
@@ -499,12 +998,26 @@ CHART_OVERLAY = {
     "opening_range",
     "opening_range_body",
     "pivots",
+    "hma",
+    "smma",
+    "keltner",
+    "ichimoku",
+    "psar",
+    "chandelier",
+    "halftrend",
+    "alligator",
+    "cpr",
+    "today",
+    "prev_day",
+    "candle_at",
 }
 # Fields of overlay indicators that are not prices.
 CHART_SEPARATE_FIELDS = {
     ("bbands", "width_pct"),
     ("bbands", "percent_b"),
     ("supertrend", "direction"),
+    ("psar", "direction"),
+    ("halftrend", "direction"),
 }
 
 
@@ -545,6 +1058,29 @@ def _three(b: pd.DataFrame, up: bool) -> pd.Series:
     rising = b["close"] > b["close"].shift(1) if up else b["close"] < b["close"].shift(1)
     run = colour & rising
     return run & run.shift(1, fill_value=False) & colour.shift(2, fill_value=False)
+
+
+def _cover(b: pd.DataFrame, bearish: bool) -> pd.Series:
+    """Dark cloud cover (bearish) or piercing line: the second candle opens beyond the first's
+    close and closes past the middle of its body, but not past its open."""
+    _, _, _, _, green, red = _parts(b)
+    first_open, first_close = b["open"].shift(1), b["close"].shift(1)
+    middle = (first_open + first_close) / 2
+    if bearish:
+        return (
+            green.shift(1, fill_value=False)
+            & red
+            & (b["open"] > first_close)
+            & (b["close"] < middle)
+            & (b["close"] > first_open)
+        )
+    return (
+        red.shift(1, fill_value=False)
+        & green
+        & (b["open"] < first_close)
+        & (b["close"] > middle)
+        & (b["close"] < first_open)
+    )
 
 
 @dataclass(frozen=True)
@@ -606,6 +1142,107 @@ PATTERNS: dict[str, Pattern] = {
         "bearish",
         lambda b: _shape(b, lambda body, span, up, low, g, r: r & (body >= span * 0.9)),
         "A strong red candle with hardly any shadows",
+    ),
+    "hanging_man": Pattern(
+        "Hanging man (bearish hammer)",
+        "bearish",
+        lambda b: (
+            _shape(
+                b, lambda body, span, up, low, g, r: (low >= 2 * body) & (up <= body) & (body > 0)
+            )
+            & (b["close"].shift(1) > b["close"].shift(4))
+        ),
+        "A hammer shape after a rise",
+    ),
+    "inverted_hammer": Pattern(
+        "Inverted hammer (bullish)",
+        "bullish",
+        lambda b: (
+            _shape(
+                b, lambda body, span, up, low, g, r: (up >= 2 * body) & (low <= body) & (body > 0)
+            )
+            & (b["close"].shift(1) < b["close"].shift(4))
+        ),
+        "A long upper shadow and small body after a fall",
+    ),
+    "bullish_spinning_top": Pattern(
+        "Bullish spinning top",
+        "neutral",
+        lambda b: _shape(
+            b,
+            lambda body, span, up, low, g, r: (
+                g & (body > span * 0.1) & (body <= span * 0.3) & (up > body) & (low > body)
+            ),
+        ),
+        "A small green body with shadows on both sides: indecision",
+    ),
+    "bearish_spinning_top": Pattern(
+        "Bearish spinning top",
+        "neutral",
+        lambda b: _shape(
+            b,
+            lambda body, span, up, low, g, r: (
+                r & (body > span * 0.1) & (body <= span * 0.3) & (up > body) & (low > body)
+            ),
+        ),
+        "A small red body with shadows on both sides: indecision",
+    ),
+    "dragonfly_doji": Pattern(
+        "Dragonfly doji",
+        "bullish",
+        lambda b: _shape(
+            b,
+            lambda body, span, up, low, g, r: (
+                (body <= span * 0.1) & (up <= span * 0.1) & (low >= span * 0.6)
+            ),
+        ),
+        "Open and close at the top, with a long lower shadow",
+    ),
+    "gravestone_doji": Pattern(
+        "Gravestone doji",
+        "bearish",
+        lambda b: _shape(
+            b,
+            lambda body, span, up, low, g, r: (
+                (body <= span * 0.1) & (low <= span * 0.1) & (up >= span * 0.6)
+            ),
+        ),
+        "Open and close at the bottom, with a long upper shadow",
+    ),
+    "long_legged_doji": Pattern(
+        "Long-legged doji",
+        "neutral",
+        lambda b: _shape(
+            b,
+            lambda body, span, up, low, g, r: (
+                (body <= span * 0.1) & (up >= span * 0.3) & (low >= span * 0.3)
+            ),
+        ),
+        "Open and close almost equal, with long shadows both ways",
+    ),
+    "dark_cloud_cover": Pattern(
+        "Dark cloud cover",
+        "bearish",
+        lambda b: _cover(b, bearish=True),
+        "After a green candle, a red one opens above its close and closes below its middle",
+    ),
+    "piercing_line": Pattern(
+        "Piercing line",
+        "bullish",
+        lambda b: _cover(b, bearish=False),
+        "After a red candle, a green one opens below its close and closes above its middle",
+    ),
+    "strong_green": Pattern(
+        "Green with no lower shadow",
+        "bullish",
+        lambda b: _shape(b, lambda body, span, up, low, g, r: g & (low <= span * 0.02)),
+        "With Heikin-Ashi candles, the strongly bullish candle",
+    ),
+    "strong_red": Pattern(
+        "Red with no upper shadow",
+        "bearish",
+        lambda b: _shape(b, lambda body, span, up, low, g, r: r & (up <= span * 0.02)),
+        "With Heikin-Ashi candles, the strongly bearish candle",
     ),
     "inside_bar": Pattern(
         "Inside bar",

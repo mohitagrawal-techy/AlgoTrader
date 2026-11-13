@@ -31,6 +31,7 @@ from algoverse.lab.spec import (
     StrategySpec,
     apply_specs,
     signature,
+    with_budget,
 )
 
 HELD_UP = "held_up"
@@ -105,7 +106,7 @@ def _run(task: tuple) -> dict:
     days: set = set()
     history, base, reference = _load(data_dir, config_dir)
     spec = StrategySpec.model_validate_json(spec_json)
-    services = apply_specs(base, [spec])
+    services = with_budget(apply_specs(base, [spec]), spec)
     custom = CustomSet([spec])
     outcomes: Counter = Counter()
 
@@ -219,11 +220,13 @@ def _plan(tasks: list[tuple], workers: int) -> list[tuple[int, tuple]]:
     return planned
 
 
-def _merge(parts: list[dict], data_dir: str, config_dir: str) -> dict:
-    """One window's results from its chunks, which arrive in order."""
+def _merge(parts: list[dict], data_dir: str, config_dir: str, spec_json: str) -> dict:
+    """One window's results from its chunks, which arrive in order. Stats are measured
+    against the strategy's own budget, as a single run's are."""
     if len(parts) == 1:
         return parts[0]
-    services = _load(data_dir, config_dir)[1]
+    spec = StrategySpec.model_validate_json(spec_json)
+    services = with_budget(apply_specs(_load(data_dir, config_dir)[1], [spec]), spec)
     frames = [p["frame"] for p in parts if not p["frame"].empty]
     trades = pd.concat(frames, ignore_index=True) if frames else parts[0]["frame"]
     series = [p["daily_series"] for p in parts if len(p["daily_series"])]
@@ -333,7 +336,7 @@ def run_tasks(
     for (index, _), result in zip(planned, raw, strict=True):
         grouped.setdefault(index, []).append(result)
     return [
-        _public(_merge(grouped[index], tasks[index][0], tasks[index][1]))
+        _public(_merge(grouped[index], tasks[index][0], tasks[index][1], tasks[index][2]))
         for index in range(len(tasks))
     ]
 
@@ -395,6 +398,8 @@ def evaluate_specs(
                 "strategy_id": spec.id,
                 "signature": signature(spec),
                 "evaluated_at": now,
+                # The budget it was tested with; a different one makes the result stale.
+                "budget": spec.budget.model_dump(),
                 "config_hash": digest,
                 "windows": windows.__dict__,
                 "train": train,

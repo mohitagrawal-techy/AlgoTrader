@@ -57,6 +57,28 @@ def effective_stop(position: Position) -> tuple[float, str]:
     return stop, reason
 
 
+def _leg_levels(leg: PaperLeg) -> tuple[float | None, float | None]:
+    """The option prices at which a filled leg's own stop and target trigger."""
+
+    def distance(amount: float | None, unit: str) -> float | None:
+        if amount is None:
+            return None
+        return leg.entry_price * amount / 100 if unit == "pct" else amount
+
+    stop, target = distance(leg.stop, leg.stop_unit), distance(leg.target, leg.target_unit)
+    if leg.side > 0:
+        stop_price = None if stop is None else leg.entry_price - stop
+        target_price = None if target is None else leg.entry_price + target
+    else:
+        stop_price = None if stop is None else leg.entry_price + stop
+        target_price = None if target is None else leg.entry_price - target
+    if stop_price is not None and stop_price <= 0:
+        stop_price = None
+    if target_price is not None and target_price <= 0:
+        target_price = None
+    return stop_price, target_price
+
+
 def _settlement_moment(expiry: date) -> datetime:
     return datetime.combine(expiry, SETTLEMENT_TIME, tzinfo=IST)
 
@@ -100,6 +122,10 @@ class PaperBroker:
                 delta=leg.delta,
                 gamma=leg.gamma,
                 vega=leg.vega,
+                stop=getattr(leg, "stop", None),
+                stop_unit=getattr(leg, "stop_unit", "pct"),
+                target=getattr(leg, "target", None),
+                target_unit=getattr(leg, "target_unit", "pct"),
             )
             for leg in idea.candidate.legs
         ]
@@ -120,6 +146,7 @@ class PaperBroker:
             legs=legs,
             trail_pnl=None if idea.plan.trail is None else idea.plan.trail * lots,
             breakeven_pnl=None if idea.plan.breakeven_at is None else idea.plan.breakeven_at * lots,
+            case=getattr(idea.candidate, "case", 0),
         )
         position_id = self.ledger.save(position)
         self.ledger.log(now, position_id, "submitted", f"{position.strategy} x{lots}")
@@ -133,6 +160,8 @@ class PaperBroker:
         halted = self._is_halted(now)
         for position in self.ledger.positions((PENDING,)):
             self._try_entry(position, now, quotes, halted, report)
+        for position in self.ledger.positions((OPEN,)):
+            self._fill_leg_exits(position, now, quotes, report)
         for position in self.ledger.positions((EXITING,)):
             self._try_exit(position, now, quotes, report)
         for position in self.ledger.positions((OPEN, EXITING)):
@@ -149,6 +178,8 @@ class PaperBroker:
         acted on then, not at the next decision."""
         quotes = _quote_book(chains)
         report = StepReport()
+        for position in self.ledger.positions((OPEN,)):
+            self._fill_leg_exits(position, now, quotes, report)
         for position in self.ledger.positions((EXITING,)):
             self._try_exit(position, now, quotes, report)
         self._record_equity_and_halt(now, report)
@@ -163,6 +194,8 @@ class PaperBroker:
             values = extremes(position)
             if values is None:
                 continue
+            if len(values) > 2 and self._trigger_legs(position, now, values[2]):
+                self.ledger.save(position)
             stop, reason = effective_stop(position)
             if values[0] <= stop:
                 self._begin_exit(position, now, reason, report)
@@ -198,7 +231,8 @@ class PaperBroker:
     def _close_at_marks(self, position, now, report: StepReport) -> None:
         """Last resort when a position has no quote: close at its last known value."""
         position.exit_reason = "end_of_test_at_last_mark"
-        self._close(position, now, [leg.mark for leg in position.legs], 0.0, report)
+        prices = [leg.exit_price if leg.closed else leg.mark for leg in position.legs]
+        self._close(position, now, prices, 0.0, report)
 
     def portfolio_state(self, now: datetime) -> PortfolioState:
         state = PortfolioState(
@@ -219,6 +253,8 @@ class PaperBroker:
             spot = position.last_spot
             gamma = 0.0
             for leg in position.legs:
+                if leg.closed:
+                    continue
                 state.delta_notional += leg.side * leg.units * leg.delta * spot
                 state.vega += leg.side * leg.units * leg.vega
                 gamma += leg.side * leg.units * leg.gamma
@@ -233,7 +269,8 @@ class PaperBroker:
 
     def _current_pnl(self) -> float:
         open_pnl = sum(
-            p.unrealized_pnl - p.entry_costs for p in self.ledger.positions((OPEN, EXITING))
+            p.unrealized_pnl - p.entry_costs - p.exit_costs
+            for p in self.ledger.positions((OPEN, EXITING))
         )
         return self.ledger.realized_total() + open_pnl
 
@@ -295,6 +332,7 @@ class PaperBroker:
         for leg, price in zip(position.legs, fills, strict=True):
             leg.entry_price = price
             leg.mark = price
+            leg.stop_price, leg.target_price = _leg_levels(leg)
             position.entry_costs += self.costs.order(leg.side > 0, price, leg.units, now.date())
         position.status = OPEN
         position.opened_at = now.isoformat()
@@ -312,13 +350,17 @@ class PaperBroker:
         return max(price - leg.side * self.paper.slippage_per_leg, 0.0)
 
     def _try_exit(self, position, now, quotes, report: StepReport) -> None:
-        """Close every leg at one snapshot, or wait until all legs have quotes."""
-        prices = [self._exit_quote(leg, quotes) for leg in position.legs]
+        """Close every leg at one snapshot, or wait until all legs have quotes. Legs that
+        already closed on their own stop or target keep their fill."""
+        prices = [
+            leg.exit_price if leg.closed else self._exit_quote(leg, quotes) for leg in position.legs
+        ]
         if any(price is None for price in prices):
             return
         costs = sum(
             self.costs.order(leg.side < 0, price, leg.units, now.date())
             for leg, price in zip(position.legs, prices, strict=True)
+            if not leg.closed
         )
         self._close(position, now, prices, costs, report)
 
@@ -330,6 +372,9 @@ class PaperBroker:
         expiry_day = position.front_expiry
         estimated = False
         for leg in position.legs:
+            if leg.closed:
+                prices.append(leg.exit_price)
+                continue
             if date.fromisoformat(leg.expiry) == expiry_day:
                 intrinsic = _intrinsic(leg, position.last_spot)
                 prices.append(intrinsic)
@@ -353,8 +398,8 @@ class PaperBroker:
             leg.exit_price = price
             leg.mark = price
             gross += leg.side * (price - leg.entry_price) * leg.units
-        position.exit_costs = exit_costs
-        position.realized_pnl = gross - position.entry_costs - exit_costs
+        position.exit_costs += exit_costs
+        position.realized_pnl = gross - position.entry_costs - position.exit_costs
         position.unrealized_pnl = 0.0
         position.status = CLOSED
         position.closed_at = now.isoformat()
@@ -363,6 +408,57 @@ class PaperBroker:
             now, position.id, "closed", f"{position.exit_reason}: {position.realized_pnl:.2f}"
         )
         report.closed.append(position.id)
+
+    def _trigger_legs(self, position, now: datetime, ranges) -> bool:
+        """Mark legs whose own stop or target was reached, given each leg's (low, high) price
+        or None. A stop wins when both were reachable. The legs fill at the next quotes."""
+        changed = False
+        for leg, prices in zip(position.legs, ranges, strict=True):
+            if prices is None or leg.exit_reason is not None or leg.entry_price is None:
+                continue
+            low, high = prices
+            if low is None or high is None:
+                continue
+            worst, best = (low, high) if leg.side > 0 else (high, low)
+            hit_stop = leg.stop_price is not None and (
+                worst <= leg.stop_price if leg.side > 0 else worst >= leg.stop_price
+            )
+            hit_target = leg.target_price is not None and (
+                best >= leg.target_price if leg.side > 0 else best <= leg.target_price
+            )
+            if hit_stop or hit_target:
+                leg.exit_reason = "leg_stop" if hit_stop else "leg_target"
+                self.ledger.log(
+                    now,
+                    position.id,
+                    "leg_exit_triggered",
+                    f"{leg.option_type} {leg.strike:g} {leg.exit_reason}",
+                )
+                changed = True
+        return changed
+
+    def _fill_leg_exits(self, position, now, quotes, report: StepReport) -> None:
+        """Close legs that hit their own stop or target. When none is left open, the position
+        closes with the last leg's reason."""
+        waiting = [leg for leg in position.legs if leg.exit_reason and leg.exit_price is None]
+        if not waiting:
+            return
+        for leg in waiting:
+            price = self._exit_quote(leg, quotes)
+            if price is None:
+                continue
+            leg.exit_price = price
+            leg.mark = price
+            leg.closed_at = now.isoformat()
+            position.exit_costs += self.costs.order(leg.side < 0, price, leg.units, now.date())
+            self.ledger.log(now, position.id, "leg_closed", f"{leg.exit_reason} at {price:.2f}")
+        if all(leg.closed for leg in position.legs):
+            position.exit_reason = max(
+                position.legs, key=lambda leg: leg.closed_at or ""
+            ).exit_reason
+            self._close(position, now, [leg.exit_price for leg in position.legs], 0.0, report)
+        else:
+            self.ledger.save(position)
 
     def _begin_exit(self, position, now, reason: str, report: StepReport) -> None:
         position.status = EXITING
@@ -386,6 +482,8 @@ class PaperBroker:
             position.last_spot = spots[position.symbol]
         stale = False
         for leg in position.legs:
+            if leg.closed:
+                continue
             quote = quotes.get(leg.instrument_key)
             mid = None if quote is None else quote["mid"]
             if not _usable(mid) or math.isnan(float(mid)):
@@ -404,6 +502,8 @@ class PaperBroker:
             return
         if not stale:
             position.peak_pnl = max(position.peak_pnl, position.unrealized_pnl)
+            self.ledger.save(position)
+        if self._trigger_legs(position, now, [(leg.mark, leg.mark) for leg in position.legs]):
             self.ledger.save(position)
         stop, reason = effective_stop(position)
         if not stale and position.unrealized_pnl >= position.target_pnl:

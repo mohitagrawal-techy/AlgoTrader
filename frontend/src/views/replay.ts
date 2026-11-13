@@ -23,6 +23,31 @@ export interface ReplayTimeline {
   /** Candle of each trade's entry and exit, or -1 before the first candle. */
   entries: number[];
   exits: number[];
+  /** Where the open trade's stop and target sit on the same P&L scale, or null when flat. */
+  stop: (number | null)[];
+  target: (number | null)[];
+}
+
+/** The stop in force before `until`: the fixed stop, raised by move-to-cost and the trailing
+ * stop once the trade has been in profit, as the paper engine does. */
+export function stopAt(trade: ReplayTrade, until: number): { level: number; kind: string } | null {
+  if (trade.stop_pnl === null || trade.stop_pnl === undefined) return null;
+  let peak = 0;
+  for (const point of trade.path) {
+    if (point.time >= until) break;
+    peak = Math.max(peak, point.pnl);
+  }
+  let level = trade.stop_pnl;
+  let kind = "stop loss";
+  if (trade.breakeven_pnl !== null && trade.breakeven_pnl !== undefined && peak >= trade.breakeven_pnl && level < 0) {
+    level = 0;
+    kind = "stop at cost";
+  }
+  if (trade.trail_pnl !== null && trade.trail_pnl !== undefined && peak > 0 && peak - trade.trail_pnl > level) {
+    level = peak - trade.trail_pnl;
+    kind = "trailing stop";
+  }
+  return { level, kind };
 }
 
 /** Lines the backtest's trades up with the chart's candles. A candle runs until the next one
@@ -44,7 +69,25 @@ export function timeline(times: number[], data: ReplayData): ReplayTimeline {
     }
     return Math.round(total * 100) / 100;
   });
-  return { pnl, entries, exits };
+  const stop: (number | null)[] = [];
+  const target: (number | null)[] = [];
+  times.forEach((start, i) => {
+    const until = i + 1 < times.length ? times[i + 1] : Number.POSITIVE_INFINITY;
+    // Open at any time during this candle, including the candle it exits in.
+    const open = trades.find((trade) => trade.open_time < until && trade.close_time >= start);
+    if (!open) {
+      stop.push(null);
+      target.push(null);
+      return;
+    }
+    const realised = trades
+      .filter((trade) => trade !== open && trade.close_time < until)
+      .reduce((sum, trade) => sum + trade.net_pnl, 0);
+    const level = stopAt(open, until);
+    stop.push(level === null ? null : realised + level.level);
+    target.push(realised + open.target_pnl);
+  });
+  return { pnl, entries, exits, stop, target };
 }
 
 /** The open position's value before costs from the last price known before `until`. */

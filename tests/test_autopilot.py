@@ -24,6 +24,7 @@ def make(lab, name, offset, verdict, trades=20, sharpe=1.0):
         lab._result_path(spec.id),
         {
             "signature": signature(spec),
+            "budget": spec.budget.model_dump(),
             "verdict": verdict,
             "train": {"trades": trades, "sharpe": sharpe, "net_pnl": 100.0},
             "test": {"sharpe": 0.5},

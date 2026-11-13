@@ -8,6 +8,7 @@ import {
   HistogramSeries,
   LineSeries,
   LineStyle,
+  LineType,
   type IChartApi,
   type IPrimitivePaneRenderer,
   type IPrimitivePaneView,
@@ -22,6 +23,7 @@ import {
   api,
   type CandleType,
   type ChartData,
+  type IndicatorPick,
   type LabSpec,
   type ReplayData,
   type TechCatalog,
@@ -30,6 +32,7 @@ import {
 } from "../api";
 import { ReplayControls, ReplayPanel } from "./ReplayPanel";
 import { indexAt, timeline, wallText } from "./replay";
+import { pickText } from "./TechRules";
 
 type Indicator = TechCatalog["indicators"][number];
 
@@ -102,6 +105,27 @@ const SHORT: Record<string, string> = {
   opening_range: "Opening range",
   opening_range_body: "Opening range, open–close",
   pivots: "Pivots",
+  hma: "HMA",
+  smma: "SMMA",
+  keltner: "KC",
+  ichimoku: "Ichimoku",
+  psar: "SAR",
+  aroon: "Aroon",
+  awesome: "AO",
+  chandelier: "Chandelier",
+  coppock: "Coppock",
+  fisher: "Fisher",
+  halftrend: "HalfTrend",
+  stoch_rsi: "Stoch RSI",
+  tii: "TII",
+  alligator: "Alligator",
+  qqe: "QQE",
+  rsi_ma: "RSI + MA",
+  atr_ma: "ATR + MA",
+  cpr: "CPR",
+  today: "Today",
+  prev_day: "Prev day",
+  candle_at: "Candle at",
   prev_close: "Prev close",
   prev_high: "Prev high",
   prev_low: "Prev low",
@@ -115,9 +139,33 @@ const LEVELS: Record<string, number[]> = {
   cci: [-100, 100],
   williams_r: [-80, -20],
   adx: [25],
+  stoch_rsi: [20, 80],
+  rsi_ma: [30, 70],
+  tii: [20, 80],
+  qqe: [50],
+  aroon: [30, 70],
+  awesome: [0],
+  coppock: [0],
+  fisher: [0],
 };
 // A sensible threshold when turning an oscillator into a rule.
-const MIDPOINT: Record<string, number> = { rsi: 50, stochastic: 50, williams_r: -50, adx: 25 };
+const MIDPOINT: Record<string, number> = {
+  rsi: 50,
+  stochastic: 50,
+  williams_r: -50,
+  adx: 25,
+  stoch_rsi: 50,
+  rsi_ma: 50,
+  tii: 50,
+  qqe: 50,
+  awesome: 0,
+  coppock: 0,
+  fisher: 0,
+};
+// Levels that hold for a whole session and then jump: drawn as steps, not slopes.
+const STEPPED = new Set(["cpr", "today", "prev_day", "candle_at", "pivots"]);
+// Drawn as dots under or over the candles, as charting platforms show them.
+const DOTTED = new Set(["psar"]);
 
 function readSaved(symbols: string[]): Saved {
   const fallback: Saved = {
@@ -176,6 +224,9 @@ function dashed(field: string | null): boolean {
 const BANDS: Record<string, { upper: string; lower: string; middle: string }> = {
   bbands: { upper: "upper", lower: "lower", middle: "middle" },
   donchian: { upper: "upper", lower: "lower", middle: "middle" },
+  keltner: { upper: "upper", lower: "lower", middle: "middle" },
+  // The cloud between the leading spans; the base line is the "middle".
+  ichimoku: { upper: "span_a", lower: "span_b", middle: "base" },
   // One shaded box per session: empty until the range is known, so each day stands alone.
   opening_range: { upper: "high", lower: "low", middle: "mid" },
   opening_range_body: { upper: "high", lower: "low", middle: "mid" },
@@ -307,6 +358,8 @@ interface StrategyLines {
   priceLevels: number[];
   /** Rules on another timeframe or candle type, which this chart cannot draw. */
   elsewhere: number;
+  /** The strategy's indicators that read other candles, so are not drawn on these. */
+  otherPicks: IndicatorPick[];
 }
 
 function studyKey(name: string, params: Record<string, number>): string {
@@ -325,7 +378,7 @@ function strategyLines(
   candles: CandleType,
   user: StudyState[],
 ): StrategyLines {
-  const found: StrategyLines = { studies: [], levels: new Map(), priceLevels: [], elsewhere: 0 };
+  const found: StrategyLines = { studies: [], levels: new Map(), priceLevels: [], elsewhere: 0, otherPicks: [] };
   if (!draft) return found;
   const all = [
     ...(draft.entry.rules ?? []),
@@ -360,6 +413,22 @@ function strategyLines(
       added.add(key);
       found.studies.push({ id: `rule-${key}`, name: side.name, params, strategy: true });
     }
+  }
+  // Indicators picked for the strategy are drawn too, even before a rule reads them, on the
+  // candles they are read on.
+  for (const pick of draft.indicators ?? []) {
+    const indicator = indicators.get(pick.name);
+    if (!indicator || PRICE_OPERANDS.has(pick.name)) continue;
+    if ((pick.timeframe ?? "1d") !== timeframe || (pick.candles ?? "normal") !== candles) {
+      found.elsewhere += 1;
+      found.otherPicks.push(pick);
+      continue;
+    }
+    const params = { ...defaults(indicator), ...(pick.params ?? {}) };
+    const key = studyKey(pick.name, params);
+    if (userKeys.has(key) || added.has(key)) continue;
+    added.add(key);
+    found.studies.push({ id: `rule-${key}`, name: pick.name, params, strategy: true });
   }
   return found;
 }
@@ -432,6 +501,36 @@ interface Props {
   tradable?: string[];
   /** Replays these trades, such as a saved backtest's, instead of backtesting the draft. */
   replaySource?: { label: string; load: (symbol: string) => Promise<ReplayData> };
+  /** A preview of the draft: only its own indicators and levels, on the candles its rules
+   * read. Indicators added here are for this look only and are not kept. */
+  strategyPreview?: boolean;
+}
+
+const PREVIEW_KEY = "algoverse.chart.preview.v1";
+
+/** The preview's start: the symbol and range last used there, the strategy's own candles,
+ * and no indicators but the strategy's, so one strategy's indicators never show on another. */
+function previewStart(symbols: string[], draft: LabSpec | undefined): Saved {
+  const base = readSaved(symbols);
+  let kept: Partial<Saved> = {};
+  try {
+    kept = JSON.parse(localStorage.getItem(PREVIEW_KEY) ?? "{}") as Partial<Saved>;
+  } catch {
+    // A fresh start when storage is blocked.
+  }
+  // The candles its rules read; without rules, the ones it decides on.
+  const frame = draft ? strategyFrame(draft) : null;
+  const decides = draft?.decide_every ?? "day";
+  const symbol = kept.symbol && symbols.includes(kept.symbol) ? kept.symbol : base.symbol;
+  return {
+    ...base,
+    symbol,
+    sessions: kept.sessions ?? base.sessions,
+    timeframe: frame?.timeframe ?? (decides === "day" ? "1d" : decides),
+    candles: frame?.candles ?? "normal",
+    studies: [],
+    signals: true,
+  };
 }
 
 /** Weekdays from `iso` to today, an upper bound on the sessions a chart must load. */
@@ -452,8 +551,20 @@ const REPLAY_RANGES = [
   { sessions: 250, label: "1 year" },
 ];
 
-export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule, draft, tradable, replaySource }: Props) {
-  const [saved, setSaved] = useState<Saved>(() => readSaved(symbols));
+export function IndexChart({
+  catalog,
+  symbols,
+  rules,
+  anyRules,
+  onAddRule,
+  draft,
+  tradable,
+  replaySource,
+  strategyPreview = false,
+}: Props) {
+  const [saved, setSaved] = useState<Saved>(() =>
+    strategyPreview ? previewStart(symbols, draft) : readSaved(symbols),
+  );
   const { symbol, timeframe, candles, studies, signals } = saved;
   const sessions = MINUTES.has(timeframe)
     ? (saved.sessions?.[timeframe] ?? DEFAULT_RANGE[timeframe] ?? 21)
@@ -492,19 +603,32 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule, draft
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+      if (strategyPreview) {
+        // Only the underlying and ranges are kept; candles and indicators come from the strategy.
+        const { symbol: kept, sessions: ranges } = saved;
+        localStorage.setItem(PREVIEW_KEY, JSON.stringify({ symbol: kept, sessions: ranges }));
+      } else {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+      }
     } catch {
       // Settings only last for this visit when storage is blocked.
     }
-  }, [saved]);
+  }, [saved, strategyPreview]);
 
   // ---- Data ----------------------------------------------------------------------------------
   const showStrategy = signals || replay !== null;
   const strategy = useMemo(
     () => (showStrategy ? strategyLines(draft, indicators, timeframe, candles, studies) : null),
-    // The draft is rebuilt on every render, so its rules are compared by content.
+    // The draft is rebuilt on every render, so its rules and indicators go by content.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [showStrategy, JSON.stringify([draft?.entry, draft?.exits]), indicators, timeframe, candles, studies],
+    [
+      showStrategy,
+      JSON.stringify([draft?.entry, draft?.exits, draft?.cases, draft?.indicators]),
+      indicators,
+      timeframe,
+      candles,
+      studies,
+    ],
   );
   const shown = useMemo(() => [...studies, ...(strategy?.studies ?? [])], [studies, strategy]);
 
@@ -742,6 +866,10 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule, draft
             color: isMiddle ? middleColour : colour,
             lineWidth: single ? 2 : 1,
             lineStyle: !band && dashed(line.field) ? LineStyle.Dashed : LineStyle.Solid,
+            lineType: STEPPED.has(study.name) ? LineType.WithSteps : LineType.Simple,
+            lineVisible: !DOTTED.has(study.name),
+            pointMarkersVisible: DOTTED.has(study.name),
+            pointMarkersRadius: 1.5,
             priceLineVisible: false,
             lastValueVisible: band ? Boolean(isMiddle) : index === 0,
             crosshairMarkerVisible: false,
@@ -805,6 +933,36 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule, draft
       );
       pnl.setData(times.map((time, i) => ({ time, value: replayLine.pnl[i] })));
       seriesRef.current.push(pnl);
+      // The open trade's exit levels on the same scale: where the line meets them, it exits.
+      for (const [values, colour, title] of [
+        [replayLine.stop, css("--pnl-down"), "stop"],
+        [replayLine.target, css("--pnl-up"), "target"],
+      ] as const) {
+        const level = chart.addSeries(
+          LineSeries,
+          {
+            color: colour,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            lineType: LineType.WithSteps,
+            priceLineVisible: false,
+            lastValueVisible: values[end - 1] !== null && values[end - 1] !== undefined,
+            crosshairMarkerVisible: false,
+            title,
+            priceFormat: { type: "price", precision: 0, minMove: 1 },
+            // The target is often far away; it should not squash the P&L line.
+            autoscaleInfoProvider: title === "target" ? () => null : undefined,
+          },
+          panes.size + 1,
+        );
+        level.setData(
+          times.map((time, i) => {
+            const value = values[i];
+            return value === null || value === undefined ? { time } : { time, value };
+          }),
+        );
+        seriesRef.current.push(level);
+      }
     }
 
     const all = chart.panes();
@@ -1248,16 +1406,18 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule, draft
             </div>
           )}
         </div>
-        <label className="chart-toggle">
-          <input
-            type="checkbox"
-            checked={signals}
-            onChange={(e) => update({ signals: e.target.checked })}
-          />
-          <span title="Draw the indicators and levels the strategy's rules read, and mark candles where its entry rules held">
-            Strategy
-          </span>
-        </label>
+        {!strategyPreview && (
+          <label className="chart-toggle">
+            <input
+              type="checkbox"
+              checked={signals}
+              onChange={(e) => update({ signals: e.target.checked })}
+            />
+            <span title="Draw the indicators and levels the strategy's rules read, and mark candles where its entry rules held">
+              Strategy
+            </span>
+          </label>
+        )}
         <div className="chart-group" role="group" aria-label="Zoom">
           <button type="button" className="chart-chip" onClick={() => zoom(0.6)} aria-label="Zoom in" title="Zoom in">
             +
@@ -1433,6 +1593,22 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule, draft
       )}
 
       <div className="chart-foot">
+        {strategyPreview && (strategy?.otherPicks.length ?? 0) > 0 && (
+          <span className="chart-other-picks">
+            On other candles:{" "}
+            {strategy?.otherPicks.map((pick, index) => (
+              <button
+                key={index}
+                type="button"
+                className="chart-chip"
+                title="Show the candles this indicator reads"
+                onClick={() => update({ timeframe: pick.timeframe ?? "1d", candles: pick.candles ?? "normal" })}
+              >
+                {pickText(catalog, pick)}
+              </button>
+            ))}
+          </span>
+        )}
         {data?.source && (
           <span className="muted">
             {data.source}
