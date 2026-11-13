@@ -1,7 +1,6 @@
 import { RotateCw } from "lucide-react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { Alert } from "./ui/Alert";
-import { Button, ButtonLink } from "./ui/Button";
+import { Alert, Button, ButtonLink } from "../components/ui";
 
 /** The page's shape while the lab loads, so nothing jumps when it arrives. */
 export function BuilderSkeleton() {

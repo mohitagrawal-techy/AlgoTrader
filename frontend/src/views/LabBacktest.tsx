@@ -1,8 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type LabBacktestPage, type LabTrade } from "../api";
-import { LineChart, TradeChart, ValueColumns, timeTicks, type ChartTrade } from "../charts";
-import { dateTimeIst, fraction, inrCompact, num, shortDate, signedInr } from "../format";
-import { Empty, Panel, Pnl, Select, Status, Tile, type Tone } from "../ui";
+import {
+  LineChart,
+  TradeChart,
+  ValueColumns,
+  timeTicks,
+  type ChartTrade,
+} from "../charts";
+import {
+  dateTimeIst,
+  fraction,
+  inrCompact,
+  num,
+  shortDate,
+  signedInr,
+} from "../format";
+import {
+  Empty,
+  Panel,
+  Pnl,
+  LabeledSelect,
+  Status,
+  Tile,
+  type Tone,
+  Table,
+  Tiles,
+  BackLink,
+} from "../components/ui";
 import { IndexChart } from "./IndexChart";
 
 const VERDICTS: Record<string, { tone: Tone; label: string }> = {
@@ -55,7 +79,11 @@ function weekOf(day: string): string {
 }
 
 function periodKey(day: string, period: Period): string {
-  return period === "day" ? day : period === "week" ? weekOf(day) : day.slice(0, 7);
+  return period === "day"
+    ? day
+    : period === "week"
+      ? weekOf(day)
+      : day.slice(0, 7);
 }
 
 function periodLabel(key: string, period: Period): string {
@@ -64,7 +92,10 @@ function periodLabel(key: string, period: Period): string {
 
 function legText(trade: LabTrade): string {
   return trade.legs
-    .map((leg) => `${leg.side === "buy" ? "Buy" : "Sell"} ${num(leg.strike)} ${leg.option_type}`)
+    .map(
+      (leg) =>
+        `${leg.side === "buy" ? "Buy" : "Sell"} ${num(leg.strike)} ${leg.option_type}`,
+    )
     .join(", ");
 }
 
@@ -78,13 +109,19 @@ function priceText(trade: LabTrade): string {
 }
 
 /** Periods newest first, each with the running total up to it. */
-function runningRows<T extends { value: number }>(periods: T[]): (T & { total: number })[] {
+function runningRows<T extends { value: number }>(
+  periods: T[],
+): (T & { total: number })[] {
   let total = 0;
   return periods.map((p) => ({ ...p, total: (total += p.value) })).reverse();
 }
 
 /** "7 Apr" for daily strategies, "7 Apr 09:45" for intraday ones. */
-function when(trade: LabTrade, side: "opened" | "closed", intraday: boolean): string {
+function when(
+  trade: LabTrade,
+  side: "opened" | "closed",
+  intraday: boolean,
+): string {
   const at = side === "opened" ? trade.opened_at : trade.closed_at;
   const day = shortDate(trade[side]);
   if (!intraday || !at) return day;
@@ -98,7 +135,9 @@ function when(trade: LabTrade, side: "opened" | "closed", intraday: boolean): st
 }
 
 function daysBetween(a: string, b: string): number {
-  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000);
+  return Math.round(
+    (new Date(b).getTime() - new Date(a).getTime()) / 86_400_000,
+  );
 }
 
 interface Group {
@@ -108,7 +147,10 @@ interface Group {
   pnl: number;
 }
 
-function groupBy(trades: LabTrade[], keyOf: (trade: LabTrade) => string): Group[] {
+function groupBy(
+  trades: LabTrade[],
+  keyOf: (trade: LabTrade) => string,
+): Group[] {
   const groups = new Map<string, Group>();
   for (const trade of trades) {
     const key = keyOf(trade);
@@ -121,7 +163,15 @@ function groupBy(trades: LabTrade[], keyOf: (trade: LabTrade) => string): Group[
   return [...groups.values()].sort((a, b) => b.pnl - a.pnl);
 }
 
-function GroupTable({ title, groups, label }: { title: string; groups: Group[]; label: (key: string) => string }) {
+function GroupTable({
+  title,
+  groups,
+  label,
+}: {
+  title: string;
+  groups: Group[];
+  label: (key: string) => string;
+}) {
   return (
     <table className="table">
       <thead>
@@ -149,7 +199,10 @@ function GroupTable({ title, groups, label }: { title: string; groups: Group[]; 
 }
 
 function usePage(id: string) {
-  const [state, setState] = useState<{ data: LabBacktestPage | null; error: string | null }>({
+  const [state, setState] = useState<{
+    data: LabBacktestPage | null;
+    error: string | null;
+  }>({
     data: null,
     error: null,
   });
@@ -159,7 +212,9 @@ function usePage(id: string) {
     api
       .labBacktestPage(id)
       .then((data) => active && setState({ data, error: null }))
-      .catch((err: Error) => active && setState({ data: null, error: err.message }));
+      .catch(
+        (err: Error) => active && setState({ data: null, error: err.message }),
+      );
     return () => {
       active = false;
     };
@@ -178,12 +233,16 @@ export function LabBacktestView({ id }: { id: string }) {
   const detail = result?.detail;
   const parts = useMemo(() => {
     if (!detail) return [];
-    return windowKey === "both" ? [detail.train, detail.test] : [detail[windowKey]];
+    return windowKey === "both"
+      ? [detail.train, detail.test]
+      : [detail[windowKey]];
   }, [detail, windowKey]);
   const trades = useMemo(() => parts.flatMap((part) => part.trades), [parts]);
   const daily = useMemo(() => {
     const merged: Record<string, number> = {};
-    for (const part of parts) for (const [day, pnl] of Object.entries(part.daily)) merged[day] = (merged[day] ?? 0) + pnl;
+    for (const part of parts)
+      for (const [day, pnl] of Object.entries(part.daily))
+        merged[day] = (merged[day] ?? 0) + pnl;
     return Object.entries(merged).sort(([a], [b]) => a.localeCompare(b));
   }, [parts]);
 
@@ -226,10 +285,16 @@ export function LabBacktestView({ id }: { id: string }) {
     const all = (shownSymbol && data?.bars[shownSymbol]) || [];
     if (!result || windowKey === "both") return all;
     const w = result.windows;
-    const [from, to] = windowKey === "test" ? [w.test_start, w.test_end] : [w.train_start, w.train_end];
+    const [from, to] =
+      windowKey === "test"
+        ? [w.test_start, w.test_end]
+        : [w.train_start, w.train_end];
     return all.filter((bar) => bar.day >= from && bar.day <= to);
   }, [data, shownSymbol, result, windowKey]);
-  const closeOn = useMemo(() => new Map(bars.map((bar) => [bar.day, bar.close])), [bars]);
+  const closeOn = useMemo(
+    () => new Map(bars.map((bar) => [bar.day, bar.close])),
+    [bars],
+  );
   const intradayTimes = (data?.spec.decide_every ?? "day") !== "day";
   const chartTrades: ChartTrade[] = useMemo(
     () =>
@@ -264,8 +329,14 @@ export function LabBacktestView({ id }: { id: string }) {
   const net = trades.reduce((sum, t) => sum + t.net_pnl, 0);
   const grossWin = wins.reduce((sum, t) => sum + t.net_pnl, 0);
   const grossLoss = -losses.reduce((sum, t) => sum + t.net_pnl, 0);
-  const best = trades.reduce<LabTrade | null>((b, t) => (b === null || t.net_pnl > b.net_pnl ? t : b), null);
-  const worst = trades.reduce<LabTrade | null>((b, t) => (b === null || t.net_pnl < b.net_pnl ? t : b), null);
+  const best = trades.reduce<LabTrade | null>(
+    (b, t) => (b === null || t.net_pnl > b.net_pnl ? t : b),
+    null,
+  );
+  const worst = trades.reduce<LabTrade | null>(
+    (b, t) => (b === null || t.net_pnl < b.net_pnl ? t : b),
+    null,
+  );
   let peak = 0;
   let drawdown = 0;
   for (const point of equity[0].points) {
@@ -284,20 +355,27 @@ export function LabBacktestView({ id }: { id: string }) {
   const spans =
     result && windowKey === "both"
       ? [
-          { from: result.windows.train_start, to: result.windows.train_end, label: "Training" },
-          { from: result.windows.test_start, to: result.windows.test_end, label: "Test" },
+          {
+            from: result.windows.train_start,
+            to: result.windows.train_end,
+            label: "Training",
+          },
+          {
+            from: result.windows.test_start,
+            to: result.windows.test_end,
+            label: "Test",
+          },
         ]
       : [];
 
   return (
     <>
       <div className="strike-page-head">
-        <a className="button ghost" href={back}>
-          ← Strategy lab
-        </a>
+        <BackLink href={back}>Strategy lab</BackLink>
         <div>
           <h2 className="strike-page-title">
-            {spec.name} {verdict && <Status tone={verdict.tone}>{verdict.label}</Status>}
+            {spec.name}{" "}
+            {verdict && <Status tone={verdict.tone}>{verdict.label}</Status>}
           </h2>
           <div className="legs">
             {data.legs_text.split(", ").map((leg) => (
@@ -309,58 +387,108 @@ export function LabBacktestView({ id }: { id: string }) {
       </div>
 
       {!result ? (
-        <Empty title="Not tested yet">Test this strategy in the Strategy lab first.</Empty>
+        <Empty title="Not tested yet">
+          Test this strategy in the Strategy lab first.
+        </Empty>
       ) : !detail ? (
         <Empty title="This result has no trade detail">
-          It was tested before trade detail was kept. Test it again in the Strategy lab.
+          It was tested before trade detail was kept. Test it again in the
+          Strategy lab.
         </Empty>
       ) : (
         <>
           <div className="filters">
-            <Select label="Window" value={windowKey} onChange={setWindowKey} options={Object.entries(WINDOWS).map(([value, label]) => ({ value: value as WindowKey, label }))} />
+            <LabeledSelect
+              label="Window"
+              value={windowKey}
+              onChange={setWindowKey}
+              options={Object.entries(WINDOWS).map(([value, label]) => ({
+                value: value as WindowKey,
+                label,
+              }))}
+            />
             {symbols.length > 1 && (
-              <Select label="Underlying" value={shownSymbol ?? ""} onChange={setSymbol} options={symbols.map((s) => ({ value: s, label: s }))} />
+              <LabeledSelect
+                label="Underlying"
+                value={shownSymbol ?? ""}
+                onChange={setSymbol}
+                options={symbols.map((s) => ({ value: s, label: s }))}
+              />
             )}
             <span className="muted">
-              {windowText}, after costs. Tested {dateTimeIst(result.evaluated_at)}.
+              {windowText}, after costs. Tested{" "}
+              {dateTimeIst(result.evaluated_at)}.
             </span>
           </div>
 
-          <div className="tiles tiles-4">
+          <Tiles columns={4}>
             <Tile
               label="Net P&L"
               value={<Pnl value={net}>{signedInr(net)}</Pnl>}
               hint={`${fraction(net / data.capital, 1)} of ₹${num(data.capital)} capital`}
             />
-            <Tile label="Trades" value={num(trades.length)} hint={`${wins.length} won, ${losses.length} lost`} />
+            <Tile
+              label="Trades"
+              value={num(trades.length)}
+              hint={`${wins.length} won, ${losses.length} lost`}
+            />
             <Tile
               label="Win rate"
-              value={trades.length ? fraction(wins.length / trades.length, 0) : "–"}
+              value={
+                trades.length ? fraction(wins.length / trades.length, 0) : "–"
+              }
               hint={`Profit factor ${grossLoss > 0 ? num(grossWin / grossLoss, 2) : "–"}`}
             />
-            <Tile label="Max drawdown" value={signedInr(-drawdown)} hint="From the highest point" />
+            <Tile
+              label="Max drawdown"
+              value={signedInr(-drawdown)}
+              hint="From the highest point"
+            />
             <Tile
               label="Average win"
               value={wins.length ? signedInr(grossWin / wins.length) : "–"}
-              hint={best ? `Best ${signedInr(best.net_pnl)} on ${shortDate(best.opened)}` : undefined}
+              hint={
+                best
+                  ? `Best ${signedInr(best.net_pnl)} on ${shortDate(best.opened)}`
+                  : undefined
+              }
             />
             <Tile
               label="Average loss"
-              value={losses.length ? signedInr(-grossLoss / losses.length) : "–"}
-              hint={worst ? `Worst ${signedInr(worst.net_pnl)} on ${shortDate(worst.opened)}` : undefined}
+              value={
+                losses.length ? signedInr(-grossLoss / losses.length) : "–"
+              }
+              hint={
+                worst
+                  ? `Worst ${signedInr(worst.net_pnl)} on ${shortDate(worst.opened)}`
+                  : undefined
+              }
             />
             <Tile
               label={`Profitable ${PERIOD_PLURAL[period]}`}
-              value={activePeriods ? `${greenPeriods} of ${activePeriods}` : "–"}
+              value={
+                activePeriods ? `${greenPeriods} of ${activePeriods}` : "–"
+              }
               hint="Periods with any P&L"
             />
             <Tile
               label="Average holding"
-              value={trades.length ? `${num(trades.reduce((s, t) => s + daysBetween(t.opened, t.closed), 0) / trades.length, 1)} days` : "–"}
+              value={
+                trades.length
+                  ? `${num(trades.reduce((s, t) => s + daysBetween(t.opened, t.closed), 0) / trades.length, 1)} days`
+                  : "–"
+              }
             />
-          </div>
+          </Tiles>
 
-          <Panel title={`${shownSymbol ?? "Underlying"} with every trade`} aside={<span className="muted">Hollow dot: entry. Solid dot: exit. Green won, red lost.</span>}>
+          <Panel
+            title={`${shownSymbol ?? "Underlying"} with every trade`}
+            aside={
+              <span className="muted">
+                Hollow dot: entry. Solid dot: exit. Green won, red lost.
+              </span>
+            }
+          >
             {bars.length < 2 ? (
               <Empty title="No daily bars for this window" />
             ) : (
@@ -381,7 +509,12 @@ export function LabBacktestView({ id }: { id: string }) {
           {data.technical && (
             <Panel
               title="Replay every trade"
-              aside={<span className="muted">The strategy's lines, its entries and exits, and the open position, candle by candle</span>}
+              aside={
+                <span className="muted">
+                  The strategy's lines, its entries and exits, and the open
+                  position, candle by candle
+                </span>
+              }
             >
               <IndexChart
                 key={windowKey}
@@ -394,7 +527,12 @@ export function LabBacktestView({ id }: { id: string }) {
                 draft={spec}
                 replaySource={{
                   label: WINDOWS[windowKey].toLowerCase(),
-                  load: (chartSymbol) => api.labBacktestReplay(spec.id as string, windowKey, chartSymbol),
+                  load: (chartSymbol) =>
+                    api.labBacktestReplay(
+                      spec.id as string,
+                      windowKey,
+                      chartSymbol,
+                    ),
                 }}
               />
             </Panel>
@@ -411,9 +549,13 @@ export function LabBacktestView({ id }: { id: string }) {
                 includeZero
                 tickX={timeTicks}
                 label={`Cumulative P&L of ${spec.name}`}
-                formatX={(x) => shortDate(new Date(x + 19800000).toISOString().slice(0, 10))}
+                formatX={(x) =>
+                  shortDate(new Date(x + 19800000).toISOString().slice(0, 10))
+                }
                 formatY={inrCompact}
-                formatTipX={(x) => shortDate(new Date(x + 19800000).toISOString().slice(0, 10))}
+                formatTipX={(x) =>
+                  shortDate(new Date(x + 19800000).toISOString().slice(0, 10))
+                }
                 formatTipY={(y) => signedInr(y)}
               />
             )}
@@ -421,7 +563,17 @@ export function LabBacktestView({ id }: { id: string }) {
 
           <Panel
             title="Profit and loss by period"
-            aside={<Select label="Period" value={period} onChange={setPeriod} options={Object.entries(PERIODS).map(([value, label]) => ({ value: value as Period, label }))} />}
+            aside={
+              <LabeledSelect
+                label="Period"
+                value={period}
+                onChange={setPeriod}
+                options={Object.entries(PERIODS).map(([value, label]) => ({
+                  value: value as Period,
+                  label,
+                }))}
+              />
+            }
           >
             {periods.length === 0 ? (
               <Empty title="No P&L in this window" />
@@ -450,8 +602,12 @@ export function LabBacktestView({ id }: { id: string }) {
                     <tr key={p.key}>
                       <td>{periodLabel(p.key, period)}</td>
                       <td className="right">{p.trades}</td>
-                      <td className="right"><Pnl value={p.value}>{signedInr(p.value)}</Pnl></td>
-                      <td className="right"><Pnl value={p.total}>{signedInr(p.total)}</Pnl></td>
+                      <td className="right">
+                        <Pnl value={p.value}>{signedInr(p.value)}</Pnl>
+                      </td>
+                      <td className="right">
+                        <Pnl value={p.total}>{signedInr(p.total)}</Pnl>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -459,7 +615,9 @@ export function LabBacktestView({ id }: { id: string }) {
             )}
           </Panel>
 
-          <h3 className="section-title">Where it worked and where it did not</h3>
+          <h3 className="section-title">
+            Where it worked and where it did not
+          </h3>
           {trades.length === 0 ? (
             <Empty title="No trades in this window">
               The Strategy lab lists why days were skipped.
@@ -467,74 +625,103 @@ export function LabBacktestView({ id }: { id: string }) {
           ) : (
             <div className="grid-3">
               <Panel title="By how the trade ended">
-                <GroupTable title="Exit" groups={groupBy(trades, (t) => t.exit_reason ?? "–")} label={(k) => EXIT_REASONS[k] ?? k} />
+                <GroupTable
+                  title="Exit"
+                  groups={groupBy(trades, (t) => t.exit_reason ?? "–")}
+                  label={(k) => EXIT_REASONS[k] ?? k}
+                />
               </Panel>
               <Panel title="By trend at entry">
-                <GroupTable title="Trend" groups={groupBy(trades, (t) => t.trend)} label={(k) => k} />
+                <GroupTable
+                  title="Trend"
+                  groups={groupBy(trades, (t) => t.trend)}
+                  label={(k) => k}
+                />
               </Panel>
               <Panel title="By volatility at entry">
-                <GroupTable title="IV rank" groups={groupBy(trades, (t) => t.iv_regime)} label={(k) => k} />
+                <GroupTable
+                  title="IV rank"
+                  groups={groupBy(trades, (t) => t.iv_regime)}
+                  label={(k) => k}
+                />
               </Panel>
             </div>
           )}
 
           {trades.length > 0 && (
-            <Panel title="Every trade" aside={<span className="muted">Hover a row to find it on the chart</span>}>
-              <div className="table-wrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Opened</th>
-                      <th>Closed</th>
-                      <th className="right">Days</th>
-                      <th className="right">Index close, in → out</th>
-                      <th>Legs, entry → exit price</th>
-                      <th className="right">Lots</th>
-                      <th>Exit</th>
-                      <th className="right">Net P&amp;L</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trades
-                      .map((trade, i) => ({ trade, i }))
-                      .reverse()
-                      .slice(0, MAX_TABLE_ROWS)
-                      .map(({ trade, i }) => (
-                        <tr
-                          key={i}
-                          className={highlight === i ? "row-active" : ""}
-                          onMouseEnter={() => trade.symbol === shownSymbol && setHighlight(i)}
-                          onMouseLeave={() => setHighlight(null)}
-                        >
-                          <td>{when(trade, "opened", intraday)}</td>
-                          <td>{when(trade, "closed", intraday)}</td>
-                          <td className="right">{daysBetween(trade.opened, trade.closed)}</td>
-                          <td className="right">
-                            {num(closeOn.get(trade.opened), 0)} → {num(closeOn.get(trade.closed), 0)}
-                          </td>
-                          <td className="secondary">{priceText(trade)}</td>
-                          <td className="right">{trade.lots}</td>
-                          <td>
-                            {EXIT_REASONS[trade.exit_reason ?? ""] ?? trade.exit_reason}
-                            {trade.settlement_estimated ? " (intrinsic)" : ""}
-                          </td>
-                          <td className="right">
-                            <Pnl value={trade.net_pnl}>{signedInr(trade.net_pnl)}</Pnl>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
+            <Panel
+              title="Every trade"
+              aside={
+                <span className="muted">
+                  Hover a row to find it on the chart
+                </span>
+              }
+            >
+              <Table>
+                <thead>
+                  <tr>
+                    <th>Opened</th>
+                    <th>Closed</th>
+                    <th className="right">Days</th>
+                    <th className="right">Index close, in → out</th>
+                    <th>Legs, entry → exit price</th>
+                    <th className="right">Lots</th>
+                    <th>Exit</th>
+                    <th className="right">Net P&amp;L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trades
+                    .map((trade, i) => ({ trade, i }))
+                    .reverse()
+                    .slice(0, MAX_TABLE_ROWS)
+                    .map(({ trade, i }) => (
+                      <tr
+                        key={i}
+                        className={highlight === i ? "row-active" : ""}
+                        onMouseEnter={() =>
+                          trade.symbol === shownSymbol && setHighlight(i)
+                        }
+                        onMouseLeave={() => setHighlight(null)}
+                      >
+                        <td>{when(trade, "opened", intraday)}</td>
+                        <td>{when(trade, "closed", intraday)}</td>
+                        <td className="right">
+                          {daysBetween(trade.opened, trade.closed)}
+                        </td>
+                        <td className="right">
+                          {num(closeOn.get(trade.opened), 0)} →{" "}
+                          {num(closeOn.get(trade.closed), 0)}
+                        </td>
+                        <td className="secondary">{priceText(trade)}</td>
+                        <td className="right">{trade.lots}</td>
+                        <td>
+                          {EXIT_REASONS[trade.exit_reason ?? ""] ??
+                            trade.exit_reason}
+                          {trade.settlement_estimated ? " (intrinsic)" : ""}
+                        </td>
+                        <td className="right">
+                          <Pnl value={trade.net_pnl}>
+                            {signedInr(trade.net_pnl)}
+                          </Pnl>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </Table>
+
               {trades.length > MAX_TABLE_ROWS && (
-                <p className="panel-note">Showing the latest {MAX_TABLE_ROWS} of {trades.length} trades.</p>
+                <p className="panel-note">
+                  Showing the latest {MAX_TABLE_ROWS} of {trades.length} trades.
+                </p>
               )}
             </Panel>
           )}
           <p className="panel-note">
-            Fills use the next session&apos;s open with modelled spreads, after brokerage, taxes and
-            slippage. Positions held to expiry settle at intrinsic value. The training window is
-            where rules were chosen; only the test window is unseen.
+            Fills use the next session&apos;s open with modelled spreads, after
+            brokerage, taxes and slippage. Positions held to expiry settle at
+            intrinsic value. The training window is where rules were chosen;
+            only the test window is unseen.
           </p>
         </>
       )}

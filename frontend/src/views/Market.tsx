@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   api,
   type ChainRow,
@@ -13,8 +20,23 @@ import {
 import { Legend, LineChart, PairedColumns } from "../charts";
 import { compact, dateTimeIst, fraction, num, pct, shortDate } from "../format";
 import { savedStore } from "../saved";
-import { Empty, Panel, Select, Status, Tile, type Tone } from "../ui";
-import { atmStrike, strikePosition, type Moneyness, type StrikePosition } from "../moneyness";
+import {
+  Empty,
+  Panel,
+  LabeledSelect,
+  Status,
+  Tile,
+  type Tone,
+  Alert,
+  Table,
+  Tiles,
+} from "../components/ui";
+import {
+  atmStrike,
+  strikePosition,
+  type Moneyness,
+  type StrikePosition,
+} from "../moneyness";
 import { openStrike, type OptionSide } from "./StrikeChart";
 
 const CALLS = "var(--series-1)";
@@ -47,7 +69,6 @@ function trendStatus(trend: string | null): { tone: Tone; label: string } {
   return { tone: "neutral", label: "Not enough history" };
 }
 
-
 // Columns from the outside in. Puts show the same columns mirrored.
 const CHAIN_COLUMNS = [
   "OI",
@@ -68,7 +89,6 @@ const CHAIN_VIEWS: Record<string, readonly ChainColumn[]> = {
   "Prices and OI": ["OI", "OI chg", "Vol", "IV", "Delta", "Bid", "LTP", "Ask"],
   Greeks: ["IV", "Delta", "Gamma", "Theta", "Vega", "LTP"],
 };
-
 
 function signedCompact(value: number | null | undefined): string {
   if (value === null || value === undefined) return "–";
@@ -104,7 +124,11 @@ function Side({
       className: `oi-bar${peak ? " oi-peak" : ""}`,
       style: { "--bar": `${oiShare}%` } as CSSProperties,
     },
-    { head: "OI chg", text: signedCompact(side?.oi_change), className: changeTone(side?.oi_change) },
+    {
+      head: "OI chg",
+      text: signedCompact(side?.oi_change),
+      className: changeTone(side?.oi_change),
+    },
     { head: "Vol", text: side ? compact(side.volume) : "–" },
     { head: "IV", text: side?.iv == null ? "–" : (side.iv * 100).toFixed(1) },
     { head: "Delta", text: side ? num(side.delta, 2) : "–" },
@@ -112,10 +136,16 @@ function Side({
     { head: "Theta", text: side ? num(side.theta, 2) : "–" },
     { head: "Vega", text: side ? num(side.vega, 2) : "–" },
     { head: "Bid", text: side ? num(side.bid, 2) : "–" },
-    { head: "LTP", text: side ? num(side.ltp, 2) : "–", className: "chain-ltp" },
+    {
+      head: "LTP",
+      text: side ? num(side.ltp, 2) : "–",
+      className: "chain-ltp",
+    },
     { head: "Ask", text: side ? num(side.ask, 2) : "–" },
   ];
-  const shown = cells.filter((cell) => columns.includes(cell.head as ChainColumn));
+  const shown = cells.filter((cell) =>
+    columns.includes(cell.head as ChainColumn),
+  );
   const ordered = cls === "call" ? shown : [...shown].reverse();
   return (
     <>
@@ -135,7 +165,11 @@ function Side({
 }
 
 function Tag({ position }: { position: StrikePosition }) {
-  return <span className={`moneyness ${position.state.toLowerCase()}`}>{position.label}</span>;
+  return (
+    <span className={`moneyness ${position.state.toLowerCase()}`}>
+      {position.label}
+    </span>
+  );
 }
 
 function ChainTable({
@@ -152,7 +186,10 @@ function ChainTable({
   const wrap = useRef<HTMLDivElement>(null);
   const strikes = expiry.rows.map((row) => row.strike);
   const atm = atmStrike(strikes, spot);
-  const allOi = expiry.rows.flatMap((row) => [row.ce?.oi ?? 0, row.pe?.oi ?? 0]);
+  const allOi = expiry.rows.flatMap((row) => [
+    row.ce?.oi ?? 0,
+    row.pe?.oi ?? 0,
+  ]);
   const maxOi = Math.max(...allOi, 0);
   const peakCall = Math.max(...expiry.rows.map((row) => row.ce?.oi ?? 0), 0);
   const peakPut = Math.max(...expiry.rows.map((row) => row.pe?.oi ?? 0), 0);
@@ -164,7 +201,8 @@ function ChainTable({
     const box = wrap.current;
     const row = box?.querySelector<HTMLElement>("tr.atm");
     if (!box || !row) return;
-    const offset = row.getBoundingClientRect().top - box.getBoundingClientRect().top;
+    const offset =
+      row.getBoundingClientRect().top - box.getBoundingClientRect().top;
     box.scrollTop = offset - (box.clientHeight - row.offsetHeight) / 2;
     box.scrollLeft = (box.scrollWidth - box.clientWidth) / 2;
   }, []);
@@ -177,74 +215,73 @@ function ChainTable({
     </tr>
   );
   return (
-    <div className="table-wrap chain-wrap" ref={wrap}>
-      <table className="table table-chain">
-        <thead>
-          <tr className="band">
-            <th colSpan={columns.length} className="band-call">
-              Calls
+    <Table className="table-chain" wrapClassName="chain-wrap" wrapRef={wrap}>
+      <thead>
+        <tr className="band">
+          <th colSpan={columns.length} className="band-call">
+            Calls
+          </th>
+          <th />
+          <th colSpan={columns.length} className="band-put">
+            Puts
+          </th>
+        </tr>
+        <tr>
+          {columns.map((head) => (
+            <th key={`c-${head}`} className="right">
+              {head}
             </th>
-            <th />
-            <th colSpan={columns.length} className="band-put">
-              Puts
+          ))}
+          <th className="strike">Strike</th>
+          {[...columns].reverse().map((head) => (
+            <th key={`p-${head}`} className="right">
+              {head}
             </th>
-          </tr>
-          <tr>
-            {columns.map((head) => (
-              <th key={`c-${head}`} className="right">
-                {head}
-              </th>
-            ))}
-            <th className="strike">Strike</th>
-            {[...columns].reverse().map((head) => (
-              <th key={`p-${head}`} className="right">
-                {head}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {expiry.rows.flatMap((row, index) => {
-            const callPosition = strikePosition(strikes, row.strike, atm, true);
-            const putPosition = strikePosition(strikes, row.strike, atm, false);
-            const callState = callPosition.state;
-            const putState = putPosition.state;
-            const line = (
-              <tr key={row.strike} className={row.strike === atm ? "atm" : ""}>
-                <Side
-                  side={row.ce}
-                  cls="call"
-                  state={callState}
-                  maxOi={maxOi}
-                  columns={columns}
-                  peak={peakCall > 0 && row.ce?.oi === peakCall}
-                  onPick={(newTab) => onPick(row.strike, "CE", newTab)}
-                />
-                <td className="strike">
-                  <span className="strike-cell">
-                    <Tag position={callPosition} />
-                    <b>{num(row.strike)}</b>
-                    <Tag position={putPosition} />
-                  </span>
-                </td>
-                <Side
-                  side={row.pe}
-                  cls="put"
-                  state={putState}
-                  maxOi={maxOi}
-                  columns={columns}
-                  peak={peakPut > 0 && row.pe?.oi === peakPut}
-                  onPick={(newTab) => onPick(row.strike, "PE", newTab)}
-                />
-              </tr>
-            );
-            const atEnd = index === expiry.rows.length - 1 && spotAt === expiry.rows.length;
-            if (index === spotAt) return [spotRow, line];
-            return atEnd ? [line, spotRow] : [line];
-          })}
-        </tbody>
-      </table>
-    </div>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {expiry.rows.flatMap((row, index) => {
+          const callPosition = strikePosition(strikes, row.strike, atm, true);
+          const putPosition = strikePosition(strikes, row.strike, atm, false);
+          const callState = callPosition.state;
+          const putState = putPosition.state;
+          const line = (
+            <tr key={row.strike} className={row.strike === atm ? "atm" : ""}>
+              <Side
+                side={row.ce}
+                cls="call"
+                state={callState}
+                maxOi={maxOi}
+                columns={columns}
+                peak={peakCall > 0 && row.ce?.oi === peakCall}
+                onPick={(newTab) => onPick(row.strike, "CE", newTab)}
+              />
+              <td className="strike">
+                <span className="strike-cell">
+                  <Tag position={callPosition} />
+                  <b>{num(row.strike)}</b>
+                  <Tag position={putPosition} />
+                </span>
+              </td>
+              <Side
+                side={row.pe}
+                cls="put"
+                state={putState}
+                maxOi={maxOi}
+                columns={columns}
+                peak={peakPut > 0 && row.pe?.oi === peakPut}
+                onPick={(newTab) => onPick(row.strike, "PE", newTab)}
+              />
+            </tr>
+          );
+          const atEnd =
+            index === expiry.rows.length - 1 && spotAt === expiry.rows.length;
+          if (index === spotAt) return [spotRow, line];
+          return atEnd ? [line, spotRow] : [line];
+        })}
+      </tbody>
+    </Table>
   );
 }
 
@@ -268,11 +305,19 @@ function Brief({ brief }: { brief: ResearchBrief }) {
         <div className="brief-columns">
           <div>
             <h4>Catalysts</h4>
-            <ul>{brief.catalysts.map((item) => <li key={item}>{item}</li>)}</ul>
+            <ul>
+              {brief.catalysts.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
           </div>
           <div>
             <h4>Risks</h4>
-            <ul>{brief.risks.map((item) => <li key={item}>{item}</li>)}</ul>
+            <ul>
+              {brief.risks.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
           </div>
           <div>
             <h4>Events mentioned</h4>
@@ -282,7 +327,9 @@ function Brief({ brief }: { brief: ResearchBrief }) {
                   <li key={event.name}>
                     {event.name}
                     {event.date ? `, ${event.date}` : ""}
-                    {event.in_calendar && <small className="muted"> · added to calendar</small>}
+                    {event.in_calendar && (
+                      <small className="muted"> · added to calendar</small>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -292,9 +339,10 @@ function Brief({ brief }: { brief: ResearchBrief }) {
           </div>
         </div>
         <p className="secondary">
-          AI summary of public headlines. Check it before relying on it. Events with a stated date
-          are added to the event calendar automatically. Undated events are not, so keep
-          config/events.yaml up to date yourself.
+          AI summary of public headlines. Check it before relying on it. Events
+          with a stated date are added to the event calendar automatically.
+          Undated events are not, so keep config/events.yaml up to date
+          yourself.
         </p>
         {brief.sources.length > 0 && (
           <details>
@@ -302,7 +350,11 @@ function Brief({ brief }: { brief: ResearchBrief }) {
             <ul>
               {brief.sources.map((source) => (
                 <li key={source.link}>
-                  <a href={source.link} target="_blank" rel="noreferrer noopener">
+                  <a
+                    href={source.link}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
                     {source.title}
                   </a>
                 </li>
@@ -315,7 +367,10 @@ function Brief({ brief }: { brief: ResearchBrief }) {
   );
 }
 
-function liveSide(base: QuoteSide | null, live: LiveSide | undefined): QuoteSide | null {
+function liveSide(
+  base: QuoteSide | null,
+  live: LiveSide | undefined,
+): QuoteSide | null {
   if (!live) return base;
   // The feed has no previous-day OI, so the change is rolled forward from the last snapshot.
   const change =
@@ -332,7 +387,11 @@ function withLive(expiry: ExpiryMarket, live: LiveChain): ExpiryMarket {
     rows: expiry.rows.map((row) => {
       const update = byStrike.get(row.strike);
       return update
-        ? { ...row, ce: liveSide(row.ce, update.ce), pe: liveSide(row.pe, update.pe) }
+        ? {
+            ...row,
+            ce: liveSide(row.ce, update.ce),
+            pe: liveSide(row.pe, update.pe),
+          }
         : row;
     }),
   };
@@ -378,7 +437,8 @@ function useLiveChain(symbol: string, expiry: string | undefined): LiveState {
     };
   }, [symbol, expiry, key]);
   const chain = state.chain;
-  const usable = chain?.live && chain.symbol === symbol && chain.expiry === expiry;
+  const usable =
+    chain?.live && chain.symbol === symbol && chain.expiry === expiry;
   return { chain: usable ? chain : null, saved: !!usable && state.saved };
 }
 
@@ -393,11 +453,21 @@ function readChainView(): string {
   }
 }
 
-function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: string }) {
-  const expiry = market.expiries.find((e) => e.expiry === expiryKey) ?? market.expiries[0];
+function SymbolDetail({
+  market,
+  expiryKey,
+}: {
+  market: SymbolMarket;
+  expiryKey: string;
+}) {
+  const expiry =
+    market.expiries.find((e) => e.expiry === expiryKey) ?? market.expiries[0];
   const liveState = useLiveChain(market.symbol, expiry?.expiry);
   const live = liveState.chain;
-  const chain = useMemo(() => (expiry && live ? withLive(expiry, live) : expiry), [expiry, live]);
+  const chain = useMemo(
+    () => (expiry && live ? withLive(expiry, live) : expiry),
+    [expiry, live],
+  );
   const [view, setView] = useState(readChainView);
   const chooseView = (next: string) => {
     setView(next);
@@ -422,24 +492,36 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
       {
         name: "ATM IV",
         color: CALLS,
-        points: market.term_structure.map((t) => ({ x: t.dte, y: t.atm_iv * 100 })),
+        points: market.term_structure.map((t) => ({
+          x: t.dte,
+          y: t.atm_iv * 100,
+        })),
       },
     ],
     [market],
   );
   if (!expiry) return <Empty title="No live expiries in this snapshot" />;
   const oiData = [...expiry.rows]
-    .sort((a, b) => Math.abs(a.strike - expiry.forward) - Math.abs(b.strike - expiry.forward))
+    .sort(
+      (a, b) =>
+        Math.abs(a.strike - expiry.forward) -
+        Math.abs(b.strike - expiry.forward),
+    )
     .slice(0, OI_CHART_STRIKES)
     .sort((a, b) => a.strike - b.strike)
     .map((row) => ({ x: row.strike, a: row.ce?.oi ?? 0, b: row.pe?.oi ?? 0 }));
-  const flatTerm = market.term_slope !== null && Math.abs(market.term_slope) < FLAT_TERM_SLOPE;
+  const flatTerm =
+    market.term_slope !== null && Math.abs(market.term_slope) < FLAT_TERM_SLOPE;
   const trend = trendStatus(market.trend);
   const proxy = market.iv_source === "india_vix_proxy";
   return (
     <>
-      <div className="tiles tiles-6">
-        <Tile label="Spot" value={num(market.spot, 2)} hint={<Status tone={trend.tone}>{trend.label}</Status>} />
+      <Tiles columns={6}>
+        <Tile
+          label="Spot"
+          value={num(market.spot, 2)}
+          hint={<Status tone={trend.tone}>{trend.label}</Status>}
+        />
         <Tile
           label="ATM IV"
           value={fraction(expiry.atm_iv)}
@@ -454,19 +536,37 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
               : `${proxy ? "India VIX proxy" : "Own snapshots"}, ${market.iv_sample_size} days`
           }
         />
-        <Tile label="Expected move" value={`±${num(expiry.expected_move)}`} hint={`By ${shortDate(expiry.expiry)}`} />
-        <Tile label="Put-call ratio" value={num(expiry.pcr, 2)} hint="Total open interest" />
+        <Tile
+          label="Expected move"
+          value={`±${num(expiry.expected_move)}`}
+          hint={`By ${shortDate(expiry.expiry)}`}
+        />
+        <Tile
+          label="Put-call ratio"
+          value={num(expiry.pcr, 2)}
+          hint="Total open interest"
+        />
         <Tile
           label="Max pain"
           value={num(expiry.max_pain)}
           hint={`25-delta skew ${expiry.skew == null ? "–" : pct(expiry.skew * 100)}`}
         />
-      </div>
+      </Tiles>
 
       {market.research && <Brief brief={market.research} />}
 
       <div className="grid-2">
-        <Panel title="Open interest by strike" aside={<Legend items={[{ name: "Calls", color: CALLS }, { name: "Puts", color: PUTS }]} />}>
+        <Panel
+          title="Open interest by strike"
+          aside={
+            <Legend
+              items={[
+                { name: "Calls", color: CALLS },
+                { name: "Puts", color: PUTS },
+              ]}
+            />
+          }
+        >
           <PairedColumns
             data={oiData}
             names={["Calls", "Puts"]}
@@ -489,7 +589,20 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
             markers={[{ x: expiry.forward, label: "Forward" }]}
           />
         </Panel>
-        <Panel title="Term structure" aside={market.term_slope == null ? undefined : <span className="muted">{flatTerm ? "Flat" : market.term_slope < 0 ? "Backwardation" : "Contango"}</span>}>
+        <Panel
+          title="Term structure"
+          aside={
+            market.term_slope == null ? undefined : (
+              <span className="muted">
+                {flatTerm
+                  ? "Flat"
+                  : market.term_slope < 0
+                    ? "Backwardation"
+                    : "Contango"}
+              </span>
+            )
+          }
+        >
           <LineChart
             series={term}
             height={200}
@@ -504,7 +617,9 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
         </Panel>
         <Panel title="Strongest levels">
           {expiry.zones.length === 0 ? (
-            <Empty title="No levels yet">Levels need daily price history.</Empty>
+            <Empty title="No levels yet">
+              Levels need daily price history.
+            </Empty>
           ) : (
             <table className="table">
               <thead>
@@ -519,7 +634,9 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
                   <tr key={zone.center}>
                     <td className="right">{num(zone.center)}</td>
                     <td className="right">{num(zone.center - market.spot)}</td>
-                    <td className="secondary">{zone.methods.join(", ").replaceAll("_", " ")}</td>
+                    <td className="secondary">
+                      {zone.methods.join(", ").replaceAll("_", " ")}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -539,11 +656,14 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
                 { name: "ATM", color: "var(--ink)" },
               ]}
             />
-            <Select
+            <LabeledSelect
               label="Columns"
               value={view}
               onChange={chooseView}
-              options={Object.keys(CHAIN_VIEWS).map((name) => ({ value: name, label: name }))}
+              options={Object.keys(CHAIN_VIEWS).map((name) => ({
+                value: name,
+                label: name,
+              }))}
             />
             {live && liveState.saved ? (
               <Status tone="warning">
@@ -563,18 +683,21 @@ function SymbolDetail({ market, expiryKey }: { market: SymbolMarket; expiryKey: 
           spot={live?.spot ?? market.spot}
           columns={CHAIN_VIEWS[view] ?? CHAIN_COLUMNS}
           onPick={(strike, type, newTab) =>
-            openStrike({ symbol: market.symbol, expiry: expiry.expiry, strike, type }, newTab)
+            openStrike(
+              { symbol: market.symbol, expiry: expiry.expiry, strike, type },
+              newTab,
+            )
           }
         />
         <p className="panel-note">
-          ITM, ATM and OTM are measured against spot, and ATM is the nearest strike. Bars show open
-          interest on one scale for both sides, and bold marks the largest on each side. IV is in %.
-          Theta is rupees per unit per day, vega is rupees per unit per volatility point, and gamma
-          is the change in delta for a one-point move.
-          Strikes within 6% of the forward. Click a call or put to open its chart.
+          ITM, ATM and OTM are measured against spot, and ATM is the nearest
+          strike. Bars show open interest on one scale for both sides, and bold
+          marks the largest on each side. IV is in %. Theta is rupees per unit
+          per day, vega is rupees per unit per volatility point, and gamma is
+          the change in delta for a one-point move. Strikes within 6% of the
+          forward. Click a call or put to open its chart.
         </p>
       </Panel>
-
     </>
   );
 }
@@ -600,7 +723,13 @@ function useSessionState(key: string): [string, (value: string) => void] {
   return [value, update];
 }
 
-export function MarketView({ market, offline = false }: { market: MarketPayload; offline?: boolean }) {
+export function MarketView({
+  market,
+  offline = false,
+}: {
+  market: MarketPayload;
+  offline?: boolean;
+}) {
   const symbols = Object.keys(market.symbols);
   // Kept for this browser tab, so returning from a strike chart shows the same chain.
   const [choice, setChoice] = useSessionState(`${CHAIN_PICK_KEY}.symbol`);
@@ -620,20 +749,21 @@ export function MarketView({ market, offline = false }: { market: MarketPayload;
   return (
     <>
       {offline && (
-        <div className="banner banner-warning">
-          <Status tone="warning">Offline</Status> The server is unreachable. Showing the option
-          chains this browser saved
-          {market.generated_at ? ` at ${dateTimeIst(market.generated_at)}` : ""}.
-        </div>
+        <Alert tone="warning" title="Offline">
+          The server is unreachable. Showing the option chains this browser
+          saved
+          {market.generated_at ? ` at ${dateTimeIst(market.generated_at)}` : ""}
+          .
+        </Alert>
       )}
       <div className="filters">
-        <Select
+        <LabeledSelect
           label="Underlying"
           value={symbol}
           onChange={setChoice}
           options={symbols.map((s) => ({ value: s, label: s }))}
         />
-        <Select
+        <LabeledSelect
           label="Expiry"
           value={expiryValue}
           onChange={setExpiry}

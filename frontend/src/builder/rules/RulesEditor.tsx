@@ -2,8 +2,7 @@ import { Plus } from "lucide-react";
 import type { IndicatorPick, TechCatalog, TechRule } from "../../api";
 import { MAX_RULES, MINUTE_FRAMES } from "../logic/picks";
 import { ruleHelpers } from "../logic/ruleDefaults";
-import { Button } from "../ui/Button";
-import { Select } from "../ui/inputs";
+import { Button, Select } from "../../components/ui";
 import { RuleCard } from "./RuleCard";
 
 /** A list of rules on the underlying, with ready-made ones a click away. Rules choose from

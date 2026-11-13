@@ -1,3 +1,14 @@
+import {
+  ChartLine,
+  Eye,
+  EyeOff,
+  Maximize2,
+  Minimize2,
+  Plus,
+  Settings,
+  X,
+} from "lucide-react";
+import { Alert, ChartChip } from "../components/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BaselineSeries,
@@ -75,11 +86,29 @@ const RANGES = [
   { sessions: 250, label: "1Y" },
   { sessions: 500, label: "2Y" },
 ];
-const DEFAULT_RANGE: Partial<Record<TechTimeframe, number>> = { "5m": 10, "15m": 21, "1h": 63 };
+const DEFAULT_RANGE: Partial<Record<TechTimeframe, number>> = {
+  "5m": 10,
+  "15m": 21,
+  "1h": 63,
+};
 // Already drawn by the candles themselves.
 // The candles themselves: on a chart they would only redraw what is already there.
-const HIDDEN_FROM_PICKER = new Set(["close", "open", "high", "low", "candle", "prev_candle"]);
-const PALETTE = ["--series-1", "--series-5", "--overlay-2", "--series-3", "--series-4", "--series-2"];
+const HIDDEN_FROM_PICKER = new Set([
+  "close",
+  "open",
+  "high",
+  "low",
+  "candle",
+  "prev_candle",
+]);
+const PALETTE = [
+  "--series-1",
+  "--series-5",
+  "--overlay-2",
+  "--series-3",
+  "--series-4",
+  "--series-2",
+];
 const MAX_STUDIES = 12;
 // Short names for the legend, as chart platforms show them. The full name is in the tooltip.
 const SHORT: Record<string, string> = {
@@ -192,7 +221,10 @@ function readSaved(symbols: string[]): Saved {
 }
 
 function css(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
+    "#888"
+  );
 }
 
 /** Bumps when the light or dark theme changes, so the chart can recolour. */
@@ -201,7 +233,10 @@ function useThemeTick(): number {
   useEffect(() => {
     const bump = () => setTick((t) => t + 1);
     const observer = new MutationObserver(bump);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     media.addEventListener("change", bump);
     return () => {
@@ -215,24 +250,30 @@ function useThemeTick(): number {
 function priceText(value: number | null | undefined): string {
   if (value === null || value === undefined) return "–";
   const digits = Math.abs(value) >= 1000 ? 1 : Math.abs(value) >= 10 ? 2 : 3;
-  return value.toLocaleString("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return value.toLocaleString("en-IN", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
 }
 
 function dashed(field: string | null): boolean {
-  return field === "mid" || field === "signal" || field === "d" || field === "p";
+  return (
+    field === "mid" || field === "signal" || field === "d" || field === "p"
+  );
 }
 
 // Channels drawn as two edges with a shaded fill and a solid middle line.
-const BANDS: Record<string, { upper: string; lower: string; middle: string }> = {
-  bbands: { upper: "upper", lower: "lower", middle: "middle" },
-  donchian: { upper: "upper", lower: "lower", middle: "middle" },
-  keltner: { upper: "upper", lower: "lower", middle: "middle" },
-  // The cloud between the leading spans; the base line is the "middle".
-  ichimoku: { upper: "span_a", lower: "span_b", middle: "base" },
-  // One shaded box per session: empty until the range is known, so each day stands alone.
-  opening_range: { upper: "high", lower: "low", middle: "mid" },
-  opening_range_body: { upper: "high", lower: "low", middle: "mid" },
-};
+const BANDS: Record<string, { upper: string; lower: string; middle: string }> =
+  {
+    bbands: { upper: "upper", lower: "lower", middle: "middle" },
+    donchian: { upper: "upper", lower: "lower", middle: "middle" },
+    keltner: { upper: "upper", lower: "lower", middle: "middle" },
+    // The cloud between the leading spans; the base line is the "middle".
+    ichimoku: { upper: "span_a", lower: "span_b", middle: "base" },
+    // One shaded box per session: empty until the range is known, so each day stands alone.
+    opening_range: { upper: "high", lower: "low", middle: "mid" },
+    opening_range_body: { upper: "high", lower: "low", middle: "mid" },
+  };
 // Ranges that reset every session, drawn as one box per day rather than as lines.
 const SESSION_BOXES = new Set(["opening_range", "opening_range_body"]);
 
@@ -272,57 +313,69 @@ class BandFill implements ISeriesPrimitive<Time> {
         if (!range) return;
         const from = Math.max(0, Math.floor(range.from) - 1);
         const to = Math.min(this.times.length - 1, Math.ceil(range.to) + 1);
-        target.useBitmapCoordinateSpace(({ context, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
-          context.fillStyle = this.colour;
-          let top: [number, number][] = [];
-          let bottom: [number, number][] = [];
-          let middle: [number, number][] = [];
-          const line = (points: [number, number][], dash: number[]) => {
-            if (points.length < 2) return;
-            context.setLineDash(dash);
-            context.beginPath();
-            points.forEach(([x, y], i) => (i ? context.lineTo(x, y) : context.moveTo(x, y)));
-            context.stroke();
-          };
-          const flush = () => {
-            if (top.length > 1) {
+        target.useBitmapCoordinateSpace(
+          ({ context, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
+            context.fillStyle = this.colour;
+            let top: [number, number][] = [];
+            let bottom: [number, number][] = [];
+            let middle: [number, number][] = [];
+            const line = (points: [number, number][], dash: number[]) => {
+              if (points.length < 2) return;
+              context.setLineDash(dash);
               context.beginPath();
-              top.forEach(([x, y], i) => (i ? context.lineTo(x, y) : context.moveTo(x, y)));
-              for (let i = bottom.length - 1; i >= 0; i--) context.lineTo(bottom[i][0], bottom[i][1]);
-              context.closePath();
-              context.fill();
-              if (this.edges) {
-                context.strokeStyle = this.edges.stroke;
-                context.lineWidth = Math.max(1, Math.round(1.5 * hr));
-                line(top, []);
-                line(bottom, []);
-                context.lineWidth = Math.max(1, Math.round(hr));
-                line(middle, [4 * hr, 3 * hr]);
-                context.setLineDash([]);
+              points.forEach(([x, y], i) =>
+                i ? context.lineTo(x, y) : context.moveTo(x, y),
+              );
+              context.stroke();
+            };
+            const flush = () => {
+              if (top.length > 1) {
+                context.beginPath();
+                top.forEach(([x, y], i) =>
+                  i ? context.lineTo(x, y) : context.moveTo(x, y),
+                );
+                for (let i = bottom.length - 1; i >= 0; i--)
+                  context.lineTo(bottom[i][0], bottom[i][1]);
+                context.closePath();
+                context.fill();
+                if (this.edges) {
+                  context.strokeStyle = this.edges.stroke;
+                  context.lineWidth = Math.max(1, Math.round(1.5 * hr));
+                  line(top, []);
+                  line(bottom, []);
+                  context.lineWidth = Math.max(1, Math.round(hr));
+                  line(middle, [4 * hr, 3 * hr]);
+                  context.setLineDash([]);
+                }
               }
+              top = [];
+              bottom = [];
+              middle = [];
+            };
+            for (let i = from; i <= to; i++) {
+              const high = this.upper[i];
+              const low = this.lower[i];
+              const x = scale.timeToCoordinate(this.times[i]);
+              const yHigh =
+                high === null ? null : attached.series.priceToCoordinate(high);
+              const yLow =
+                low === null ? null : attached.series.priceToCoordinate(low);
+              if (x === null || yHigh === null || yLow === null) {
+                flush();
+                continue;
+              }
+              top.push([x * hr, yHigh * vr]);
+              bottom.push([x * hr, yLow * vr]);
+              const mid = this.edges?.middle?.[i];
+              const yMid =
+                mid === null || mid === undefined
+                  ? null
+                  : attached.series.priceToCoordinate(mid);
+              if (yMid !== null) middle.push([x * hr, yMid * vr]);
             }
-            top = [];
-            bottom = [];
-            middle = [];
-          };
-          for (let i = from; i <= to; i++) {
-            const high = this.upper[i];
-            const low = this.lower[i];
-            const x = scale.timeToCoordinate(this.times[i]);
-            const yHigh = high === null ? null : attached.series.priceToCoordinate(high);
-            const yLow = low === null ? null : attached.series.priceToCoordinate(low);
-            if (x === null || yHigh === null || yLow === null) {
-              flush();
-              continue;
-            }
-            top.push([x * hr, yHigh * vr]);
-            bottom.push([x * hr, yLow * vr]);
-            const mid = this.edges?.middle?.[i];
-            const yMid = mid === null || mid === undefined ? null : attached.series.priceToCoordinate(mid);
-            if (yMid !== null) middle.push([x * hr, yMid * vr]);
-          }
-          flush();
-        });
+            flush();
+          },
+        );
       },
     };
     this.view = { zOrder: () => "bottom", renderer: () => renderer };
@@ -351,7 +404,14 @@ function defaults(indicator: Indicator): Record<string, number> {
 
 // The candles themselves already show these.
 // Prices a rule reads, drawn as the level they are compared with rather than as a line.
-const PRICE_OPERANDS = new Set(["close", "open", "high", "low", "candle", "prev_candle"]);
+const PRICE_OPERANDS = new Set([
+  "close",
+  "open",
+  "high",
+  "low",
+  "candle",
+  "prev_candle",
+]);
 
 interface StrategyLines {
   studies: StudyState[];
@@ -381,19 +441,33 @@ function strategyLines(
   candles: CandleType,
   user: StudyState[],
 ): StrategyLines {
-  const found: StrategyLines = { studies: [], levels: new Map(), priceLevels: [], elsewhere: 0, otherPicks: [] };
+  const found: StrategyLines = {
+    studies: [],
+    levels: new Map(),
+    priceLevels: [],
+    elsewhere: 0,
+    otherPicks: [],
+  };
   if (!draft) return found;
   const all = [
     ...(draft.entry.rules ?? []),
     ...(draft.entry.any_rules ?? []),
     ...(draft.exits.rules ?? []),
-    ...(draft.cases ?? []).flatMap((item) => [...(item.rules ?? []), ...(item.any_rules ?? [])]),
+    ...(draft.cases ?? []).flatMap((item) => [
+      ...(item.rules ?? []),
+      ...(item.any_rules ?? []),
+    ]),
   ];
-  const userKeys = new Set(user.map((study) => studyKey(study.name, study.params)));
+  const userKeys = new Set(
+    user.map((study) => studyKey(study.name, study.params)),
+  );
   const added = new Set<string>();
   for (const rule of all) {
     if (rule.type !== "compare") continue;
-    if (rule.timeframe !== timeframe || (rule.candles ?? "normal") !== candles) {
+    if (
+      rule.timeframe !== timeframe ||
+      (rule.candles ?? "normal") !== candles
+    ) {
       found.elsewhere += 1;
       continue;
     }
@@ -402,7 +476,8 @@ function strategyLines(
     for (const side of sides) {
       if (side.kind !== "indicator" || !side.name) continue;
       if (PRICE_OPERANDS.has(side.name)) {
-        if (fixed !== undefined && fixed !== null) found.priceLevels.push(fixed);
+        if (fixed !== undefined && fixed !== null)
+          found.priceLevels.push(fixed);
         continue;
       }
       const indicator = indicators.get(side.name);
@@ -410,11 +485,19 @@ function strategyLines(
       const params = { ...defaults(indicator), ...(side.params ?? {}) };
       const key = studyKey(side.name, params);
       if (fixed !== undefined && fixed !== null) {
-        found.levels.set(key, [...(found.levels.get(key) ?? []), { field: side.field ?? null, value: fixed }]);
+        found.levels.set(key, [
+          ...(found.levels.get(key) ?? []),
+          { field: side.field ?? null, value: fixed },
+        ]);
       }
       if (userKeys.has(key) || added.has(key)) continue;
       added.add(key);
-      found.studies.push({ id: `rule-${key}`, name: side.name, params, strategy: true });
+      found.studies.push({
+        id: `rule-${key}`,
+        name: side.name,
+        params,
+        strategy: true,
+      });
     }
   }
   // Indicators picked for the strategy are drawn too, even before a rule reads them, on the
@@ -422,7 +505,10 @@ function strategyLines(
   for (const pick of draft.indicators ?? []) {
     const indicator = indicators.get(pick.name);
     if (!indicator || PRICE_OPERANDS.has(pick.name)) continue;
-    if ((pick.timeframe ?? "1d") !== timeframe || (pick.candles ?? "normal") !== candles) {
+    if (
+      (pick.timeframe ?? "1d") !== timeframe ||
+      (pick.candles ?? "normal") !== candles
+    ) {
       found.elsewhere += 1;
       found.otherPicks.push(pick);
       continue;
@@ -431,17 +517,27 @@ function strategyLines(
     const key = studyKey(pick.name, params);
     if (userKeys.has(key) || added.has(key)) continue;
     added.add(key);
-    found.studies.push({ id: `rule-${key}`, name: pick.name, params, strategy: true });
+    found.studies.push({
+      id: `rule-${key}`,
+      name: pick.name,
+      params,
+      strategy: true,
+    });
   }
   return found;
 }
 
 /** The timeframe and candles most of the entry rules read, which replay switches to. */
-function strategyFrame(draft: LabSpec): { timeframe: TechTimeframe; candles: CandleType } | null {
+function strategyFrame(
+  draft: LabSpec,
+): { timeframe: TechTimeframe; candles: CandleType } | null {
   const rules = [
     ...(draft.entry.rules ?? []),
     ...(draft.entry.any_rules ?? []),
-    ...(draft.cases ?? []).flatMap((item) => [...(item.rules ?? []), ...(item.any_rules ?? [])]),
+    ...(draft.cases ?? []).flatMap((item) => [
+      ...(item.rules ?? []),
+      ...(item.any_rules ?? []),
+    ]),
   ];
   if (!rules.length) return null;
   const counts = new Map<string, number>();
@@ -451,12 +547,25 @@ function strategyFrame(draft: LabSpec): { timeframe: TechTimeframe; candles: Can
   }
   const [best] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
   const [timeframe, candles] = best.split("|");
-  return { timeframe: timeframe as TechTimeframe, candles: candles as CandleType };
+  return {
+    timeframe: timeframe as TechTimeframe,
+    candles: candles as CandleType,
+  };
 }
 
-function ruleFor(study: StudyState, indicator: Indicator, timeframe: TechTimeframe, candles: CandleType): TechRule {
+function ruleFor(
+  study: StudyState,
+  indicator: Indicator,
+  timeframe: TechTimeframe,
+  candles: CandleType,
+): TechRule {
   const field = indicator.fields[0]?.value ?? null;
-  const operand = { kind: "indicator" as const, name: study.name, params: study.params, field };
+  const operand = {
+    kind: "indicator" as const,
+    name: study.name,
+    params: study.params,
+    field,
+  };
   if (indicator.overlay) {
     return {
       type: "compare",
@@ -477,20 +586,6 @@ function ruleFor(study: StudyState, indicator: Indicator, timeframe: TechTimefra
   };
 }
 
-function Icon({ path }: { path: string }) {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d={path} />
-    </svg>
-  );
-}
-
-const EYE = "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z";
-const EYE_OFF = "M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.2M6.6 6.6C3.7 8.4 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 4.4-1.1M9.9 9.9a3 3 0 0 0 4.2 4.2";
-const GEAR = "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z";
-const CROSS = "M18 6L6 18M6 6l12 12";
-const PLUS_RULE = "M12 5v14M5 12h14";
-
 interface Props {
   catalog: TechCatalog;
   symbols: string[];
@@ -503,7 +598,10 @@ interface Props {
   /** Underlyings with option history, which replay needs. */
   tradable?: string[];
   /** Replays these trades, such as a saved backtest's, instead of backtesting the draft. */
-  replaySource?: { label: string; load: (symbol: string) => Promise<ReplayData> };
+  replaySource?: {
+    label: string;
+    load: (symbol: string) => Promise<ReplayData>;
+  };
   /** A preview of the draft: only its own indicators and levels, on the candles its rules
    * read. Indicators added here are for this look only and are not kept. */
   strategyPreview?: boolean;
@@ -517,14 +615,17 @@ function previewStart(symbols: string[], draft: LabSpec | undefined): Saved {
   const base = readSaved(symbols);
   let kept: Partial<Saved> = {};
   try {
-    kept = JSON.parse(localStorage.getItem(PREVIEW_KEY) ?? "{}") as Partial<Saved>;
+    kept = JSON.parse(
+      localStorage.getItem(PREVIEW_KEY) ?? "{}",
+    ) as Partial<Saved>;
   } catch {
     // A fresh start when storage is blocked.
   }
   // The candles its rules read; without rules, the ones it decides on.
   const frame = draft ? strategyFrame(draft) : null;
   const decides = draft?.decide_every ?? "day";
-  const symbol = kept.symbol && symbols.includes(kept.symbol) ? kept.symbol : base.symbol;
+  const symbol =
+    kept.symbol && symbols.includes(kept.symbol) ? kept.symbol : base.symbol;
   return {
     ...base,
     symbol,
@@ -601,15 +702,22 @@ export function IndexChart({
   const timesRef = useRef<Map<number, number>>(new Map());
   const pickerRef = useRef<HTMLDivElement>(null);
 
-  const indicators = useMemo(() => new Map(catalog.indicators.map((i) => [i.name, i])), [catalog]);
-  const update = (change: Partial<Saved>) => setSaved((current) => ({ ...current, ...change }));
+  const indicators = useMemo(
+    () => new Map(catalog.indicators.map((i) => [i.name, i])),
+    [catalog],
+  );
+  const update = (change: Partial<Saved>) =>
+    setSaved((current) => ({ ...current, ...change }));
 
   useEffect(() => {
     try {
       if (strategyPreview) {
         // Only the underlying and ranges are kept; candles and indicators come from the strategy.
         const { symbol: kept, sessions: ranges } = saved;
-        localStorage.setItem(PREVIEW_KEY, JSON.stringify({ symbol: kept, sessions: ranges }));
+        localStorage.setItem(
+          PREVIEW_KEY,
+          JSON.stringify({ symbol: kept, sessions: ranges }),
+        );
       } else {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
       }
@@ -621,19 +729,30 @@ export function IndexChart({
   // ---- Data ----------------------------------------------------------------------------------
   const showStrategy = signals || replay !== null;
   const strategy = useMemo(
-    () => (showStrategy ? strategyLines(draft, indicators, timeframe, candles, studies) : null),
+    () =>
+      showStrategy
+        ? strategyLines(draft, indicators, timeframe, candles, studies)
+        : null,
     // The draft is rebuilt on every render, so its rules and indicators go by content.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       showStrategy,
-      JSON.stringify([draft?.entry, draft?.exits, draft?.cases, draft?.indicators]),
+      JSON.stringify([
+        draft?.entry,
+        draft?.exits,
+        draft?.cases,
+        draft?.indicators,
+      ]),
       indicators,
       timeframe,
       candles,
       studies,
     ],
   );
-  const shown = useMemo(() => [...studies, ...(strategy?.studies ?? [])], [studies, strategy]);
+  const shown = useMemo(
+    () => [...studies, ...(strategy?.studies ?? [])],
+    [studies, strategy],
+  );
 
   const requestKey = JSON.stringify({
     symbol,
@@ -679,7 +798,11 @@ export function IndexChart({
         })
         .catch((reason) => {
           if (controller.signal.aborted) return;
-          setError(reason instanceof Error ? reason.message : "Could not load the chart.");
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "Could not load the chart.",
+          );
         })
         .finally(() => {
           if (!controller.signal.aborted) setLoading(false);
@@ -702,12 +825,24 @@ export function IndexChart({
       rightPriceScale: { borderVisible: false },
       // The wheel scrolls the page, which is a long form. Drag to pan, and zoom with the
       // buttons, a pinch, or by dragging the time axis.
-      handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
-      handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: true },
+      handleScroll: {
+        mouseWheel: false,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: false,
+      },
+      handleScale: {
+        mouseWheel: false,
+        pinch: true,
+        axisPressedMouseMove: true,
+      },
     });
     chartRef.current = chart;
     chart.subscribeCrosshairMove((param) => {
-      const index = param.time === undefined ? undefined : timesRef.current.get(param.time as number);
+      const index =
+        param.time === undefined
+          ? undefined
+          : timesRef.current.get(param.time as number);
       setHover(index ?? null);
     });
     return () => {
@@ -731,7 +866,9 @@ export function IndexChart({
 
   useEffect(() => {
     if (!box.current) return;
-    const observer = new ResizeObserver(() => window.requestAnimationFrame(measurePanes));
+    const observer = new ResizeObserver(() =>
+      window.requestAnimationFrame(measurePanes),
+    );
     observer.observe(box.current);
     return () => observer.disconnect();
   }, [measurePanes]);
@@ -743,22 +880,32 @@ export function IndexChart({
     for (const study of data.studies) {
       const state = shown.find((s) => s.id === study.id);
       if (!state || state.hidden || study.error) continue;
-      if (study.lines.some((line) => !line.overlay)) found.set(study.id, found.size + 1);
+      if (study.lines.some((line) => !line.overlay))
+        found.set(study.id, found.size + 1);
     }
     return found;
   }, [data, shown]);
 
   const colours = useMemo(() => {
     const found = new Map<string, string>();
-    studies.forEach((study, index) => found.set(study.id, PALETTE[index % PALETTE.length]));
+    studies.forEach((study, index) =>
+      found.set(study.id, PALETTE[index % PALETTE.length]),
+    );
     // The strategy's own lines share one colour, so they read as one thing.
-    for (const study of strategy?.studies ?? []) found.set(study.id, "--accent");
+    for (const study of strategy?.studies ?? [])
+      found.set(study.id, "--accent");
     return found;
   }, [studies, strategy]);
 
   const times = useMemo(() => (data && !data.empty ? data.time : []), [data]);
-  const cursor = replay && cursorTime !== null && times.length ? Math.max(0, indexAt(times, cursorTime)) : null;
-  const replayLine = useMemo(() => (replay && times.length ? timeline(times, replay) : null), [replay, times]);
+  const cursor =
+    replay && cursorTime !== null && times.length
+      ? Math.max(0, indexAt(times, cursorTime))
+      : null;
+  const replayLine = useMemo(
+    () => (replay && times.length ? timeline(times, replay) : null),
+    [replay, times],
+  );
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -772,7 +919,10 @@ export function IndexChart({
         textColor: tick,
         fontFamily: getComputedStyle(document.body).fontFamily,
         fontSize: 11,
-        panes: { separatorColor: css("--border"), separatorHoverColor: css("--accent-wash") },
+        panes: {
+          separatorColor: css("--border"),
+          separatorHoverColor: css("--accent-wash"),
+        },
       },
       grid: { vertLines: { color: grid }, horzLines: { color: grid } },
       crosshair: {
@@ -805,8 +955,15 @@ export function IndexChart({
     });
     candleSeries.setData(
       times.flatMap((time, i) => {
-        const [o, h, l, c] = [data.open[i], data.high[i], data.low[i], data.close[i]];
-        return o === null || h === null || l === null || c === null ? [] : [{ time, open: o, high: h, low: l, close: c }];
+        const [o, h, l, c] = [
+          data.open[i],
+          data.high[i],
+          data.low[i],
+          data.close[i],
+        ];
+        return o === null || h === null || l === null || c === null
+          ? []
+          : [{ time, open: o, high: h, low: l, close: c }];
       }),
     );
     seriesRef.current.push(candleSeries);
@@ -825,22 +982,32 @@ export function IndexChart({
       const state = shown.find((s) => s.id === study.id);
       if (!state || state.hidden || study.error) continue;
       const colour = css(colours.get(study.id) ?? PALETTE[0]);
-      const ruleLevels = strategy?.levels.get(studyKey(state.name, state.params)) ?? [];
+      const ruleLevels =
+        strategy?.levels.get(studyKey(state.name, state.params)) ?? [];
       if (SESSION_BOXES.has(study.name)) {
         // A line series would join one day's range to the next; the box breaks each session.
-        const field = (name: string) => study.lines.find((l) => l.field === name)?.values.slice(0, end) ?? [];
+        const field = (name: string) =>
+          study.lines.find((l) => l.field === name)?.values.slice(0, end) ?? [];
         candleSeries.attachPrimitive(
-          new BandFill(times, field("high"), field("low"), withAlpha(colour, 0.1), {
-            stroke: colour,
-            middle: field("mid"),
-          }),
+          new BandFill(
+            times,
+            field("high"),
+            field("low"),
+            withAlpha(colour, 0.1),
+            {
+              stroke: colour,
+              middle: field("mid"),
+            },
+          ),
         );
         continue;
       }
       const pane = panes.get(study.id) ?? 0;
       let levelsDrawn = false;
       const band = BANDS[study.name];
-      const middleColour = css(colours.get(study.id) === "--series-2" ? "--series-1" : "--series-2");
+      const middleColour = css(
+        colours.get(study.id) === "--series-2" ? "--series-1" : "--series-2",
+      );
       const single = study.lines.length === 1;
       study.lines.forEach((line, index) => {
         const paneIndex = line.overlay ? 0 : pane;
@@ -852,12 +1019,24 @@ export function IndexChart({
         if (line.field === "hist") {
           const bars = chart.addSeries(
             HistogramSeries,
-            { priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "price", precision: 2, minMove: 0.01 } },
+            {
+              priceLineVisible: false,
+              lastValueVisible: false,
+              priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+            },
             paneIndex,
           );
           bars.setData(
             points.map((p) =>
-              "value" in p ? { ...p, color: (p.value as number) >= 0 ? css("--up-wash") : css("--down-wash") } : p,
+              "value" in p
+                ? {
+                    ...p,
+                    color:
+                      (p.value as number) >= 0
+                        ? css("--up-wash")
+                        : css("--down-wash"),
+                  }
+                : p,
             ),
           );
           seriesRef.current.push(bars);
@@ -868,8 +1047,11 @@ export function IndexChart({
           {
             color: isMiddle ? middleColour : colour,
             lineWidth: single ? 2 : 1,
-            lineStyle: !band && dashed(line.field) ? LineStyle.Dashed : LineStyle.Solid,
-            lineType: STEPPED.has(study.name) ? LineType.WithSteps : LineType.Simple,
+            lineStyle:
+              !band && dashed(line.field) ? LineStyle.Dashed : LineStyle.Solid,
+            lineType: STEPPED.has(study.name)
+              ? LineType.WithSteps
+              : LineType.Simple,
             lineVisible: !DOTTED.has(study.name),
             pointMarkersVisible: DOTTED.has(study.name),
             pointMarkersRadius: 1.5,
@@ -896,7 +1078,12 @@ export function IndexChart({
           const lower = study.lines.find((other) => other.field === band.lower);
           if (lower) {
             series.attachPrimitive(
-              new BandFill(times, line.values.slice(0, end), lower.values.slice(0, end), withAlpha(colour, 0.09)),
+              new BandFill(
+                times,
+                line.values.slice(0, end),
+                lower.values.slice(0, end),
+                withAlpha(colour, 0.09),
+              ),
             );
           }
         }
@@ -949,7 +1136,8 @@ export function IndexChart({
             lineStyle: LineStyle.Dashed,
             lineType: LineType.WithSteps,
             priceLineVisible: false,
-            lastValueVisible: values[end - 1] !== null && values[end - 1] !== undefined,
+            lastValueVisible:
+              values[end - 1] !== null && values[end - 1] !== undefined,
             crosshairMarkerVisible: false,
             title,
             priceFormat: { type: "price", precision: 0, minMove: 1 },
@@ -961,7 +1149,9 @@ export function IndexChart({
         level.setData(
           times.map((time, i) => {
             const value = values[i];
-            return value === null || value === undefined ? { time } : { time, value };
+            return value === null || value === undefined
+              ? { time }
+              : { time, value };
           }),
         );
         seriesRef.current.push(level);
@@ -985,10 +1175,17 @@ export function IndexChart({
             position: "belowBar" as const,
             color: css("--accent"),
             shape: "arrowUp" as const,
-            text: trade.legs.length === 1 ? `${trade.legs[0].side === "buy" ? "Buy" : "Sell"} ${trade.legs[0].strike} ${trade.legs[0].option_type}` : `Open ${trade.legs.length} legs`,
+            text:
+              trade.legs.length === 1
+                ? `${trade.legs[0].side === "buy" ? "Buy" : "Sell"} ${trade.legs[0].strike} ${trade.legs[0].option_type}`
+                : `Open ${trade.legs.length} legs`,
           });
         }
-        if (exit >= 0 && exit < end && trade.close_time <= (data.time[end] ?? Number.POSITIVE_INFINITY)) {
+        if (
+          exit >= 0 &&
+          exit < end &&
+          trade.close_time <= (data.time[end] ?? Number.POSITIVE_INFINITY)
+        ) {
           found.push({
             time: data.time[exit] as Time,
             position: "aboveBar" as const,
@@ -1005,7 +1202,12 @@ export function IndexChart({
       // The first case's hits point up; a bearish further case's point down from above.
       const shown = data.signals.hits
         .filter((i) => i < end)
-        .map((i) => ({ time: times[i] as Time, position: "belowBar" as const, color: css("--accent"), shape: "arrowUp" as const }));
+        .map((i) => ({
+          time: times[i] as Time,
+          position: "belowBar" as const,
+          color: css("--accent"),
+          shape: "arrowUp" as const,
+        }));
       for (const item of data.signals.cases ?? []) {
         const down = item.bias === "bearish";
         for (const i of item.hits) {
@@ -1025,7 +1227,21 @@ export function IndexChart({
     }
     window.requestAnimationFrame(measurePanes);
     if (cursor !== null && playing) chart.timeScale().scrollToRealTime();
-  }, [data, shown, strategy, panes, colours, signals, timeframe, themeTick, measurePanes, cursor, replay, replayLine, playing]);
+  }, [
+    data,
+    shown,
+    strategy,
+    panes,
+    colours,
+    signals,
+    timeframe,
+    themeTick,
+    measurePanes,
+    cursor,
+    replay,
+    replayLine,
+    playing,
+  ]);
 
   // ---- Replay --------------------------------------------------------------------------------
   const startReplay = async () => {
@@ -1036,23 +1252,34 @@ export function IndexChart({
     try {
       const result = replaySource
         ? await replaySource.load(symbol)
-        : await api.labReplay({ spec: draft, symbol, sessions: replaySessions });
-      const needed = replaySource ? weekdaysSince(result.start) : replaySessions;
+        : await api.labReplay({
+            spec: draft,
+            symbol,
+            sessions: replaySessions,
+          });
+      const needed = replaySource
+        ? weekdaysSince(result.start)
+        : replaySessions;
       // Show the candles the strategy decides on, so its lines are drawn as it reads them.
       const frame = strategyFrame(draft);
       const target = frame?.timeframe ?? timeframe;
-      const change: Partial<Saved> = frame ? { timeframe: frame.timeframe, candles: frame.candles } : {};
+      const change: Partial<Saved> = frame
+        ? { timeframe: frame.timeframe, candles: frame.candles }
+        : {};
       // Minute charts must load the whole replay window.
       const loaded = saved.sessions?.[target] ?? DEFAULT_RANGE[target] ?? 21;
       if (MINUTES.has(target) && loaded < needed) {
-        const fitting = RANGES.find((r) => r.sessions >= needed) ?? RANGES[RANGES.length - 1];
+        const fitting =
+          RANGES.find((r) => r.sessions >= needed) ?? RANGES[RANGES.length - 1];
         change.sessions = { ...saved.sessions, [target]: fitting.sessions };
       }
       if (Object.keys(change).length) update(change);
       setReplay(result);
       setCursorTime(null);
     } catch (reason) {
-      setReplayError(reason instanceof Error ? reason.message : "The replay could not run.");
+      setReplayError(
+        reason instanceof Error ? reason.message : "The replay could not run.",
+      );
     } finally {
       setReplayBusy(false);
     }
@@ -1066,18 +1293,29 @@ export function IndexChart({
   // Start at the first candle of the replay window, with some history in view. A minute chart
   // that does not reach back to the window loads the next longer range first.
   useEffect(() => {
-    if (!replay || cursorTime !== null || !times.length || loadedKey !== requestKey) return;
+    if (
+      !replay ||
+      cursorTime !== null ||
+      !times.length ||
+      loadedKey !== requestKey
+    )
+      return;
     const first = Date.parse(`${replay.start}T00:00:00Z`) / 1000;
     if (MINUTES.has(timeframe) && times[0] > first) {
       const longer = RANGES.find((r) => r.sessions > (sessions ?? 0));
       if (longer) {
-        update({ sessions: { ...saved.sessions, [timeframe]: longer.sessions } });
+        update({
+          sessions: { ...saved.sessions, [timeframe]: longer.sessions },
+        });
         return;
       }
     }
     const start = Math.max(0, indexAt(times, first - 1) + 1);
     setCursorTime(times[Math.min(start, times.length - 1)]);
-    chartRef.current?.timeScale().setVisibleLogicalRange({ from: Math.max(0, start - 120), to: start + 20 });
+    chartRef.current?.timeScale().setVisibleLogicalRange({
+      from: Math.max(0, start - 120),
+      to: start + 20,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replay, cursorTime, times, loadedKey, requestKey]);
 
@@ -1101,7 +1339,9 @@ export function IndexChart({
 
   const nextEntry =
     replay && replayLine && cursor !== null
-      ? replayLine.entries.filter((entry) => entry > cursor).sort((a, b) => a - b)[0]
+      ? replayLine.entries
+          .filter((entry) => entry > cursor)
+          .sort((a, b) => a - b)[0]
       : undefined;
 
   // A new symbol or timeframe starts at the latest candles.
@@ -1113,7 +1353,10 @@ export function IndexChart({
     if (lastFit.current === key) return;
     lastFit.current = key;
     const count = data.time.length;
-    chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, count - 160), to: count + 4 });
+    chart.timeScale().setVisibleLogicalRange({
+      from: Math.max(0, count - 160),
+      to: count + 4,
+    });
   }, [data]);
 
   const zoom = (factor: number) => {
@@ -1127,8 +1370,12 @@ export function IndexChart({
   // ---- Full screen ---------------------------------------------------------------------------
   useEffect(() => {
     const onChange = () => {
-      const active = document.fullscreenElement !== null && document.fullscreenElement === root.current;
-      setFull((current) => (active ? "screen" : current === "screen" ? "off" : current));
+      const active =
+        document.fullscreenElement !== null &&
+        document.fullscreenElement === root.current;
+      setFull((current) =>
+        active ? "screen" : current === "screen" ? "off" : current,
+      );
     };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
@@ -1136,7 +1383,8 @@ export function IndexChart({
 
   useEffect(() => {
     if (full !== "window") return;
-    const onKey = (event: KeyboardEvent) => event.key === "Escape" && setFull("off");
+    const onKey = (event: KeyboardEvent) =>
+      event.key === "Escape" && setFull("off");
     document.addEventListener("keydown", onKey);
     document.body.classList.add("chart-full-open");
     return () => {
@@ -1167,7 +1415,9 @@ export function IndexChart({
           () => true,
           () => false,
         ),
-        new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), 600)),
+        new Promise<boolean>((resolve) =>
+          window.setTimeout(() => resolve(false), 600),
+        ),
       ]);
       if (granted || document.fullscreenElement === element) return;
     }
@@ -1178,9 +1428,14 @@ export function IndexChart({
   useEffect(() => {
     if (!pickerOpen) return;
     const close = (event: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) setPickerOpen(false);
+      if (
+        pickerRef.current &&
+        !pickerRef.current.contains(event.target as Node)
+      )
+        setPickerOpen(false);
     };
-    const escape = (event: KeyboardEvent) => event.key === "Escape" && setPickerOpen(false);
+    const escape = (event: KeyboardEvent) =>
+      event.key === "Escape" && setPickerOpen(false);
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", escape);
     return () => {
@@ -1191,12 +1446,19 @@ export function IndexChart({
 
   const addStudy = (indicator: Indicator) => {
     if (studies.length >= MAX_STUDIES) return;
-    update({ studies: [...studies, { id: newId(), name: indicator.name, params: defaults(indicator) }] });
+    update({
+      studies: [
+        ...studies,
+        { id: newId(), name: indicator.name, params: defaults(indicator) },
+      ],
+    });
     setPickerOpen(false);
     setSearch("");
   };
   const setStudy = (id: string, change: Partial<StudyState>) =>
-    update({ studies: studies.map((s) => (s.id === id ? { ...s, ...change } : s)) });
+    update({
+      studies: studies.map((s) => (s.id === id ? { ...s, ...change } : s)),
+    });
   const removeStudy = (id: string) => {
     update({ studies: studies.filter((s) => s.id !== id) });
     if (editing === id) setEditing(null);
@@ -1206,7 +1468,10 @@ export function IndexChart({
   const choices = catalog.indicators.filter(
     (i) =>
       !HIDDEN_FROM_PICKER.has(i.name) &&
-      (!query || i.label.toLowerCase().includes(query) || i.name.includes(query) || i.description.toLowerCase().includes(query)),
+      (!query ||
+        i.label.toLowerCase().includes(query) ||
+        i.name.includes(query) ||
+        i.description.toLowerCase().includes(query)),
   );
   const groups = byType(catalog, choices, (i) => i.name);
 
@@ -1215,21 +1480,42 @@ export function IndexChart({
   const at = hover ?? (count ? count - 1 : null);
   const ohlc =
     at !== null && data && !data.empty
-      ? { o: data.open[at], h: data.high[at], l: data.low[at], c: data.close[at], prev: at > 0 ? data.close[at - 1] : null }
+      ? {
+          o: data.open[at],
+          h: data.high[at],
+          l: data.low[at],
+          c: data.close[at],
+          prev: at > 0 ? data.close[at - 1] : null,
+        }
       : null;
-  const change = ohlc && ohlc.c !== null && ohlc.prev ? ((ohlc.c - ohlc.prev) / ohlc.prev) * 100 : null;
+  const change =
+    ohlc && ohlc.c !== null && ohlc.prev
+      ? ((ohlc.c - ohlc.prev) / ohlc.prev) * 100
+      : null;
   const studyData = new Map((data?.studies ?? []).map((s) => [s.id, s]));
   const editingStudy = studies.find((s) => s.id === editing);
-  const editingIndicator = editingStudy ? indicators.get(editingStudy.name) : undefined;
+  const editingIndicator = editingStudy
+    ? indicators.get(editingStudy.name)
+    : undefined;
 
   const legendRow = (state: StudyState) => {
     const study = studyData.get(state.id);
     const indicator = indicators.get(state.name);
-    const short = indicator?.params.map((p) => state.params[p.name] ?? p.default).join(", ");
-    const values = study?.lines.map((line) => (at === null ? null : line.values[at])) ?? [];
+    const short = indicator?.params
+      .map((p) => state.params[p.name] ?? p.default)
+      .join(", ");
+    const values =
+      study?.lines.map((line) => (at === null ? null : line.values[at])) ?? [];
     return (
-      <div key={state.id} className={`chart-legend-row${state.hidden ? " is-hidden" : ""}`}>
-        <span className="chart-swatch" style={{ background: `var(${colours.get(state.id)})` }} aria-hidden />
+      <div
+        key={state.id}
+        className={`chart-legend-row${state.hidden ? " is-hidden" : ""}`}
+      >
+        <span
+          className="chart-swatch"
+          style={{ background: `var(${colours.get(state.id)})` }}
+          aria-hidden
+        />
         <span className="chart-legend-name" title={indicator?.label}>
           {SHORT[state.name] ?? indicator?.label ?? state.name}
           {short ? ` ${short}` : ""}
@@ -1239,53 +1525,69 @@ export function IndexChart({
           <span className="chart-legend-error">{study.error}</span>
         ) : (
           !state.hidden && (
-            <span className="chart-legend-values">{values.map((v, i) => <span key={i}>{priceText(v)}</span>)}</span>
+            <span className="chart-legend-values">
+              {values.map((v, i) => (
+                <span key={i}>{priceText(v)}</span>
+              ))}
+            </span>
           )
         )}
         {!state.strategy && (
-        <span className="chart-legend-tools">
-          <button
-            type="button"
-            className="chart-tool"
-            onClick={() => setStudy(state.id, { hidden: !state.hidden })}
-            aria-label={state.hidden ? `Show ${indicator?.label}` : `Hide ${indicator?.label}`}
-            title={state.hidden ? "Show" : "Hide"}
-          >
-            <Icon path={state.hidden ? EYE_OFF : EYE} />
-          </button>
-          {indicator && indicator.params.length > 0 && (
+          <span className="chart-legend-tools">
             <button
               type="button"
               className="chart-tool"
-              aria-label={`Settings for ${indicator.label}`}
-              title="Settings"
-              aria-expanded={editing === state.id}
-              onClick={() => setEditing(editing === state.id ? null : state.id)}
+              onClick={() => setStudy(state.id, { hidden: !state.hidden })}
+              aria-label={
+                state.hidden
+                  ? `Show ${indicator?.label}`
+                  : `Hide ${indicator?.label}`
+              }
+              title={state.hidden ? "Show" : "Hide"}
             >
-              <Icon path={GEAR} />
+              {state.hidden ? (
+                <EyeOff size={14} aria-hidden />
+              ) : (
+                <Eye size={14} aria-hidden />
+              )}
             </button>
-          )}
-          {onAddRule && indicator && !study?.error && (
+            {indicator && indicator.params.length > 0 && (
+              <button
+                type="button"
+                className="chart-tool"
+                aria-label={`Settings for ${indicator.label}`}
+                title="Settings"
+                aria-expanded={editing === state.id}
+                onClick={() =>
+                  setEditing(editing === state.id ? null : state.id)
+                }
+              >
+                <Settings size={14} aria-hidden />
+              </button>
+            )}
+            {onAddRule && indicator && !study?.error && (
+              <button
+                type="button"
+                className="chart-tool"
+                aria-label={`Add an entry rule using ${indicator.label}`}
+                title="Add as an entry rule"
+                onClick={() =>
+                  onAddRule(ruleFor(state, indicator, timeframe, candles))
+                }
+              >
+                <Plus size={14} aria-hidden />
+              </button>
+            )}
             <button
               type="button"
               className="chart-tool"
-              aria-label={`Add an entry rule using ${indicator.label}`}
-              title="Add as an entry rule"
-              onClick={() => onAddRule(ruleFor(state, indicator, timeframe, candles))}
+              aria-label={`Remove ${indicator?.label}`}
+              title="Remove"
+              onClick={() => removeStudy(state.id)}
             >
-              <Icon path={PLUS_RULE} />
+              <X size={14} aria-hidden />
             </button>
-          )}
-          <button
-            type="button"
-            className="chart-tool"
-            aria-label={`Remove ${indicator?.label}`}
-            title="Remove"
-            onClick={() => removeStudy(state.id)}
-          >
-            <Icon path={CROSS} />
-          </button>
-        </span>
+          </span>
         )}
       </div>
     );
@@ -1298,11 +1600,17 @@ export function IndexChart({
   const replayHint = `Replay needs option history, kept for ${(tradable ?? []).join(", ")}.`;
 
   return (
-    <div ref={root} className={`index-chart${full !== "off" ? " is-full" : ""}${full === "window" ? " is-full-window" : ""}`}>
+    <div
+      ref={root}
+      className={`index-chart${full !== "off" ? " is-full" : ""}${full === "window" ? " is-full-window" : ""}`}
+    >
       <div className="chart-toolbar" role="toolbar" aria-label="Chart settings">
         <label className="chart-symbol">
           <span className="visually-hidden">Index</span>
-          <select value={symbol} onChange={(e) => update({ symbol: e.target.value })}>
+          <select
+            value={symbol}
+            onChange={(e) => update({ symbol: e.target.value })}
+          >
             {symbols.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -1312,15 +1620,13 @@ export function IndexChart({
         </label>
         <div className="chart-group" role="group" aria-label="Timeframe">
           {TIMEFRAMES.map((t) => (
-            <button
+            <ChartChip
               key={t.value}
-              type="button"
-              className="chart-chip"
-              aria-pressed={timeframe === t.value}
+              pressed={timeframe === t.value}
               onClick={() => update({ timeframe: t.value })}
             >
               {t.label}
-            </button>
+            </ChartChip>
           ))}
         </div>
         {sessions !== undefined && (
@@ -1330,7 +1636,12 @@ export function IndexChart({
               value={sessions}
               title="How many sessions to load"
               onChange={(e) =>
-                update({ sessions: { ...saved.sessions, [timeframe]: Number(e.target.value) } })
+                update({
+                  sessions: {
+                    ...saved.sessions,
+                    [timeframe]: Number(e.target.value),
+                  },
+                })
               }
             >
               {RANGES.map((r) => (
@@ -1342,31 +1653,34 @@ export function IndexChart({
           </label>
         )}
         <div className="chart-group" role="group" aria-label="Candle type">
-          {(catalog.candle_types ?? [{ value: "normal", label: "Normal" }]).map((t) => (
-            <button
-              key={t.value}
-              type="button"
-              className="chart-chip"
-              aria-pressed={candles === t.value}
-              onClick={() => update({ candles: t.value })}
-            >
-              {t.value === "normal" ? "Candles" : t.label}
-            </button>
-          ))}
+          {(catalog.candle_types ?? [{ value: "normal", label: "Normal" }]).map(
+            (t) => (
+              <ChartChip
+                key={t.value}
+                pressed={candles === t.value}
+                onClick={() => update({ candles: t.value })}
+              >
+                {t.value === "normal" ? "Candles" : t.label}
+              </ChartChip>
+            ),
+          )}
         </div>
         <div className="chart-picker" ref={pickerRef}>
-          <button
-            type="button"
-            className="chart-chip chart-add"
+          <ChartChip
+            className="chart-add"
             aria-expanded={pickerOpen}
             aria-haspopup="dialog"
             disabled={studies.length >= MAX_STUDIES}
             onClick={() => setPickerOpen(!pickerOpen)}
           >
-            <Icon path="M3 3v18h18M7 14l4-4 3 3 6-6" /> Indicators
-          </button>
+            <ChartLine size={14} aria-hidden /> Indicators
+          </ChartChip>
           {pickerOpen && (
-            <div className="chart-picker-panel" role="dialog" aria-label="Add an indicator">
+            <div
+              className="chart-picker-panel"
+              role="dialog"
+              aria-label="Add an indicator"
+            >
               <input
                 autoFocus
                 type="search"
@@ -1383,9 +1697,14 @@ export function IndexChart({
                   <div key={group.title}>
                     <div className="chart-picker-group">{group.title}</div>
                     {group.items.map((indicator) => {
-                      const blocked = indicator.intraday_only && !MINUTES.has(timeframe);
+                      const blocked =
+                        indicator.intraday_only && !MINUTES.has(timeframe);
                       return (
-                        <IndicatorTip key={indicator.name} indicator={indicator} className="indicator-tip-row">
+                        <IndicatorTip
+                          key={indicator.name}
+                          indicator={indicator}
+                          className="indicator-tip-row"
+                        >
                           <button
                             type="button"
                             className="chart-picker-item"
@@ -1393,7 +1712,11 @@ export function IndexChart({
                           >
                             <span>{indicator.label}</span>
                             {(indicator.description || blocked) && (
-                              <small>{blocked ? "Minute candles only" : indicator.description}</small>
+                              <small>
+                                {blocked
+                                  ? "Minute candles only"
+                                  : indicator.description}
+                              </small>
                             )}
                           </button>
                         </IndicatorTip>
@@ -1401,7 +1724,11 @@ export function IndexChart({
                     })}
                   </div>
                 ))}
-                {!groups.length && <p className="chart-picker-empty">No indicator matches "{search}".</p>}
+                {!groups.length && (
+                  <p className="chart-picker-empty">
+                    No indicator matches "{search}".
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -1419,83 +1746,103 @@ export function IndexChart({
           </label>
         )}
         <div className="chart-group" role="group" aria-label="Zoom">
-          <button type="button" className="chart-chip" onClick={() => zoom(0.6)} aria-label="Zoom in" title="Zoom in">
+          <ChartChip
+            onClick={() => zoom(0.6)}
+            aria-label="Zoom in"
+            title="Zoom in"
+          >
             +
-          </button>
-          <button type="button" className="chart-chip" onClick={() => zoom(1.6)} aria-label="Zoom out" title="Zoom out">
+          </ChartChip>
+          <ChartChip
+            onClick={() => zoom(1.6)}
+            aria-label="Zoom out"
+            title="Zoom out"
+          >
             −
-          </button>
-          <button
-            type="button"
-            className="chart-chip"
+          </ChartChip>
+          <ChartChip
             onClick={() => chartRef.current?.timeScale().fitContent()}
             title="Show all loaded candles"
           >
             Fit
-          </button>
+          </ChartChip>
         </div>
-        <button
-          type="button"
-          className="chart-chip chart-add"
+        <ChartChip
+          className="chart-add"
           onClick={toggleFull}
-          aria-pressed={full !== "off"}
-          title={full !== "off" ? "Exit full screen (Esc)" : "Show the chart full screen"}
+          pressed={full !== "off"}
+          title={
+            full !== "off"
+              ? "Exit full screen (Esc)"
+              : "Show the chart full screen"
+          }
         >
-          <Icon
-            path={
-              full !== "off"
-                ? "M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"
-                : "M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6"
-            }
-          />
+          {full !== "off" ? (
+            <Minimize2 size={14} aria-hidden />
+          ) : (
+            <Maximize2 size={14} aria-hidden />
+          )}
           {full !== "off" ? "Exit full screen" : "Full screen"}
-        </button>
+        </ChartChip>
         {draft && !replay && (
-          <div className="chart-group replay-start" role="group" aria-label="Replay the draft">
+          <div
+            className="chart-group replay-start"
+            role="group"
+            aria-label="Replay the draft"
+          >
             {!replaySource && (
-            <label className="chart-range">
-              <span className="visually-hidden">Replay period</span>
-              <select
-                value={replaySessions}
-                disabled={replayBusy}
-                onChange={(e) => setReplaySessions(Number(e.target.value))}
-                title="How far back to replay"
-              >
-                {REPLAY_RANGES.map((r) => (
-                  <option key={r.sessions} value={r.sessions}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <label className="chart-range">
+                <span className="visually-hidden">Replay period</span>
+                <select
+                  value={replaySessions}
+                  disabled={replayBusy}
+                  onChange={(e) => setReplaySessions(Number(e.target.value))}
+                  title="How far back to replay"
+                >
+                  {REPLAY_RANGES.map((r) => (
+                    <option key={r.sessions} value={r.sessions}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             )}
-            <button
-              type="button"
-              className="chart-chip chart-add"
+            <ChartChip
+              className="chart-add"
               disabled={replayBusy || !replayable}
               onClick={startReplay}
-              title={replayable ? "Backtest the draft and play its trades candle by candle" : replayHint}
+              title={
+                replayable
+                  ? "Backtest the draft and play its trades candle by candle"
+                  : replayHint
+              }
             >
-              {replayBusy ? "Preparing…" : replaySource ? `▶ Replay ${replaySource.label}` : "▶ Replay"}
-            </button>
+              {replayBusy
+                ? "Preparing…"
+                : replaySource
+                  ? `▶ Replay ${replaySource.label}`
+                  : "▶ Replay"}
+            </ChartChip>
           </div>
         )}
       </div>
 
       {replayBusy && replaySource && (
         <p className="replay-status" role="status">
-          Loading the backtest's trades on {symbol} and how each position's value moved.
+          Loading the backtest's trades on {symbol} and how each position's
+          value moved.
         </p>
       )}
       {replayBusy && !replaySource && (
         <p className="replay-status" role="status">
-          Backtesting the draft on {symbol} over the last {REPLAY_RANGES.find((r) => r.sessions === replaySessions)?.label}.
+          Backtesting the draft on {symbol} over the last{" "}
+          {REPLAY_RANGES.find((r) => r.sessions === replaySessions)?.label}.
           {draft?.decide_every && draft.decide_every !== "day"
             ? " Minute decisions take about half a minute a month."
             : " This takes a few seconds."}
         </p>
       )}
-      {replayError && <p className="ai-error">{replayError}</p>}
+      {replayError && <Alert tone="critical">{replayError}</Alert>}
       {replay && cursor !== null && (
         <ReplayControls
           playing={playing}
@@ -1517,7 +1864,10 @@ export function IndexChart({
             if (nextEntry === undefined) return;
             setPlaying(false);
             moveTo(nextEntry);
-            chartRef.current?.timeScale().setVisibleLogicalRange({ from: Math.max(0, nextEntry - 80), to: nextEntry + 20 });
+            chartRef.current?.timeScale().setVisibleLogicalRange({
+              from: Math.max(0, nextEntry - 80),
+              to: nextEntry + 20,
+            });
           }}
           onSpeed={setSpeed}
           onExit={exitReplay}
@@ -1525,7 +1875,11 @@ export function IndexChart({
       )}
 
       {editingStudy && editingIndicator && (
-        <div className="chart-settings" role="group" aria-label={`${editingIndicator.label} settings`}>
+        <div
+          className="chart-settings"
+          role="group"
+          aria-label={`${editingIndicator.label} settings`}
+        >
           <strong>{editingIndicator.label}</strong>
           {editingIndicator.params.map((param) => (
             <label key={param.name}>
@@ -1539,19 +1893,25 @@ export function IndexChart({
                 onChange={(e) => {
                   const raw = Number(e.target.value);
                   if (!Number.isFinite(raw)) return;
-                  const value = Math.min(param.max, Math.max(param.min, param.whole ? Math.round(raw) : raw));
-                  setStudy(editingStudy.id, { params: { ...editingStudy.params, [param.name]: value } });
+                  const value = Math.min(
+                    param.max,
+                    Math.max(param.min, param.whole ? Math.round(raw) : raw),
+                  );
+                  setStudy(editingStudy.id, {
+                    params: { ...editingStudy.params, [param.name]: value },
+                  });
                 }}
               />
             </label>
           ))}
-          <button type="button" className="chart-chip" onClick={() => setEditing(null)}>
-            Done
-          </button>
+          <ChartChip onClick={() => setEditing(null)}>Done</ChartChip>
         </div>
       )}
 
-      <div className="chart-stage" style={full !== "off" ? { minHeight: height } : { height }}>
+      <div
+        className="chart-stage"
+        style={full !== "off" ? { minHeight: height } : { height }}
+      >
         <div ref={box} className="chart-canvas" />
         <div className="chart-legend" style={{ top: (paneTops[0] ?? 0) + 6 }}>
           <div className="chart-legend-head">
@@ -1562,8 +1922,8 @@ export function IndexChart({
             </span>
             {ohlc && (
               <span className="chart-ohlc">
-                O <b>{priceText(ohlc.o)}</b> H <b>{priceText(ohlc.h)}</b> L <b>{priceText(ohlc.l)}</b> C{" "}
-                <b>{priceText(ohlc.c)}</b>
+                O <b>{priceText(ohlc.o)}</b> H <b>{priceText(ohlc.h)}</b> L{" "}
+                <b>{priceText(ohlc.l)}</b> C <b>{priceText(ohlc.c)}</b>
                 {change !== null && (
                   <b className={change >= 0 ? "pnl-up" : "pnl-down"}>
                     {" "}
@@ -1580,16 +1940,27 @@ export function IndexChart({
         {[...panes.entries()].map(([id, pane]) => {
           const state = shown.find((s) => s.id === id);
           return state ? (
-            <div key={id} className="chart-legend" style={{ top: (paneTops[pane] ?? 0) + 4 }}>
+            <div
+              key={id}
+              className="chart-legend"
+              style={{ top: (paneTops[pane] ?? 0) + 4 }}
+            >
               {legendRow(state)}
             </div>
           ) : null;
         })}
-        {(error || data?.empty) && <div className="chart-empty">{error ?? data?.empty}</div>}
+        {(error || data?.empty) && (
+          <div className="chart-empty">{error ?? data?.empty}</div>
+        )}
       </div>
 
       {replay && cursor !== null && (
-        <ReplayPanel data={replay} times={times} cursor={cursor} intradayTimes={replay.intraday} />
+        <ReplayPanel
+          data={replay}
+          times={times}
+          cursor={cursor}
+          intradayTimes={replay.intraday}
+        />
       )}
 
       <div className="chart-foot">
@@ -1597,22 +1968,26 @@ export function IndexChart({
           <span className="chart-other-picks">
             On other candles:{" "}
             {strategy?.otherPicks.map((pick, index) => (
-              <button
+              <ChartChip
                 key={index}
-                type="button"
-                className="chart-chip"
                 title="Show the candles this indicator reads"
-                onClick={() => update({ timeframe: pick.timeframe ?? "1d", candles: pick.candles ?? "normal" })}
+                onClick={() =>
+                  update({
+                    timeframe: pick.timeframe ?? "1d",
+                    candles: pick.candles ?? "normal",
+                  })
+                }
               >
                 {pickText(catalog, pick)}
-              </button>
+              </ChartChip>
             ))}
           </span>
         )}
         {data?.source && (
           <span className="muted">
             {data.source}
-            {data.first ? `, from ${data.first}` : ""}. Indicators use the same code as backtests.
+            {data.first ? `, from ${data.first}` : ""}. Indicators use the same
+            code as backtests.
           </span>
         )}
         {signalInfo && (
@@ -1622,9 +1997,13 @@ export function IndexChart({
                 <span className="chart-signal-mark" aria-hidden>
                   ▲
                 </span>{" "}
-                Entry rules held on <strong>{signalInfo.hits.length}</strong> of {count} candles shown.
+                Entry rules held on <strong>{signalInfo.hits.length}</strong> of{" "}
+                {count} candles shown.
                 {signalInfo.rules.map((rule) => (
-                  <span key={`${rule.group}-${rule.text}`} className="chart-signal-rule">
+                  <span
+                    key={`${rule.group}-${rule.text}`}
+                    className="chart-signal-rule"
+                  >
                     {rule.group === "any" ? "Any of: " : ""}
                     {rule.text}: {rule.count}
                   </span>
@@ -1643,9 +2022,13 @@ export function IndexChart({
                   <span className="chart-signal-mark" aria-hidden>
                     {item.bias === "bearish" ? "▼" : "▲"}
                   </span>{" "}
-                  {item.name} held on <strong>{item.hits.length}</strong> of {count} candles shown.
+                  {item.name} held on <strong>{item.hits.length}</strong> of{" "}
+                  {count} candles shown.
                   {item.rules.map((rule) => (
-                    <span key={`${rule.group}-${rule.text}`} className="chart-signal-rule">
+                    <span
+                      key={`${rule.group}-${rule.text}`}
+                      className="chart-signal-rule"
+                    >
                       {rule.text}: {rule.count}
                     </span>
                   ))}
@@ -1654,7 +2037,8 @@ export function IndexChart({
             )}
             {signalInfo.other_timeframes.length > 0 && (
               <span className="muted">
-                Not shown, other timeframes: {signalInfo.other_timeframes.join("; ")}.
+                Not shown, other timeframes:{" "}
+                {signalInfo.other_timeframes.join("; ")}.
               </span>
             )}
           </div>

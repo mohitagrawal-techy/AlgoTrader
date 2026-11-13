@@ -2,10 +2,13 @@ import { Plus, X } from "lucide-react";
 import type { LabCondition } from "../../api";
 import type { ReadyBuilder } from "../hooks/useStrategyBuilder";
 import { MAX_CONDITIONS } from "../logic/spec";
-import { Button } from "../ui/Button";
-import { FieldMessage } from "../ui/Field";
-import { NumberInput, Select } from "../ui/inputs";
-import { Badge } from "../ui/Section";
+import {
+  Button,
+  FieldMessage,
+  NumberInput,
+  Select,
+  Badge,
+} from "../../components/ui";
 
 /** Market conditions such as "India VIX above 15": a signal, a direction and a level. */
 export function ConditionsEditor({ b }: { b: ReadyBuilder }) {

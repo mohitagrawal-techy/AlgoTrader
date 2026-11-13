@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 import { cx } from "./Button";
 
 /** A label, its control, and below it either the problem to fix or a hint. The message's id
- * is the one the controls point at, so screen readers read it with the control. */
+ * is the one the controls point at, so screen readers read it with the control. Without an
+ * `id` the label wraps the control instead, for a simple box with no message to link. */
 export function Field({
   id,
   label,
@@ -12,13 +13,22 @@ export function Field({
   className,
   children,
 }: {
-  id: string;
+  id?: string;
   label: ReactNode;
   hint?: ReactNode;
   problem?: string;
   className?: string;
   children: ReactNode;
 }) {
+  if (!id) {
+    return (
+      <label className={cx("flex min-w-0 flex-col gap-1.5", className)}>
+        <span className="text-[12.5px] font-semibold text-ink-2">{label}</span>
+        {children}
+        {hint && <Hint>{hint}</Hint>}
+      </label>
+    );
+  }
   return (
     <div className={cx("flex min-w-0 flex-col gap-1.5", className)}>
       <label htmlFor={id} className="text-[12.5px] font-semibold text-ink-2">

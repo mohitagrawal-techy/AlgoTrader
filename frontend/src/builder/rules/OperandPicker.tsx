@@ -17,8 +17,7 @@ import {
   PRICE_NAMES,
 } from "../logic/picks";
 import { operandText } from "../logic/ruleText";
-import { FieldMessage, Hint } from "../ui/Field";
-import { NumberInput, Select } from "../ui/inputs";
+import { FieldMessage, Hint, NumberInput, Select } from "../../components/ui";
 
 const OTHER = "__other";
 const NUMBER = "__number";

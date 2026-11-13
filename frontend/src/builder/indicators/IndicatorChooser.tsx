@@ -1,8 +1,7 @@
 import { Search } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { IndicatorTip } from "../../views/IndicatorTip";
-import { cx } from "../ui/Button";
-import { CONTROL } from "../ui/inputs";
+import { cx, CONTROL } from "../../components/ui";
 import type { IndicatorFormState } from "./useIndicatorForm";
 
 /** The searchable list of indicators, grouped by type. Enter in the search box picks the

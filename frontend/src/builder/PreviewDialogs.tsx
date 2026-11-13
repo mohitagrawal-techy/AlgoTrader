@@ -2,7 +2,7 @@ import { IndexChart } from "../views/IndexChart";
 import { StrategyVisual } from "../views/StrategyVisual";
 import type { ReadyBuilder } from "./hooks/useStrategyBuilder";
 import { MAX_RULES } from "./logic/picks";
-import { Dialog } from "./ui/Dialog";
+import { Dialog } from "../components/ui";
 
 /** The strategy drawn as a map, updating as it is edited. */
 export function MapDialog({

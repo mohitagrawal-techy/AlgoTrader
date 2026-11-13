@@ -1,8 +1,12 @@
 import type { ReadyBuilder } from "../hooks/useStrategyBuilder";
-import { Segmented } from "../ui/choices";
-import { Field, GroupLabel, Hint } from "../ui/Field";
-import { NumberInput } from "../ui/inputs";
-import { Section } from "../ui/Section";
+import {
+  Segmented,
+  Field,
+  GroupLabel,
+  Hint,
+  NumberInput,
+  Section,
+} from "../../components/ui";
 
 const rupees = (value: number) =>
   `₹${Math.round(value).toLocaleString("en-IN")}`;

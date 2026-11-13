@@ -21,19 +21,22 @@ export function TextInput({
   id,
   invalid,
   small,
+  narrow,
   className,
   ...rest
 }: InputHTMLAttributes<HTMLInputElement> & {
-  id: string;
+  id?: string;
   invalid?: boolean;
   small?: boolean;
+  /** Just wide enough for a short number. */
+  narrow?: boolean;
 }) {
   return (
     <input
       id={id}
       aria-invalid={invalid || undefined}
-      aria-describedby={described(id)}
-      className={cx(CONTROL, small && SMALL, className)}
+      aria-describedby={id ? described(id) : undefined}
+      className={cx(CONTROL, small && SMALL, narrow && "w-24", className)}
       {...rest}
     />
   );
@@ -110,6 +113,47 @@ export function Select({
     >
       {children}
     </select>
+  );
+}
+
+/** A list with its label beside it, for filters above a table or chart. `stacked` puts the
+ * label above instead, matching the fields of a form row. */
+export function LabeledSelect<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  stacked,
+  className,
+}: {
+  label: string;
+  value: T;
+  options: readonly { value: T; label: string }[];
+  onChange: (value: T) => void;
+  stacked?: boolean;
+  className?: string;
+}) {
+  return (
+    <label
+      className={cx(
+        "inline-flex min-w-0 items-center gap-2 text-[12.5px] text-ink-3",
+        stacked && "flex-col items-start gap-1.5 font-semibold text-ink-2",
+        className,
+      )}
+    >
+      <span className="whitespace-nowrap">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as T)}
+        className={cx(CONTROL, SMALL, "w-auto cursor-pointer pr-7 font-normal")}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

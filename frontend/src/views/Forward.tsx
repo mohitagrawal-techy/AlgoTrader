@@ -1,8 +1,31 @@
 import { useMemo, useState } from "react";
-import type { DriftCheck, ForwardOverview, ForwardRun, ShadowRow } from "../api";
+import type {
+  DriftCheck,
+  ForwardOverview,
+  ForwardRun,
+  ShadowRow,
+} from "../api";
 import { LineChart, timeTicks } from "../charts";
-import { dateTimeIst, fraction, inr, inrCompact, num, signedInr } from "../format";
-import { Empty, Panel, Pnl, Select, Status, Tile, type Tone } from "../ui";
+import {
+  dateTimeIst,
+  fraction,
+  inr,
+  inrCompact,
+  num,
+  signedInr,
+} from "../format";
+import {
+  Empty,
+  Panel,
+  Pnl,
+  LabeledSelect,
+  Status,
+  Tile,
+  type Tone,
+  Alert,
+  Table,
+  Tiles,
+} from "../components/ui";
 
 const STAGE_LABELS: Record<string, string> = {
   ai_veto: "Vetoed by AI",
@@ -36,7 +59,8 @@ function formatDrift(value: number | null, unit: string): string {
 
 function rangeText(check: DriftCheck): string {
   if (check.low === null && check.high === null) return "–";
-  if (check.low === null) return `At most ${formatDrift(check.high, check.unit)}`;
+  if (check.low === null)
+    return `At most ${formatDrift(check.high, check.unit)}`;
   return `${formatDrift(check.low, check.unit)} to ${formatDrift(check.high, check.unit)}`;
 }
 
@@ -51,32 +75,30 @@ function Gates({ run }: { run: ForwardRun }) {
         </span>
       }
     >
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Requirement</th>
-              <th>Needed</th>
-              <th>Now</th>
-              <th>Result</th>
+      <Table>
+        <thead>
+          <tr>
+            <th>Requirement</th>
+            <th>Needed</th>
+            <th>Now</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {run.gates.map((gate) => (
+            <tr key={gate.key}>
+              <td className="primary">{gate.label}</td>
+              <td className="secondary">{gate.required}</td>
+              <td>{gate.actual}</td>
+              <td>
+                <Status tone={gate.passed ? "good" : "neutral"}>
+                  {gate.passed ? "Met" : "Not yet"}
+                </Status>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {run.gates.map((gate) => (
-              <tr key={gate.key}>
-                <td className="primary">{gate.label}</td>
-                <td className="secondary">{gate.required}</td>
-                <td>{gate.actual}</td>
-                <td>
-                  <Status tone={gate.passed ? "good" : "neutral"}>
-                    {gate.passed ? "Met" : "Not yet"}
-                  </Status>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </Table>
     </Panel>
   );
 }
@@ -84,33 +106,33 @@ function Gates({ run }: { run: ForwardRun }) {
 function Drift({ run }: { run: ForwardRun }) {
   return (
     <Panel title="Forward versus backtest">
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Measure</th>
-              <th className="right">Forward</th>
-              <th className="right">Expected</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {run.drift.map((check) => {
-              const status = DRIFT_STATUS[check.status];
-              return (
-                <tr key={check.key}>
-                  <td className="primary">{check.label}</td>
-                  <td className="right">{formatDrift(check.actual, check.unit)}</td>
-                  <td className="right">{rangeText(check)}</td>
-                  <td>
-                    <Status tone={status.tone}>{status.label}</Status>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <Table>
+        <thead>
+          <tr>
+            <th>Measure</th>
+            <th className="right">Forward</th>
+            <th className="right">Expected</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {run.drift.map((check) => {
+            const status = DRIFT_STATUS[check.status];
+            return (
+              <tr key={check.key}>
+                <td className="primary">{check.label}</td>
+                <td className="right">
+                  {formatDrift(check.actual, check.unit)}
+                </td>
+                <td className="right">{rangeText(check)}</td>
+                <td>
+                  <Status tone={status.tone}>{status.label}</Status>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </Table>
     </Panel>
   );
 }
@@ -122,40 +144,43 @@ function Shadow({ rows, run }: { rows: ShadowRow[]; run: ForwardRun }) {
       title="Ideas not taken, followed at one lot"
       aside={<span className="muted">Hypothetical results after costs</span>}
     >
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Decided by</th>
-              <th className="right">Closed</th>
-              <th className="right">Following</th>
-              <th className="right">Did not fill</th>
-              <th className="right">Win rate</th>
-              <th className="right">Expectancy</th>
-              <th className="right">Net P&amp;L</th>
+      <Table>
+        <thead>
+          <tr>
+            <th>Decided by</th>
+            <th className="right">Closed</th>
+            <th className="right">Following</th>
+            <th className="right">Did not fill</th>
+            <th className="right">Win rate</th>
+            <th className="right">Expectancy</th>
+            <th className="right">Net P&amp;L</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.stage}>
+              <td className="primary">{STAGE_LABELS[row.stage]}</td>
+              <td className="right">{row.trades}</td>
+              <td className="right">{row.following}</td>
+              <td className="right">{row.unfilled}</td>
+              <td className="right">
+                {row.trades ? fraction(row.win_rate, 0) : "–"}
+              </td>
+              <td className="right">
+                {row.trades ? signedInr(row.expectancy) : "–"}
+              </td>
+              <td className="right">
+                {row.trades ? (
+                  <Pnl value={row.net_pnl ?? 0}>{signedInr(row.net_pnl)}</Pnl>
+                ) : (
+                  "–"
+                )}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.stage}>
-                <td className="primary">{STAGE_LABELS[row.stage]}</td>
-                <td className="right">{row.trades}</td>
-                <td className="right">{row.following}</td>
-                <td className="right">{row.unfilled}</td>
-                <td className="right">{row.trades ? fraction(row.win_rate, 0) : "–"}</td>
-                <td className="right">{row.trades ? signedInr(row.expectancy) : "–"}</td>
-                <td className="right">
-                  {row.trades ? (
-                    <Pnl value={row.net_pnl ?? 0}>{signedInr(row.net_pnl)}</Pnl>
-                  ) : (
-                    "–"
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </Table>
+
       <p className="panel-note">
         {ai.enough_data
           ? `Ideas the AI let through made ${signedInr(ai.benefit_per_trade)} more per trade than ideas it vetoed.`
@@ -173,7 +198,10 @@ function RunDetail({ run }: { run: ForwardRun }) {
       {
         name: "Total P&L",
         color: "var(--series-1)",
-        points: run.equity.map((point) => ({ x: new Date(point.ts).getTime(), y: point.pnl })),
+        points: run.equity.map((point) => ({
+          x: new Date(point.ts).getTime(),
+          y: point.pnl,
+        })),
       },
     ],
     [run.equity],
@@ -188,27 +216,49 @@ function RunDetail({ run }: { run: ForwardRun }) {
   return (
     <>
       {run.status === "active" && !run.locked_inputs_current && (
-        <div className="warning-box">
-          <Status tone="warning">Locked inputs changed</Status>
-          <p>This run will end at the next collection cycle and restart as a new version.</p>
-        </div>
+        <Alert tone="warning" title="Locked inputs changed">
+          This run will end at the next collection cycle and restart as a new
+          version.
+        </Alert>
       )}
       {run.end_reason && (
-        <div className="warning-box">
-          <Status tone={status.tone}>{status.label}</Status>
-          <p>{run.end_reason}</p>
-        </div>
+        <Alert
+          tone={status.tone === "critical" ? "critical" : "warning"}
+          title={status.label}
+        >
+          {run.end_reason}
+        </Alert>
       )}
-      <div className="tiles tiles-6">
-        <Tile label="Status" value={<Status tone={status.tone}>{status.label}</Status>} hint={`${run.role}, version ${run.version}`} />
+      <Tiles columns={6}>
+        <Tile
+          label="Status"
+          value={<Status tone={status.tone}>{status.label}</Status>}
+          hint={`${run.role}, version ${run.version}`}
+        />
         <Tile
           label="Net P&L after costs"
-          value={<Pnl value={stats.net_pnl ?? 0}>{signedInr(stats.net_pnl ?? 0)}</Pnl>}
+          value={
+            <Pnl value={stats.net_pnl ?? 0}>
+              {signedInr(stats.net_pnl ?? 0)}
+            </Pnl>
+          }
           hint={`${num(run.weeks, 1)} weeks running`}
         />
-        <Tile label="Closed trades" value={num(stats.trades ?? 0)} hint={`${run.live_positions} live now`} />
-        <Tile label="Expectancy" value={signedInr(stats.expectancy)} hint={`Win rate ${fraction(stats.win_rate, 0)}`} />
-        <Tile label="Max drawdown" value={signedInr(-run.drawdown)} hint={`Halts at ${run.gate_limits.max_drawdown_pct}% of capital`} />
+        <Tile
+          label="Closed trades"
+          value={num(stats.trades ?? 0)}
+          hint={`${run.live_positions} live now`}
+        />
+        <Tile
+          label="Expectancy"
+          value={signedInr(stats.expectancy)}
+          hint={`Win rate ${fraction(stats.win_rate, 0)}`}
+        />
+        <Tile
+          label="Max drawdown"
+          value={signedInr(-run.drawdown)}
+          hint={`Halts at ${run.gate_limits.max_drawdown_pct}% of capital`}
+        />
         <Tile
           label="Score threshold"
           value={num(run.min_score, 0)}
@@ -218,8 +268,13 @@ function RunDetail({ run }: { run: ForwardRun }) {
               : "All styles"
           }
         />
-      </div>
-      <Panel title="P&L over time" aside={<span className="muted">Started {dateTimeIst(run.started_at)}</span>}>
+      </Tiles>
+      <Panel
+        title="P&L over time"
+        aside={
+          <span className="muted">Started {dateTimeIst(run.started_at)}</span>
+        }
+      >
         {run.equity.length < 2 ? (
           <Empty title="Not enough history to chart" />
         ) : (
@@ -249,38 +304,38 @@ function Comparison({ runs }: { runs: ForwardRun[] }) {
   if (runs.length < 2) return null;
   return (
     <Panel title="Active runs, same market data, separate capital">
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Run</th>
-              <th>Role</th>
-              <th className="right">Closed</th>
-              <th className="right">Net P&amp;L</th>
-              <th className="right">Expectancy</th>
-              <th className="right">Sharpe</th>
-              <th className="right">Drawdown</th>
+      <Table>
+        <thead>
+          <tr>
+            <th>Run</th>
+            <th>Role</th>
+            <th className="right">Closed</th>
+            <th className="right">Net P&amp;L</th>
+            <th className="right">Expectancy</th>
+            <th className="right">Sharpe</th>
+            <th className="right">Drawdown</th>
+          </tr>
+        </thead>
+        <tbody>
+          {runs.map((run) => (
+            <tr key={run.id}>
+              <td className="primary">
+                {run.name} v{run.version}
+              </td>
+              <td>{run.role}</td>
+              <td className="right">{run.stats.trades ?? 0}</td>
+              <td className="right">
+                <Pnl value={run.stats.net_pnl ?? 0}>
+                  {signedInr(run.stats.net_pnl ?? 0)}
+                </Pnl>
+              </td>
+              <td className="right">{signedInr(run.stats.expectancy)}</td>
+              <td className="right">{num(run.stats.sharpe, 2)}</td>
+              <td className="right">{signedInr(-run.drawdown)}</td>
             </tr>
-          </thead>
-          <tbody>
-            {runs.map((run) => (
-              <tr key={run.id}>
-                <td className="primary">
-                  {run.name} v{run.version}
-                </td>
-                <td>{run.role}</td>
-                <td className="right">{run.stats.trades ?? 0}</td>
-                <td className="right">
-                  <Pnl value={run.stats.net_pnl ?? 0}>{signedInr(run.stats.net_pnl ?? 0)}</Pnl>
-                </td>
-                <td className="right">{signedInr(run.stats.expectancy)}</td>
-                <td className="right">{num(run.stats.sharpe, 2)}</td>
-                <td className="right">{signedInr(-run.drawdown)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </Table>
     </Panel>
   );
 }
@@ -293,8 +348,9 @@ export function ForwardView({ overview }: { overview: ForwardOverview }) {
       <section className="panel start-panel">
         <h2>No forward runs yet</h2>
         <p className="secondary">
-          A forward run freezes one configuration and paper-trades it on live quotes, so you can see
-          whether its backtest holds up on days it has never seen.
+          A forward run freezes one configuration and paper-trades it on live
+          quotes, so you can see whether its backtest holds up on days it has
+          never seen.
         </p>
         <ol className="steps">
           <li>
@@ -306,7 +362,9 @@ export function ForwardView({ overview }: { overview: ForwardOverview }) {
             <code>algoverse collect</code>
           </li>
           <li>
-            <span>Come back here to compare it with its backtest as trades close</span>
+            <span>
+              Come back here to compare it with its backtest as trades close
+            </span>
           </li>
         </ol>
       </section>
@@ -316,7 +374,7 @@ export function ForwardView({ overview }: { overview: ForwardOverview }) {
   return (
     <>
       <div className="filters">
-        <Select
+        <LabeledSelect
           label="Run"
           value={String(current.id)}
           onChange={setSelected}

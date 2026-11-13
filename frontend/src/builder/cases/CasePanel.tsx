@@ -3,11 +3,17 @@ import type { ReadyBuilder } from "../hooks/useStrategyBuilder";
 import { ruleText } from "../logic/ruleText";
 import { BIASES, MAX_LEGS } from "../logic/spec";
 import { RulesEditor } from "../rules/RulesEditor";
-import { Button } from "../ui/Button";
-import { Segmented, Switch } from "../ui/choices";
-import { Field, GroupLabel, Hint } from "../ui/Field";
-import { TextInput } from "../ui/inputs";
-import { Badge, Block } from "../ui/Section";
+import {
+  Button,
+  Segmented,
+  Switch,
+  Field,
+  GroupLabel,
+  Hint,
+  TextInput,
+  Badge,
+  Block,
+} from "../../components/ui";
 import { LegsEditor } from "./LegsEditor";
 
 /** The open case: its name and view (after Case 1), entry rules, exit rules and legs. */

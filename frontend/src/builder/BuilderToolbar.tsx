@@ -6,7 +6,7 @@ import {
   Map as MapIcon,
   PanelRight,
 } from "lucide-react";
-import { Button } from "./ui/Button";
+import { Button } from "../components/ui";
 
 /** Where the page sits, and controls for the whole form. On a phone the buttons scroll
  * sideways on one line instead of squeezing. */

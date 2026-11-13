@@ -1,10 +1,7 @@
 import { ChartCandlestick, ChevronsRight, Map as MapIcon } from "lucide-react";
 import type { ReadyBuilder } from "../hooks/useStrategyBuilder";
 import { complexity, legText, sellsMoreThanBuys } from "../logic/spec";
-import { Alert } from "../ui/Alert";
-import { Button, ButtonLink } from "../ui/Button";
-import { Hint } from "../ui/Field";
-import { Badge } from "../ui/Section";
+import { Alert, Button, ButtonLink, Hint, Badge } from "../../components/ui";
 import { SummaryText } from "./SummaryText";
 
 const LEVEL_TONE = {
@@ -119,7 +116,9 @@ export function SummaryPanel({
         >
           Save and test
         </Button>
-        <ButtonLink href={backHref}>Cancel</ButtonLink>
+        <ButtonLink href={backHref} variant="ghost">
+          Cancel
+        </ButtonLink>
         {!lab.history.ready && (
           <Hint>
             You can save now. Testing needs {lab.history.needed} sessions of

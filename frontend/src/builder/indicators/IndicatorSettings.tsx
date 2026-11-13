@@ -1,9 +1,14 @@
 import type { CandleType, TechCatalog, TechTimeframe } from "../../api";
 import { pickStandardText, pickText } from "../logic/picks";
-import { Alert } from "../ui/Alert";
-import { Segmented } from "../ui/choices";
-import { Field, GroupLabel, Hint } from "../ui/Field";
-import { Select, TextInput } from "../ui/inputs";
+import {
+  Alert,
+  Segmented,
+  Field,
+  GroupLabel,
+  Hint,
+  Select,
+  TextInput,
+} from "../../components/ui";
 import type { IndicatorFormState } from "./useIndicatorForm";
 
 /** The chosen indicator's name, candles and settings, with whatever stops it saving. */

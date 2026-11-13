@@ -2,9 +2,7 @@ import { Trash2 } from "lucide-react";
 import type { IndicatorPick, TechCatalog, TechRule } from "../../api";
 import { pickText } from "../logic/picks";
 import { ruleText } from "../logic/ruleText";
-import { Button } from "../ui/Button";
-import { Hint } from "../ui/Field";
-import { Dialog } from "../ui/Dialog";
+import { Button, Hint, Dialog } from "../../components/ui";
 
 /** Asks before deleting an indicator that rules read, listing those rules, which go too. */
 export function DeleteIndicatorDialog({

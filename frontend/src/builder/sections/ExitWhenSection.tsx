@@ -1,9 +1,14 @@
 import type { ReadyBuilder } from "../hooks/useStrategyBuilder";
 import { hhmm } from "../logic/spec";
-import { AmountInput } from "../ui/amounts";
-import { Field } from "../ui/Field";
-import { Addon, InputGroup, NumberInput, TextInput } from "../ui/inputs";
-import { Section } from "../ui/Section";
+import { AmountInput } from "../amounts";
+import {
+  Field,
+  Addon,
+  InputGroup,
+  NumberInput,
+  TextInput,
+  Section,
+} from "../../components/ui";
 
 /** Exits every case shares: profit target, stop, time exits and daily limits. */
 export function ExitWhenSection({ b }: { b: ReadyBuilder }) {

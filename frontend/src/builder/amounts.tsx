@@ -1,6 +1,6 @@
-import type { ExitUnit, LegUnit } from "../../api";
-import { LEG_UNIT_DEFAULTS, UNIT_DEFAULTS, UNITS } from "../logic/spec";
-import { InputGroup, NumberInput, Select } from "./inputs";
+import type { ExitUnit, LegUnit } from "../api";
+import { LEG_UNIT_DEFAULTS, UNIT_DEFAULTS, UNITS } from "./logic/spec";
+import { InputGroup, NumberInput, Select } from "../components/ui";
 
 /** An amount with its unit beside it: × premium, ₹ per lot or points. Changing the unit
  * starts the amount at a sensible value for that unit. */

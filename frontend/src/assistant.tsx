@@ -1,3 +1,4 @@
+import { Alert, Button } from "./components/ui";
 import {
   createContext,
   useCallback,
@@ -133,7 +134,7 @@ export function AiExplain({
   return (
     <div className="ai-explain" aria-live="polite">
       {error ? (
-        <p className="ai-error">{error}</p>
+        <Alert tone="critical">{error}</Alert>
       ) : text ? (
         <AiText text={text} />
       ) : (
@@ -311,7 +312,7 @@ function ChatDrawer({
             )}
           </div>
         ))}
-        {error && <p className="ai-error">{error}</p>}
+        {error && <Alert tone="critical">{error}</Alert>}
       </div>
       <form onSubmit={onSubmit}>
         <textarea
@@ -325,17 +326,11 @@ function ChatDrawer({
           aria-label="Your question"
         />
         {busy ? (
-          <button
-            type="button"
-            className="button ghost"
-            onClick={() => controller.current?.abort()}
-          >
-            Stop
-          </button>
+          <Button onClick={() => controller.current?.abort()}>Stop</Button>
         ) : (
-          <button type="submit" className="button" disabled={!input.trim()}>
+          <Button variant="primary" type="submit" disabled={!input.trim()}>
             Send
-          </button>
+          </Button>
         )}
       </form>
       <footer>{NOTICE}</footer>

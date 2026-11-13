@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type IndexRow } from "./api";
 import { num } from "./format";
-import { Pnl } from "./ui";
+import { Pnl } from "./components/ui";
 
 const POLL_MS = 30000;
 // The underlyings this desk trades, then the volatility gauge.

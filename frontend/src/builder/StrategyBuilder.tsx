@@ -21,8 +21,7 @@ import { ExitWhenSection } from "./sections/ExitWhenSection";
 import { FeaturesSection } from "./sections/FeaturesSection";
 import { IndicatorsSection } from "./sections/IndicatorsSection";
 import { SummaryPanel } from "./summary/SummaryPanel";
-import { cx } from "./ui/Button";
-import { FoldContext } from "./ui/Section";
+import { cx, FoldContext } from "../components/ui";
 
 export type { EditorRoute };
 

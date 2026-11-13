@@ -1,8 +1,7 @@
 import { CircleAlert, Plus } from "lucide-react";
 import type { LabLeg } from "../../api";
 import { MAX_LEGS, NEW_LEG } from "../logic/spec";
-import { Button } from "../ui/Button";
-import { Hint } from "../ui/Field";
+import { Button, Hint } from "../../components/ui";
 import { LegRow } from "./LegRow";
 
 /** The options a case trades, one row each, with every leg's problems listed below. */

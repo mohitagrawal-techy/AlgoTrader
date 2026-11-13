@@ -1,9 +1,14 @@
 import type { ReadyBuilder } from "../hooks/useStrategyBuilder";
 import { hhmm, TRENDS } from "../logic/spec";
-import { ChipCheck } from "../ui/choices";
-import { Field, GroupLabel, Hint } from "../ui/Field";
-import { NumberInput, TextInput } from "../ui/inputs";
-import { Section } from "../ui/Section";
+import {
+  ChipCheck,
+  Field,
+  GroupLabel,
+  Hint,
+  NumberInput,
+  TextInput,
+  Section,
+} from "../../components/ui";
 import { ConditionsEditor } from "./ConditionsEditor";
 
 /** Entry checks every case shares: trend, IV rank, days to expiry, entry hours, and market

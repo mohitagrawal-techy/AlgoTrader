@@ -3,8 +3,7 @@ import type { ReadyBuilder } from "../hooks/useStrategyBuilder";
 import { tabOf } from "../logic/problems";
 import { oppositeCase } from "../logic/ruleLists";
 import { MAX_CASES } from "../logic/spec";
-import { Button } from "../ui/Button";
-import { Badge, Section } from "../ui/Section";
+import { Button, Badge, Section } from "../../components/ui";
 import { CasePanel } from "./CasePanel";
 import { CaseTabs } from "./CaseTabs";
 

@@ -1,3 +1,5 @@
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { Button } from "./components/ui";
 import {
   useCallback,
   useEffect,
@@ -42,7 +44,9 @@ function clamp(value: number, low: number, high: number): number {
 function readLayout(key: string): GridLayout {
   try {
     const parsed = JSON.parse(localStorage.getItem(key) ?? "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
   } catch {
     return {};
   }
@@ -50,7 +54,8 @@ function readLayout(key: string): GridLayout {
 
 function writeLayout(key: string, layout: GridLayout): void {
   try {
-    if (Object.keys(layout).length) localStorage.setItem(key, JSON.stringify(layout));
+    if (Object.keys(layout).length)
+      localStorage.setItem(key, JSON.stringify(layout));
     else localStorage.removeItem(key);
   } catch {
     // Without storage the layout still works until the page is reloaded.
@@ -59,17 +64,32 @@ function writeLayout(key: string, layout: GridLayout): void {
 
 /** A saved panel layout for this browser. */
 export function useGridLayout(storageKey: string) {
-  const [layout, setLayout] = useState<GridLayout>(() => readLayout(storageKey));
-  const save = useCallback((next: GridLayout) => writeLayout(storageKey, next), [storageKey]);
+  const [layout, setLayout] = useState<GridLayout>(() =>
+    readLayout(storageKey),
+  );
+  const save = useCallback(
+    (next: GridLayout) => writeLayout(storageKey, next),
+    [storageKey],
+  );
   const reset = useCallback(() => {
     setLayout({});
     writeLayout(storageKey, {});
   }, [storageKey]);
-  return { layout, setLayout, save, reset, customised: Object.keys(layout).length > 0 };
+  return {
+    layout,
+    setLayout,
+    save,
+    reset,
+    customised: Object.keys(layout).length > 0,
+  };
 }
 
 function spanOf(card: Card, layout: GridLayout): number {
-  return clamp(Math.round(layout[card.id]?.span ?? card.span), MIN_SPAN, COLUMNS);
+  return clamp(
+    Math.round(layout[card.id]?.span ?? card.span),
+    MIN_SPAN,
+    COLUMNS,
+  );
 }
 
 /** Cards in the saved order. A card with no saved place stays at its default position. */
@@ -84,7 +104,12 @@ function orderedCards(cards: Card[], layout: GridLayout): Card[] {
  * Swaps two cards. Width and height stay with the position, so the rows stay full and no other
  * panel moves.
  */
-function withSwap(cards: Card[], layout: GridLayout, first: string, second: string): GridLayout {
+function withSwap(
+  cards: Card[],
+  layout: GridLayout,
+  first: string,
+  second: string,
+): GridLayout {
   const ordered = orderedCards(cards, layout);
   const place = (id: string) => ordered.findIndex((card) => card.id === id);
   const a = ordered[place(first)];
@@ -93,8 +118,16 @@ function withSwap(cards: Card[], layout: GridLayout, first: string, second: stri
   ordered.forEach((card, index) => {
     next[card.id] = { ...layout[card.id], order: index };
   });
-  next[first] = { span: spanOf(b, layout), height: layout[second]?.height, order: place(second) };
-  next[second] = { span: spanOf(a, layout), height: layout[first]?.height, order: place(first) };
+  next[first] = {
+    span: spanOf(b, layout),
+    height: layout[second]?.height,
+    order: place(second),
+  };
+  next[second] = {
+    span: spanOf(a, layout),
+    height: layout[first]?.height,
+    order: place(first),
+  };
   return next;
 }
 
@@ -115,8 +148,15 @@ function rowsOf(cards: Card[], layout: GridLayout): Card[][] {
 }
 
 /** Sets a card's width. A card to its right gives up or takes back the same columns. */
-function withSpan(cards: Card[], layout: GridLayout, id: string, target: number): GridLayout {
-  const row = rowsOf(cards, layout).find((items) => items.some((card) => card.id === id));
+function withSpan(
+  cards: Card[],
+  layout: GridLayout,
+  id: string,
+  target: number,
+): GridLayout {
+  const row = rowsOf(cards, layout).find((items) =>
+    items.some((card) => card.id === id),
+  );
   if (!row) return layout;
   const index = row.findIndex((card) => card.id === id);
   const current = spanOf(row[index], layout);
@@ -130,15 +170,32 @@ function withSpan(cards: Card[], layout: GridLayout, id: string, target: number)
       [neighbour.id]: { ...layout[neighbour.id], span: shared - span },
     };
   }
-  const others = row.reduce((sum, card) => sum + (card.id === id ? 0 : spanOf(card, layout)), 0);
-  return { ...layout, [id]: { ...layout[id], span: clamp(target, MIN_SPAN, COLUMNS - others) } };
+  const others = row.reduce(
+    (sum, card) => sum + (card.id === id ? 0 : spanOf(card, layout)),
+    0,
+  );
+  return {
+    ...layout,
+    [id]: { ...layout[id], span: clamp(target, MIN_SPAN, COLUMNS - others) },
+  };
 }
 
 /** Sets the height of a whole row, so the cards in it stay level. */
-function withHeight(cards: Card[], layout: GridLayout, id: string, target: number): GridLayout {
-  const row = rowsOf(cards, layout).find((items) => items.some((card) => card.id === id));
+function withHeight(
+  cards: Card[],
+  layout: GridLayout,
+  id: string,
+  target: number,
+): GridLayout {
+  const row = rowsOf(cards, layout).find((items) =>
+    items.some((card) => card.id === id),
+  );
   if (!row) return layout;
-  const height = clamp(Math.round(target / HEIGHT_STEP) * HEIGHT_STEP, MIN_HEIGHT, MAX_HEIGHT);
+  const height = clamp(
+    Math.round(target / HEIGHT_STEP) * HEIGHT_STEP,
+    MIN_HEIGHT,
+    MAX_HEIGHT,
+  );
   const next = { ...layout };
   for (const card of row) next[card.id] = { ...next[card.id], height };
   return next;
@@ -192,7 +249,9 @@ export function ResizableGrid({
     timer: number;
   } | null>(null);
   const targetId = useRef<string | null>(null);
-  const refocus = useRef<{ id: string; direction: "earlier" | "later" } | null>(null);
+  const refocus = useRef<{ id: string; direction: "earlier" | "later" } | null>(
+    null,
+  );
 
   useEffect(() => () => window.clearInterval(carry.current?.timer), []);
 
@@ -203,8 +262,9 @@ export function ResizableGrid({
     refocus.current = null;
     const overlay = grid.current.querySelector(`[data-card-id="${wanted.id}"]`);
     const button =
-      overlay?.querySelector<HTMLButtonElement>(`.arrange-${wanted.direction}:not(:disabled)`) ??
-      overlay?.querySelector<HTMLButtonElement>("button:not(:disabled)");
+      overlay?.querySelector<HTMLButtonElement>(
+        `.arrange-${wanted.direction}:not(:disabled)`,
+      ) ?? overlay?.querySelector<HTMLButtonElement>("button:not(:disabled)");
     button?.focus();
   });
 
@@ -213,7 +273,10 @@ export function ResizableGrid({
     if (!active) return;
     const over = document
       .elementsFromPoint(active.x, active.y)
-      .map((element) => element.closest<HTMLElement>("[data-card-id]")?.dataset.cardId)
+      .map(
+        (element) =>
+          element.closest<HTMLElement>("[data-card-id]")?.dataset.cardId,
+      )
       .find((id) => id && id !== active.id);
     targetId.current = over ?? null;
     setMoving({
@@ -233,7 +296,8 @@ export function ResizableGrid({
       const active = carry.current;
       if (!active) return;
       if (active.y < SCROLL_EDGE) window.scrollBy(0, -SCROLL_STEP);
-      else if (active.y > window.innerHeight - SCROLL_EDGE) window.scrollBy(0, SCROLL_STEP);
+      else if (active.y > window.innerHeight - SCROLL_EDGE)
+        window.scrollBy(0, SCROLL_STEP);
       else return;
       trackCarry();
     }, 16);
@@ -280,7 +344,12 @@ export function ResizableGrid({
     onCommit(next);
   };
 
-  const begin = (event: PointerEvent<HTMLElement>, id: string, x: boolean, y: boolean) => {
+  const begin = (
+    event: PointerEvent<HTMLElement>,
+    id: string,
+    x: boolean,
+    y: boolean,
+  ) => {
     const card = event.currentTarget.parentElement;
     if (!card || !grid.current) return;
     event.preventDefault();
@@ -304,13 +373,22 @@ export function ResizableGrid({
     if (!active) return;
     let next = latest.current;
     if (active.x) {
-      const target = Math.round((active.width + event.clientX - active.startX + GAP) / active.unit);
-      if (target !== spanOf(cards.find((c) => c.id === active.id) as Card, next)) {
+      const target = Math.round(
+        (active.width + event.clientX - active.startX + GAP) / active.unit,
+      );
+      if (
+        target !== spanOf(cards.find((c) => c.id === active.id) as Card, next)
+      ) {
         next = withSpan(cards, next, active.id, target);
       }
     }
     if (active.y) {
-      next = withHeight(cards, next, active.id, active.height + event.clientY - active.startY);
+      next = withHeight(
+        cards,
+        next,
+        active.id,
+        active.height + event.clientY - active.startY,
+      );
     }
     if (next !== latest.current) {
       latest.current = next;
@@ -336,9 +414,12 @@ export function ResizableGrid({
     if (!step) return;
     event.preventDefault();
     let next = latest.current;
-    if (step[0]) next = withSpan(cards, next, card.id, spanOf(card, next) + step[0]);
+    if (step[0])
+      next = withSpan(cards, next, card.id, spanOf(card, next) + step[0]);
     if (step[1]) {
-      const height = (event.currentTarget.parentElement as HTMLElement).getBoundingClientRect().height;
+      const height = (
+        event.currentTarget.parentElement as HTMLElement
+      ).getBoundingClientRect().height;
       next = withHeight(cards, next, card.id, height + step[1]);
     }
     onChange(next);
@@ -348,8 +429,12 @@ export function ResizableGrid({
   const rows = rowsOf(cards, layout);
   const heights = new Map<string, number | undefined>();
   for (const row of rows) {
-    const chosen = row.map((card) => layout[card.id]?.height).filter((h): h is number => !!h);
-    const height = chosen.length ? clamp(Math.max(...chosen), MIN_HEIGHT, MAX_HEIGHT) : undefined;
+    const chosen = row
+      .map((card) => layout[card.id]?.height)
+      .filter((h): h is number => !!h);
+    const height = chosen.length
+      ? clamp(Math.max(...chosen), MIN_HEIGHT, MAX_HEIGHT)
+      : undefined;
     for (const card of row) heights.set(card.id, height);
   }
 
@@ -386,27 +471,28 @@ export function ResizableGrid({
               >
                 <div className="arrange-bar">
                   <span className="arrange-title">{card.title}</span>
-                  <span className="arrange-buttons" onPointerDown={(event) => event.stopPropagation()}>
-                    <button
-                      type="button"
-                      className="button ghost arrange-earlier"
+                  <span
+                    className="arrange-buttons"
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    <Button
+                      size="icon"
+                      icon={ArrowLeft}
+                      className="arrange-earlier"
                       aria-label={`Move ${card.title} earlier`}
                       title="Move earlier"
                       disabled={index === 0}
                       onClick={() => step(card.id, -1)}
-                    >
-                      ←
-                    </button>
-                    <button
-                      type="button"
-                      className="button ghost arrange-later"
+                    />
+                    <Button
+                      size="icon"
+                      icon={ArrowRight}
+                      className="arrange-later"
                       aria-label={`Move ${card.title} later`}
                       title="Move later"
                       disabled={index === cards.length - 1}
                       onClick={() => step(card.id, 1)}
-                    >
-                      →
-                    </button>
+                    />
                   </span>
                 </div>
               </div>
@@ -424,7 +510,9 @@ export function ResizableGrid({
                 key={name as string}
                 className={name as string}
                 aria-hidden
-                onPointerDown={(event) => begin(event, card.id, x as boolean, y as boolean)}
+                onPointerDown={(event) =>
+                  begin(event, card.id, x as boolean, y as boolean)
+                }
                 onPointerMove={move}
                 onPointerUp={end}
                 onPointerCancel={end}

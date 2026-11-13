@@ -9,9 +9,10 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" source(none);
 
-/* Only the new builder is scanned, so class names elsewhere in the app (Bootstrap's
+/* Only the builder and the shared components are scanned, so class names elsewhere in the app (Bootstrap's
    `w-100`, the app's own `hidden` or `table`) never turn into Tailwind rules. */
 @source "./builder";
+@source "./components";
 
 /* A small reset for the builder only, standing in for Tailwind's page-wide one. `:where`
    keeps it at zero specificity, so every utility class still overrides it. */

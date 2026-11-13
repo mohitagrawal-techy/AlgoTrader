@@ -44,12 +44,15 @@ import {
   ChartSkeleton,
   Empty,
   LoadFailed,
+  LabeledSelect,
   Panel,
-  Select,
   Status,
   Tile,
   type Tone,
-} from "../ui";
+  Button,
+  Table,
+  Tiles,
+} from "../components/ui";
 import { savedStore } from "../saved";
 
 const POLL_MS = 30000;
@@ -523,37 +526,35 @@ function OptionsPanel({ data }: { data: OverviewPayload }) {
           Press Refresh, or leave the collector running.
         </Empty>
       ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Index</th>
-                <th className="right">ATM IV</th>
-                <th className="right">IV rank</th>
-                <th className="right">Put-call</th>
-                <th className="right">Max pain</th>
-                <th className="right">Move ±</th>
+        <Table>
+          <thead>
+            <tr>
+              <th>Index</th>
+              <th className="right">ATM IV</th>
+              <th className="right">IV rank</th>
+              <th className="right">Put-call</th>
+              <th className="right">Max pain</th>
+              <th className="right">Move ±</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.options.map((row) => (
+              <tr key={row.symbol}>
+                <td>
+                  <div className="primary">{row.symbol}</div>
+                  <div className="secondary">
+                    {row.expiry ? shortDate(row.expiry) : "–"}
+                  </div>
+                </td>
+                <td className="right">{fraction(row.atm_iv)}</td>
+                <td className="right">{num(row.iv_rank, 0)}</td>
+                <td className="right">{num(row.pcr, 2)}</td>
+                <td className="right">{num(row.max_pain)}</td>
+                <td className="right">{num(row.expected_move)}</td>
               </tr>
-            </thead>
-            <tbody>
-              {data.options.map((row) => (
-                <tr key={row.symbol}>
-                  <td>
-                    <div className="primary">{row.symbol}</div>
-                    <div className="secondary">
-                      {row.expiry ? shortDate(row.expiry) : "–"}
-                    </div>
-                  </td>
-                  <td className="right">{fraction(row.atm_iv)}</td>
-                  <td className="right">{num(row.iv_rank, 0)}</td>
-                  <td className="right">{num(row.pcr, 2)}</td>
-                  <td className="right">{num(row.max_pain)}</td>
-                  <td className="right">{num(row.expected_move)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </Table>
       )}
     </Panel>
   );
@@ -619,7 +620,7 @@ function PriceChart({
               { name: "EMA 50", color: "var(--overlay-2)" },
             ]}
           />
-          <Select
+          <LabeledSelect
             label="Index"
             value={name}
             onChange={setName}
@@ -725,7 +726,7 @@ function InstitutionFlows({ data }: { data: OverviewInstitutions | null }) {
               { name: "DII", color: DII_COLOR },
             ]}
           />
-          <Select
+          <LabeledSelect
             label="View"
             value={view}
             onChange={setView}
@@ -745,7 +746,7 @@ function InstitutionFlows({ data }: { data: OverviewInstitutions | null }) {
         </Empty>
       ) : (
         <>
-          <div className="tiles institution-tiles">
+          <Tiles className="institution-tiles">
             <Tile
               label="FII cash net"
               value={<NetValue value={data.fii_net} />}
@@ -761,7 +762,7 @@ function InstitutionFlows({ data }: { data: OverviewInstitutions | null }) {
               value={<NetValue value={data.combined_net} />}
               hint={institutionsNote(data)}
             />
-          </div>
+          </Tiles>
           <DivergingColumns
             data={rows.map((row) => ({
               key: row.date,
@@ -818,40 +819,39 @@ function InstitutionSegments({ data }: { data: OverviewInstitutions | null }) {
         <Empty title="FII and DII data is not available yet" />
       ) : (
         <>
-          <div className="table-wrap">
-            <table className="table compact-table">
-              <thead>
-                <tr>
-                  <th>Segment</th>
-                  <th className="right">Buy</th>
-                  <th className="right">Sell</th>
-                  <th className="right">Net</th>
-                  <th className="right">OI chg</th>
-                  <th>Positions</th>
+          <Table compact>
+            <thead>
+              <tr>
+                <th>Segment</th>
+                <th className="right">Buy</th>
+                <th className="right">Sell</th>
+                <th className="right">Net</th>
+                <th className="right">OI chg</th>
+                <th>Positions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.segments.map((row) => (
+                <tr key={row.label}>
+                  <td className="primary">{row.label}</td>
+                  <td className="right">{num(row.buy, 0)}</td>
+                  <td className="right">{num(row.sell, 0)}</td>
+                  <td className="right">
+                    <span
+                      className={changeTone(row.net)}
+                    >{`${row.net > 0 ? "+" : ""}${num(row.net, 0)}`}</span>
+                  </td>
+                  <td className="right">
+                    <span className={changeTone(row.oi_change)}>
+                      {signedCount(row.oi_change)}
+                    </span>
+                  </td>
+                  <td className="secondary">{positioning(row)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {data.segments.map((row) => (
-                  <tr key={row.label}>
-                    <td className="primary">{row.label}</td>
-                    <td className="right">{num(row.buy, 0)}</td>
-                    <td className="right">{num(row.sell, 0)}</td>
-                    <td className="right">
-                      <span
-                        className={changeTone(row.net)}
-                      >{`${row.net > 0 ? "+" : ""}${num(row.net, 0)}`}</span>
-                    </td>
-                    <td className="right">
-                      <span className={changeTone(row.oi_change)}>
-                        {signedCount(row.oi_change)}
-                      </span>
-                    </td>
-                    <td className="secondary">{positioning(row)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </Table>
+
           <p className="panel-note">
             Buy, sell and net are in ₹ crore. OI change and positions are in
             contracts. Option values are notional, so contract counts are the
@@ -1103,110 +1103,103 @@ function IndustryBars({ data }: { data: OverviewPayload }) {
 
 function SectorTable({ sectors }: { sectors: IndexRow[] }) {
   return (
-    <div className="table-wrap">
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Sector</th>
-            <th className="right">Last</th>
-            <th className="right">Today</th>
-            <th className="right">vs Nifty</th>
-            <th className="right">1W</th>
-            <th className="right">1M</th>
-            <th className="right">3M</th>
-            <th className="right">1Y</th>
-            <th>Day range</th>
+    <Table>
+      <thead>
+        <tr>
+          <th>Sector</th>
+          <th className="right">Last</th>
+          <th className="right">Today</th>
+          <th className="right">vs Nifty</th>
+          <th className="right">1W</th>
+          <th className="right">1M</th>
+          <th className="right">3M</th>
+          <th className="right">1Y</th>
+          <th>Day range</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sectors.map((row) => (
+          <tr key={row.name}>
+            <td className="primary" data-index-name={row.name} tabIndex={0}>
+              {row.label}
+            </td>
+            <td className="right">{num(row.last, 2)}</td>
+            <HeatCell value={row.change_pct} period="1D" />
+            <td className="right">
+              <Change value={row.vs_nifty} />
+            </td>
+            {(["1W", "1M", "3M", "1Y"] as const).map((period) => (
+              <HeatCell
+                value={row.returns[period] ?? null}
+                period={period}
+                key={period}
+              />
+            ))}
+            <td>
+              {row.range_position !== null && (
+                <div
+                  className="day-range table-range"
+                  title={`${num(row.low, 2)} to ${num(row.high, 2)}`}
+                >
+                  <span
+                    style={{
+                      left: `${Math.max(0, Math.min(100, row.range_position))}%`,
+                    }}
+                  />
+                </div>
+              )}
+            </td>
           </tr>
-        </thead>
-        <tbody>
-          {sectors.map((row) => (
-            <tr key={row.name}>
-              <td className="primary" data-index-name={row.name} tabIndex={0}>
-                {row.label}
-              </td>
-              <td className="right">{num(row.last, 2)}</td>
-              <HeatCell value={row.change_pct} period="1D" />
-              <td className="right">
-                <Change value={row.vs_nifty} />
-              </td>
-              {(["1W", "1M", "3M", "1Y"] as const).map((period) => (
-                <HeatCell
-                  value={row.returns[period] ?? null}
-                  period={period}
-                  key={period}
-                />
-              ))}
-              <td>
-                {row.range_position !== null && (
-                  <div
-                    className="day-range table-range"
-                    title={`${num(row.low, 2)} to ${num(row.high, 2)}`}
-                  >
-                    <span
-                      style={{
-                        left: `${Math.max(0, Math.min(100, row.range_position))}%`,
-                      }}
-                    />
-                  </div>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+        ))}
+      </tbody>
+    </Table>
   );
 }
 
 function IndustryTable({ data }: { data: OverviewPayload }) {
   return (
-    <div className="table-wrap">
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Industry</th>
-            <th className="right">Stocks</th>
-            <th className="right">Average</th>
-            <th>Advancing / declining</th>
-            <th className="right">Value traded</th>
-            <th>Best</th>
-            <th>Worst</th>
+    <Table>
+      <thead>
+        <tr>
+          <th>Industry</th>
+          <th className="right">Stocks</th>
+          <th className="right">Average</th>
+          <th>Advancing / declining</th>
+          <th className="right">Value traded</th>
+          <th>Best</th>
+          <th>Worst</th>
+        </tr>
+      </thead>
+      <tbody>
+        {data.industries.map((row) => (
+          <tr key={row.industry}>
+            <td className="primary">{row.industry}</td>
+            <td className="right">{row.stocks}</td>
+            <td className="right">
+              <Change value={row.average_change} />
+            </td>
+            <td>
+              <div className="mini-breadth">
+                <span className="segments thin">
+                  <i className="bar-up" style={{ flexGrow: row.advancing }} />
+                  <i className="bar-down" style={{ flexGrow: row.declining }} />
+                </span>
+                <small>
+                  {row.advancing} / {row.declining}
+                </small>
+              </div>
+            </td>
+            <td className="right">{inrCompact(row.value)}</td>
+            <td className="secondary-nowrap">
+              {row.best.symbol} <Change value={row.best.change_pct} />
+            </td>
+            <td className="secondary-nowrap">
+              {row.worst.symbol} <Change value={row.worst.change_pct} />
+            </td>
           </tr>
-        </thead>
-        <tbody>
-          {data.industries.map((row) => (
-            <tr key={row.industry}>
-              <td className="primary">{row.industry}</td>
-              <td className="right">{row.stocks}</td>
-              <td className="right">
-                <Change value={row.average_change} />
-              </td>
-              <td>
-                <div className="mini-breadth">
-                  <span className="segments thin">
-                    <i className="bar-up" style={{ flexGrow: row.advancing }} />
-                    <i
-                      className="bar-down"
-                      style={{ flexGrow: row.declining }}
-                    />
-                  </span>
-                  <small>
-                    {row.advancing} / {row.declining}
-                  </small>
-                </div>
-              </td>
-              <td className="right">{inrCompact(row.value)}</td>
-              <td className="secondary-nowrap">
-                {row.best.symbol} <Change value={row.best.change_pct} />
-              </td>
-              <td className="secondary-nowrap">
-                {row.worst.symbol} <Change value={row.worst.change_pct} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+        ))}
+      </tbody>
+    </Table>
   );
 }
 
@@ -1223,40 +1216,38 @@ function MoverTable({
 }) {
   return (
     <Panel title={title} ai={{ component: "movers", title, params: { list } }}>
-      <div className="table-wrap">
-        <table className="table compact-table">
-          <thead>
-            <tr>
-              <th>Stock</th>
-              <th className="right">Last</th>
-              <th className="right">{showValue ? "Value" : "Change"}</th>
+      <Table compact>
+        <thead>
+          <tr>
+            <th>Stock</th>
+            <th className="right">Last</th>
+            <th className="right">{showValue ? "Value" : "Change"}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.symbol} title={`${row.name}, ${row.industry}`}>
+              <td>
+                <div className="primary">{row.symbol}</div>
+                <div className="secondary truncate">{row.industry}</div>
+              </td>
+              <td className="right">{num(row.last, 2)}</td>
+              <td className="right">
+                {showValue ? (
+                  <>
+                    <div>{inrCompact(row.value)}</div>
+                    <small>
+                      <Change value={row.change_pct} />
+                    </small>
+                  </>
+                ) : (
+                  <Change value={row.change_pct} />
+                )}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.symbol} title={`${row.name}, ${row.industry}`}>
-                <td>
-                  <div className="primary">{row.symbol}</div>
-                  <div className="secondary truncate">{row.industry}</div>
-                </td>
-                <td className="right">{num(row.last, 2)}</td>
-                <td className="right">
-                  {showValue ? (
-                    <>
-                      <div>{inrCompact(row.value)}</div>
-                      <small>
-                        <Change value={row.change_pct} />
-                      </small>
-                    </>
-                  ) : (
-                    <Change value={row.change_pct} />
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </Table>
     </Panel>
   );
 }
@@ -1300,15 +1291,15 @@ function SectorUpload({
         onChange={upload}
         hidden
       />
-      <button
-        className={replace ? "button ghost" : "button"}
+      <Button
+        variant={replace ? "secondary" : "primary"}
         disabled={busy}
         onClick={() => input.current?.click()}
       >
         {busy
           ? "Uploading…"
           : (label ?? (replace ? "Replace list" : "Upload industry list"))}
-      </button>
+      </Button>
       {message && <span className="muted">{message}</span>}
     </span>
   );
@@ -1342,7 +1333,7 @@ function IndexLists() {
           its stocks appear when you hover over it.
         </p>
         <div className="filters">
-          <Select
+          <LabeledSelect
             label="Index"
             value={name}
             onChange={setName}
@@ -1477,11 +1468,11 @@ export function OverviewView() {
           title="Indices"
           ai={{ component: "indices", title: "Main indices and India VIX" }}
         >
-          <div className="tiles index-strip">
+          <Tiles className="index-strip">
             {tiles.map((row) => (
               <IndexTile row={row} key={row.name} />
             ))}
-          </div>
+          </Tiles>
         </Panel>
       ),
     },
@@ -1573,7 +1564,7 @@ export function OverviewView() {
             params: { period },
           }}
           aside={
-            <Select
+            <LabeledSelect
               label="Period"
               value={period}
               onChange={setPeriod}
@@ -1807,20 +1798,15 @@ export function OverviewView() {
               </span>
             )
           )}
-          {customised && (
-            <button type="button" className="button ghost" onClick={reset}>
-              Reset layout
-            </button>
-          )}
-          <button
-            type="button"
-            className={arranging ? "button" : "button ghost"}
+          {customised && <Button onClick={reset}>Reset layout</Button>}
+          <Button
+            variant={arranging ? "primary" : "secondary"}
             aria-pressed={arranging}
             onClick={() => setArranging((value) => !value)}
           >
             {arranging ? "Done" : "Arrange panels"}
-          </button>
-          <Select
+          </Button>
+          <LabeledSelect
             label="Chart range"
             value={range}
             onChange={setRange}

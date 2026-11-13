@@ -2,7 +2,7 @@ import { Pencil, Trash2 } from "lucide-react";
 import type { IndicatorPick, TechCatalog } from "../../api";
 import { IndicatorTip } from "../../views/IndicatorTip";
 import { indicatorOf, pickText } from "../logic/picks";
-import { Button, cx } from "../ui/Button";
+import { Button, cx } from "../../components/ui";
 
 function Chip({
   name,

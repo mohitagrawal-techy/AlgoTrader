@@ -1,11 +1,18 @@
 import type { LabSpec } from "../../api";
 import type { ReadyBuilder } from "../hooks/useStrategyBuilder";
 import { BIASES, DECISIONS, MAX_RATIONALE } from "../logic/spec";
-import { cx } from "../ui/Button";
-import { ChipCheck, Segmented } from "../ui/choices";
-import { Field, GroupLabel, Hint } from "../ui/Field";
-import { CONTROL, Select, TextInput } from "../ui/inputs";
-import { Section } from "../ui/Section";
+import {
+  cx,
+  ChipCheck,
+  Segmented,
+  Field,
+  GroupLabel,
+  Hint,
+  CONTROL,
+  Select,
+  TextInput,
+  Section,
+} from "../../components/ui";
 
 /** Begin blank, or from a copy of a standard strategy. Only offered for a new strategy. */
 export function StartFromSection({ b }: { b: ReadyBuilder }) {

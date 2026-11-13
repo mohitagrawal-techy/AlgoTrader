@@ -2,10 +2,15 @@ import type { LegUnit } from "../../api";
 import { FEATURE_HELP } from "../../views/FeatureHelp";
 import type { ReadyBuilder } from "../hooks/useStrategyBuilder";
 import { UNIT_DEFAULTS } from "../logic/spec";
-import { AmountInput } from "../ui/amounts";
-import { Field } from "../ui/Field";
-import { InputGroup, NumberInput, Select } from "../ui/inputs";
-import { Badge, Section } from "../ui/Section";
+import { AmountInput } from "../amounts";
+import {
+  Field,
+  InputGroup,
+  NumberInput,
+  Select,
+  Badge,
+  Section,
+} from "../../components/ui";
 import { FeatureCard } from "./FeatureCard";
 
 /** Trailing stop, move stop to cost, re-entry, re-execute and wait and trade. */

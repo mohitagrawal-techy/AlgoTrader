@@ -6,9 +6,7 @@ import { DeleteIndicatorDialog } from "../indicators/DeleteIndicatorDialog";
 import { IndicatorForm } from "../indicators/IndicatorForm";
 import { IndicatorRow } from "../indicators/IndicatorRow";
 import { byType, pickKey } from "../logic/picks";
-import { Button } from "../ui/Button";
-import { Hint } from "../ui/Field";
-import { Badge, Section } from "../ui/Section";
+import { Button, Hint, Badge, Section } from "../../components/ui";
 
 /** The strategy's indicators grouped by type, and the form to add or change one. */
 export function IndicatorsSection({ b }: { b: ReadyBuilder }) {

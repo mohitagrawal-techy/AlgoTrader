@@ -1,6 +1,5 @@
 import type { IndicatorPick } from "../../api";
-import { Button } from "../ui/Button";
-import { Dialog } from "../ui/Dialog";
+import { Button, Dialog } from "../../components/ui";
 import { IndicatorChooser } from "./IndicatorChooser";
 import { IndicatorSettings } from "./IndicatorSettings";
 import {

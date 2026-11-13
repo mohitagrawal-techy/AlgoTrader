@@ -1,6 +1,6 @@
 import type { Limit, Portfolio } from "../api";
 import { inr, num } from "../format";
-import { Meter, Panel, Status, Tile, type Tone } from "../ui";
+import { Meter, Panel, Status, Tile, type Tone, Tiles } from "../components/ui";
 
 function toneFor(share: number): Tone | undefined {
   if (share >= 90) return "critical";
@@ -22,7 +22,9 @@ function LimitRow({ limit }: { limit: Limit }) {
       </div>
       <Meter value={share} tone={tone} />
       {tone && (
-        <Status tone={tone}>{share >= 100 ? "At limit" : `${Math.round(share)}% used`}</Status>
+        <Status tone={tone}>
+          {share >= 100 ? "At limit" : `${Math.round(share)}% used`}
+        </Status>
       )}
     </div>
   );
@@ -31,7 +33,7 @@ function LimitRow({ limit }: { limit: Limit }) {
 export function RiskView({ portfolio }: { portfolio: Portfolio }) {
   return (
     <>
-      <div className="tiles tiles-3">
+      <Tiles columns={3}>
         <Tile label="Paper capital" value={inr(portfolio.capital)} />
         <Tile
           label="Today's trading"
@@ -42,7 +44,9 @@ export function RiskView({ portfolio }: { portfolio: Portfolio }) {
               <Status tone="good">Active</Status>
             )
           }
-          hint={portfolio.halted ? "New entries resume next session" : undefined}
+          hint={
+            portfolio.halted ? "New entries resume next session" : undefined
+          }
         />
         <Tile
           label="Automatic paper trades"
@@ -53,10 +57,17 @@ export function RiskView({ portfolio }: { portfolio: Portfolio }) {
               <Status tone="neutral">Off</Status>
             )
           }
-          hint={portfolio.auto_trade ? `Takes ideas scoring ${num(portfolio.min_score)} or more` : undefined}
+          hint={
+            portfolio.auto_trade
+              ? `Takes ideas scoring ${num(portfolio.min_score)} or more`
+              : undefined
+          }
         />
-      </div>
-      <Panel title="Limit usage" aside={<span className="muted">Edit in config/risk.yaml</span>}>
+      </Tiles>
+      <Panel
+        title="Limit usage"
+        aside={<span className="muted">Edit in config/risk.yaml</span>}
+      >
         <div className="limits">
           {portfolio.limits.map((limit) => (
             <LimitRow key={limit.key} limit={limit} />

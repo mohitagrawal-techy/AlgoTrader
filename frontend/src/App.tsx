@@ -10,7 +10,8 @@ import {
 } from "./api";
 import { age } from "./format";
 import { MarketTape } from "./tape";
-import { Empty, Status } from "./ui";
+import { Moon, RefreshCw } from "lucide-react";
+import { Alert, Button, ButtonLink, Empty } from "./components/ui";
 import { AssistantProvider } from "./assistant";
 import { BacktestsView } from "./views/Backtests";
 import { ForwardView } from "./views/Forward";
@@ -384,8 +385,8 @@ export function App() {
                   </span>
                 </>
               )}
-              <button
-                className="button ghost small"
+              <Button
+                icon={RefreshCw}
                 onClick={refresh}
                 disabled={refreshing || !health?.broker_session_valid}
                 title={
@@ -395,49 +396,61 @@ export function App() {
                 }
               >
                 {refreshing ? "Refreshing…" : "Refresh"}
-              </button>
-              <button
-                className="icon-button"
+              </Button>
+              <Button
+                variant="secondary"
+                size="icon"
+                icon={Moon}
                 onClick={toggleTheme}
                 aria-label="Switch colour theme"
                 title="Switch colour theme"
-              >
-                <NavIcon path="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" />
-              </button>
+              />
             </div>
           </header>
 
           {loadError && (
-            <div className="banner banner-critical">
-              <Status tone="critical">Server unavailable</Status> {loadError}
-            </div>
+            <Alert
+              tone="critical"
+              title="Server unavailable"
+              className="page-alert"
+            >
+              {loadError}
+            </Alert>
           )}
           {health && !health.upstox_configured && (
-            <div className="banner banner-warning">
-              <Status tone="warning">Setup needed</Status> Add your Upstox API
-              key and secret to <code>.env</code>, then restart the server.
-            </div>
+            <Alert tone="warning" title="Setup needed" className="page-alert">
+              Add your Upstox API key and secret to <code>.env</code>, then
+              restart the server.
+            </Alert>
           )}
           {health?.upstox_configured && !health.broker_session_valid && (
-            <div className="banner banner-warning">
-              <Status tone="warning">Login needed</Status> Upstox sessions end
-              at 03:30 each day.
-              <a className="button" href="/auth/login">
-                Log in to Upstox
-              </a>
-            </div>
+            <Alert
+              tone="warning"
+              title="Login needed"
+              className="page-alert"
+              action={
+                <ButtonLink href="/auth/login" variant="primary">
+                  Log in to Upstox
+                </ButtonLink>
+              }
+            >
+              Upstox sessions end at 03:30 each day.
+            </Alert>
           )}
           {stale && (
-            <div className="banner banner-warning">
-              <Status tone="warning">Stale data</Status> The market is open but
-              data is {age(health!.data_as_of, now)}. Check that{" "}
-              <code>algoverse collect</code> is running.
-            </div>
+            <Alert tone="warning" title="Stale data" className="page-alert">
+              The market is open but data is {age(health!.data_as_of, now)}.
+              Check that <code>algoverse collect</code> is running.
+            </Alert>
           )}
           {refreshError && (
-            <div className="banner banner-critical">
-              <Status tone="critical">Refresh failed</Status> {refreshError}
-            </div>
+            <Alert
+              tone="critical"
+              title="Refresh failed"
+              className="page-alert"
+            >
+              {refreshError}
+            </Alert>
           )}
 
           <main>

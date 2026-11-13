@@ -13,7 +13,17 @@ import {
   shortDate,
   signedInr,
 } from "../format";
-import { Empty, Meter, Panel, Pnl, Select, Status, Tile } from "../ui";
+import {
+  Empty,
+  Meter,
+  Panel,
+  Pnl,
+  LabeledSelect,
+  Status,
+  Tile,
+  Table,
+  Tiles,
+} from "../components/ui";
 
 function legText(leg: IdeaLeg, withExpiry = false): string {
   const side = leg.side > 0 ? "+" : "−";
@@ -60,15 +70,24 @@ function Payoff({ idea }: { idea: Idea }) {
 function ParamRow({ part }: { part: ScorePart }) {
   const missing = part.adjusted === null;
   const preference =
-    part.prefer === "low" ? "lower is better" : part.prefer === "mid" ? "middle is best" : "";
+    part.prefer === "low"
+      ? "lower is better"
+      : part.prefer === "mid"
+        ? "middle is best"
+        : "";
   return (
-    <div className={`param ${missing ? "param-missing" : ""}`} title={part.note}>
+    <div
+      className={`param ${missing ? "param-missing" : ""}`}
+      title={part.note}
+    >
       <span className="param-name">
         {PARAM_LABELS[part.name] ?? part.name}
         {preference && <small>{preference}</small>}
       </span>
       <Meter value={part.adjusted ?? 0} />
-      <span className="param-score">{missing ? "No data" : num(part.adjusted, 0)}</span>
+      <span className="param-score">
+        {missing ? "No data" : num(part.adjusted, 0)}
+      </span>
     </div>
   );
 }
@@ -100,7 +119,9 @@ function AiBox({ ai }: { ai: AiReview }) {
     return (
       <div className="ai-box">
         <Status tone="neutral">
-          {ai.status === "over_limit" ? "AI limit reached" : "AI review unavailable"}
+          {ai.status === "over_limit"
+            ? "AI limit reached"
+            : "AI review unavailable"}
         </Status>
         <p className="secondary">This idea uses its numeric score only.</p>
       </div>
@@ -139,7 +160,8 @@ function Detail({ idea }: { idea: Idea }) {
       <header className="detail-header">
         <div>
           <div className="eyebrow">
-            {idea.symbol} · {shortDate(idea.front_expiry)} · {structure.dte} days
+            {idea.symbol} · {shortDate(idea.front_expiry)} · {structure.dte}{" "}
+            days
           </div>
           <h2>{STRATEGY_LABELS[idea.strategy] ?? idea.strategy}</h2>
           <div className="legs">
@@ -153,7 +175,9 @@ function Detail({ idea }: { idea: Idea }) {
         <div className="detail-score">
           <span>{num(idea.score, 0)}</span>
           <small>
-            {idea.base_score !== null && idea.score !== null && idea.score < idea.base_score
+            {idea.base_score !== null &&
+            idea.score !== null &&
+            idea.score < idea.base_score
               ? `numeric ${num(idea.base_score, 0)}, AI ${num(idea.score - idea.base_score, 0)}`
               : "score of 100"}
           </small>
@@ -180,34 +204,50 @@ function Detail({ idea }: { idea: Idea }) {
       <h3>Payoff, one lot</h3>
       <Payoff idea={idea} />
 
-      <div className="tiles tiles-3">
+      <Tiles columns={3}>
         <Tile label="Premium" value={premiumText(structure.entry_debit)} />
         <Tile
           label="Maximum loss"
           value={structure.bounded ? inr(structure.max_loss) : "Undefined"}
-          hint={structure.bounded ? undefined : `Plan: ${inr(plan.planned_loss)} at stop`}
+          hint={
+            structure.bounded
+              ? undefined
+              : `Plan: ${inr(plan.planned_loss)} at stop`
+          }
         />
         <Tile label="Reward within 2σ" value={inr(structure.reward)} />
-        <Tile label="Probability of profit" value={fraction(structure.pop, 0)} hint="Model estimate" />
+        <Tile
+          label="Probability of profit"
+          value={fraction(structure.pop, 0)}
+          hint="Model estimate"
+        />
         <Tile
           label="Expected value"
-          value={<Pnl value={structure.net_ev}>{signedInr(structure.net_ev)}</Pnl>}
+          value={
+            <Pnl value={structure.net_ev}>{signedInr(structure.net_ev)}</Pnl>
+          }
           hint="After costs, model estimate"
         />
         <Tile
           label="Stress, worst case"
-          value={<Pnl value={stress.worst_pnl}>{signedInr(stress.worst_pnl)}</Pnl>}
+          value={
+            <Pnl value={stress.worst_pnl}>{signedInr(stress.worst_pnl)}</Pnl>
+          }
           hint={`Spot ${stress.spot_move_pct > 0 ? "+" : ""}${stress.spot_move_pct}%, IV ${
             stress.iv_shift_pct > 0 ? "+" : ""
           }${stress.iv_shift_pct}%`}
         />
-      </div>
+      </Tiles>
 
       <h3>Exit plan, one lot</h3>
       <dl className="facts">
         <div>
           <dt>Breakevens</dt>
-          <dd>{structure.breakevens.length ? structure.breakevens.map((b) => num(b)).join(", ") : "None"}</dd>
+          <dd>
+            {structure.breakevens.length
+              ? structure.breakevens.map((b) => num(b)).join(", ")
+              : "None"}
+          </dd>
         </div>
         <div>
           <dt>Spot</dt>
@@ -260,8 +300,14 @@ export function IdeasView({ ideas }: { ideas: Idea[] }) {
   const [show, setShow] = useState<Show>("tradable");
   const [selected, setSelected] = useState<string | null>(null);
 
-  const symbols = useMemo(() => [...new Set(ideas.map((i) => i.symbol))], [ideas]);
-  const profiles = useMemo(() => [...new Set(ideas.map((i) => i.profile))], [ideas]);
+  const symbols = useMemo(
+    () => [...new Set(ideas.map((i) => i.symbol))],
+    [ideas],
+  );
+  const profiles = useMemo(
+    () => [...new Set(ideas.map((i) => i.profile))],
+    [ideas],
+  );
   const visible = ideas.filter(
     (idea) =>
       (symbol === "all" || idea.symbol === symbol) &&
@@ -269,13 +315,14 @@ export function IdeasView({ ideas }: { ideas: Idea[] }) {
       (show === "all" || idea.tradable),
   );
   const tradableCount = ideas.filter((idea) => idea.tradable).length;
-  const current = visible.find((idea) => idea.id === selected) ?? visible[0] ?? null;
+  const current =
+    visible.find((idea) => idea.id === selected) ?? visible[0] ?? null;
 
   if (!ideas.length) {
     return (
       <Empty title="No ideas yet">
-        Log in to Upstox and press Refresh, or leave <code>algoverse collect</code> running during
-        market hours.
+        Log in to Upstox and press Refresh, or leave{" "}
+        <code>algoverse collect</code> running during market hours.
       </Empty>
     );
   }
@@ -283,22 +330,28 @@ export function IdeasView({ ideas }: { ideas: Idea[] }) {
   return (
     <>
       <div className="filters">
-        <Select
+        <LabeledSelect
           label="Underlying"
           value={symbol}
           onChange={setSymbol}
-          options={[{ value: "all", label: "All" }, ...symbols.map((s) => ({ value: s, label: s }))]}
+          options={[
+            { value: "all", label: "All" },
+            ...symbols.map((s) => ({ value: s, label: s })),
+          ]}
         />
-        <Select
+        <LabeledSelect
           label="Style"
           value={profile}
           onChange={setProfile}
           options={[
             { value: "all", label: "All" },
-            ...profiles.map((p) => ({ value: p, label: PROFILE_LABELS[p] ?? p })),
+            ...profiles.map((p) => ({
+              value: p,
+              label: PROFILE_LABELS[p] ?? p,
+            })),
           ]}
         />
-        <Select
+        <LabeledSelect
           label="Show"
           value={show}
           onChange={setShow}
@@ -314,74 +367,94 @@ export function IdeasView({ ideas }: { ideas: Idea[] }) {
       <div className={visible.length === 0 ? "" : "split"}>
         <Panel title="Ranked ideas">
           {visible.length === 0 ? (
-            <Empty title={ideas.length ? "No tradable ideas right now" : "No ideas yet"}>
+            <Empty
+              title={
+                ideas.length ? "No tradable ideas right now" : "No ideas yet"
+              }
+            >
               {ideas.length
                 ? `All ${ideas.length} ideas from the latest chains were rejected. Show “Include rejected” to see the reason for each.`
                 : "Ideas appear after the collector ranks the first option chains of the session."}
             </Empty>
           ) : (
-            <div className="table-wrap">
-              <table className="table table-ideas">
-                <thead>
-                  <tr>
-                    <th>Score</th>
-                    <th>Strategy</th>
-                    <th>Expiry</th>
-                    <th>Legs</th>
-                    <th className="right">Premium</th>
-                    <th className="right">Max loss</th>
-                    <th className="right">POP</th>
-                    <th className="right">Net EV</th>
-                    <th>Status</th>
+            <Table className="table-ideas">
+              <thead>
+                <tr>
+                  <th>Score</th>
+                  <th>Strategy</th>
+                  <th>Expiry</th>
+                  <th>Legs</th>
+                  <th className="right">Premium</th>
+                  <th className="right">Max loss</th>
+                  <th className="right">POP</th>
+                  <th className="right">Net EV</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((idea) => (
+                  <tr
+                    key={idea.id}
+                    className={idea.id === current?.id ? "selected" : ""}
+                    onClick={() => setSelected(idea.id)}
+                    tabIndex={0}
+                    onKeyDown={(event) =>
+                      event.key === "Enter" && setSelected(idea.id)
+                    }
+                  >
+                    <td className="score-cell">
+                      <b>{num(idea.score, 0)}</b>
+                      <Meter value={idea.score ?? 0} />
+                    </td>
+                    <td>
+                      <div className="primary">
+                        {STRATEGY_LABELS[idea.strategy]}
+                      </div>
+                      <div className="secondary">{idea.symbol}</div>
+                    </td>
+                    <td>
+                      <div className="primary">
+                        {shortDate(idea.front_expiry)}
+                      </div>
+                      <div className="secondary">{idea.structure.dte}d</div>
+                    </td>
+                    <td className="legs-cell">
+                      {idea.legs.map((l) => legText(l)).join("  ")}
+                    </td>
+                    <td className="right">
+                      {premiumText(idea.structure.entry_debit)}
+                    </td>
+                    <td className="right">
+                      {idea.structure.bounded
+                        ? inr(idea.structure.max_loss)
+                        : "Undefined"}
+                    </td>
+                    <td className="right">{fraction(idea.structure.pop, 0)}</td>
+                    <td className="right">
+                      <Pnl value={idea.structure.net_ev}>
+                        {signedInr(idea.structure.net_ev)}
+                      </Pnl>
+                    </td>
+                    <td title={idea.rejections.join("\n")}>
+                      {idea.tradable ? (
+                        <Status tone="good">
+                          {idea.lots} {idea.lots === 1 ? "lot" : "lots"}
+                        </Status>
+                      ) : (
+                        <Status tone="critical">Rejected</Status>
+                      )}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {visible.map((idea) => (
-                    <tr
-                      key={idea.id}
-                      className={idea.id === current?.id ? "selected" : ""}
-                      onClick={() => setSelected(idea.id)}
-                      tabIndex={0}
-                      onKeyDown={(event) => event.key === "Enter" && setSelected(idea.id)}
-                    >
-                      <td className="score-cell">
-                        <b>{num(idea.score, 0)}</b>
-                        <Meter value={idea.score ?? 0} />
-                      </td>
-                      <td>
-                        <div className="primary">{STRATEGY_LABELS[idea.strategy]}</div>
-                        <div className="secondary">{idea.symbol}</div>
-                      </td>
-                      <td>
-                        <div className="primary">{shortDate(idea.front_expiry)}</div>
-                        <div className="secondary">{idea.structure.dte}d</div>
-                      </td>
-                      <td className="legs-cell">{idea.legs.map((l) => legText(l)).join("  ")}</td>
-                      <td className="right">{premiumText(idea.structure.entry_debit)}</td>
-                      <td className="right">
-                        {idea.structure.bounded ? inr(idea.structure.max_loss) : "Undefined"}
-                      </td>
-                      <td className="right">{fraction(idea.structure.pop, 0)}</td>
-                      <td className="right">
-                        <Pnl value={idea.structure.net_ev}>{signedInr(idea.structure.net_ev)}</Pnl>
-                      </td>
-                      <td title={idea.rejections.join("\n")}>
-                        {idea.tradable ? (
-                          <Status tone="good">
-                            {idea.lots} {idea.lots === 1 ? "lot" : "lots"}
-                          </Status>
-                        ) : (
-                          <Status tone="critical">Rejected</Status>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </Table>
           )}
         </Panel>
-        {visible.length > 0 && <aside className="panel detail-panel">{current && <Detail idea={current} />}</aside>}
+        {visible.length > 0 && (
+          <aside className="panel detail-panel">
+            {current && <Detail idea={current} />}
+          </aside>
+        )}
       </div>
     </>
   );

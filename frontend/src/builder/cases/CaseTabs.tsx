@@ -1,6 +1,6 @@
 import { CircleAlert } from "lucide-react";
 import type { LabCase } from "../../api";
-import { cx } from "../ui/Button";
+import { cx } from "../../components/ui";
 
 /** The cases as tabs. Arrow keys move between them; a tab whose fields need fixing is
  * marked, with words for screen readers as well as the icon. */

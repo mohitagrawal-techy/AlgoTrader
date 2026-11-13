@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { FeatureHelp, type FeatureHelpContent } from "../../views/FeatureHelp";
-import { cx } from "../ui/Button";
-import { Switch } from "../ui/choices";
+import { cx, Switch } from "../../components/ui";
 
 /** One optional feature: a switch, what it does, a worked example behind the info button,
  * and its settings while it is on. */

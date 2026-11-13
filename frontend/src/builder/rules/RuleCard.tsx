@@ -9,8 +9,7 @@ import type {
 import { operandPick, pickStandardText, pickText } from "../logic/picks";
 import type { RuleHelpers } from "../logic/ruleDefaults";
 import { ruleText } from "../logic/ruleText";
-import { Button } from "../ui/Button";
-import { Select } from "../ui/inputs";
+import { Button, Select } from "../../components/ui";
 import { OperandPicker } from "./OperandPicker";
 import { PatternFields } from "./PatternFields";
 

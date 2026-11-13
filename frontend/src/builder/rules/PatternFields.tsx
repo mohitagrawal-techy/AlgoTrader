@@ -1,6 +1,5 @@
 import type { TechCatalog, TechRule } from "../../api";
-import { Field, Hint } from "../ui/Field";
-import { NumberInput, Select } from "../ui/inputs";
+import { Field, Hint, NumberInput, Select } from "../../components/ui";
 
 type PatternRule = Extract<TechRule, { type: "pattern" }>;
 

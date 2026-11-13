@@ -1,14 +1,15 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { cx } from "./Button";
 
 const PILL = cx(
-  "inline-flex h-8 cursor-pointer select-none items-center justify-center px-3 text-[13px] font-semibold",
+  "inline-flex h-8 cursor-pointer select-none items-center justify-center whitespace-nowrap px-3 text-[13px] font-semibold",
   "text-ink-2 hover:bg-hover hover:text-ink peer-checked:bg-ink peer-checked:text-page",
   "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
 );
 
 /** One choice from a few, as joined buttons. Real radio inputs underneath, so the arrow
- * keys move between them and a screen reader announces the group. */
+ * keys move between them and a screen reader announces the group. An option's `count`
+ * shows how many items that choice would list. */
 export function Segmented<T extends string>({
   name,
   label,
@@ -17,19 +18,20 @@ export function Segmented<T extends string>({
   onChange,
   className,
 }: {
-  name: string;
+  name?: string;
   label: string;
   value: T;
-  options: readonly { value: T; label: string }[];
+  options: readonly { value: T; label: string; count?: number }[];
   onChange: (value: T) => void;
   className?: string;
 }) {
+  const ownName = useId();
   return (
     <div
       role="radiogroup"
       aria-label={label}
       className={cx(
-        "inline-flex overflow-hidden rounded-md border border-line bg-surface",
+        "inline-flex max-w-full overflow-x-auto rounded-md border border-line bg-surface",
         className,
       )}
     >
@@ -41,11 +43,18 @@ export function Segmented<T extends string>({
           <input
             type="radio"
             className="peer sr-only"
-            name={name}
+            name={name ?? ownName}
             checked={value === option.value}
             onChange={() => onChange(option.value)}
           />
-          <span className={cx(PILL, "w-full")}>{option.label}</span>
+          <span className={cx(PILL, "group w-full gap-1.5")}>
+            {option.label}
+            {option.count !== undefined && (
+              <span className="text-[11.5px] font-medium tabular-nums opacity-70">
+                {option.count}
+              </span>
+            )}
+          </span>
         </label>
       ))}
     </div>

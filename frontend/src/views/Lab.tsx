@@ -10,8 +10,32 @@ import {
 } from "../api";
 import { LineChart, timeTicks } from "../charts";
 import { StrategyVisual } from "./StrategyVisual";
-import { dateTimeIst, fraction, inrCompact, num, shortDate, signedInr } from "../format";
-import { Empty, JobStatus, Panel, Pnl, Segmented, Select, Status, Tile, type Tone } from "../ui";
+import {
+  dateTimeIst,
+  fraction,
+  inrCompact,
+  num,
+  shortDate,
+  signedInr,
+} from "../format";
+import {
+  Empty,
+  JobStatus,
+  Panel,
+  Pnl,
+  Segmented,
+  LabeledSelect,
+  Status,
+  Tile,
+  type Tone,
+  Alert,
+  Button,
+  ButtonLink,
+  Field,
+  Table,
+  TextInput,
+  Tiles,
+} from "../components/ui";
 
 const VERDICTS: Record<string, { tone: Tone; label: string }> = {
   held_up: { tone: "good", label: "Held up on unseen data" },
@@ -26,7 +50,11 @@ const SOURCES: Record<string, string> = {
   ai: "AI",
   ladder: "Ladder",
 };
-const LEVELS: Record<string, string> = { simple: "Simple", moderate: "Moderate", complex: "Complex" };
+const LEVELS: Record<string, string> = {
+  simple: "Simple",
+  moderate: "Moderate",
+  complex: "Complex",
+};
 const POLL_MS = 3000;
 const SOURCE_FILTERS = [
   { value: "all", label: "All" },
@@ -36,7 +64,10 @@ const SOURCE_FILTERS = [
   { value: "template", label: "Templates" },
 ];
 
-const AUTOPILOT_LIMITS: Record<keyof Omit<AutopilotSettings, "guidance">, [number, number]> = {
+const AUTOPILOT_LIMITS: Record<
+  keyof Omit<AutopilotSettings, "guidance">,
+  [number, number]
+> = {
   cycles: [1, 200],
   hours: [1, 24],
   per_cycle: [1, 8],
@@ -44,12 +75,15 @@ const AUTOPILOT_LIMITS: Record<keyof Omit<AutopilotSettings, "guidance">, [numbe
 };
 
 function clampSetting(value: number, [low, high]: [number, number]): number {
-  return Number.isFinite(value) ? Math.min(high, Math.max(low, Math.round(value))) : low;
+  return Number.isFinite(value)
+    ? Math.min(high, Math.max(low, Math.round(value)))
+    : low;
 }
 
 function CycleRow({ cycle }: { cycle: AutopilotCycle }) {
   const best = cycle.designed.reduce<AutopilotCycle["designed"][number] | null>(
-    (top, row) => ((row.train?.sharpe ?? -99) > (top?.train?.sharpe ?? -99) ? row : top),
+    (top, row) =>
+      (row.train?.sharpe ?? -99) > (top?.train?.sharpe ?? -99) ? row : top,
     null,
   );
   const verdict = cycle.final ? VERDICTS[cycle.final.verdict] : null;
@@ -59,7 +93,8 @@ function CycleRow({ cycle }: { cycle: AutopilotCycle }) {
       <td className="right">{cycle.number}</td>
       <td className="wrap-cell">
         <div className="primary">
-          {cycle.designed.length} designed{cycle.dropped ? `, ${cycle.dropped} dropped` : ""}
+          {cycle.designed.length} designed
+          {cycle.dropped ? `, ${cycle.dropped} dropped` : ""}
         </div>
         {best?.train && (
           <div className="secondary">
@@ -70,7 +105,9 @@ function CycleRow({ cycle }: { cycle: AutopilotCycle }) {
       <td className="wrap-cell">
         {cycle.picked ? (
           cycle.session_id ? (
-            <a href={`#lab/tune/s/${encodeURIComponent(cycle.session_id)}`}>{cycle.picked.name}</a>
+            <a href={`#lab/tune/s/${encodeURIComponent(cycle.session_id)}`}>
+              {cycle.picked.name}
+            </a>
           ) : (
             <span>{cycle.picked.name}</span>
           )
@@ -85,17 +122,27 @@ function CycleRow({ cycle }: { cycle: AutopilotCycle }) {
             {cycle.final?.test && (
               <div className="secondary">
                 {cycle.final.test.trades} trades,{" "}
-                <Pnl value={cycle.final.test.net_pnl}>{signedInr(cycle.final.test.net_pnl)}</Pnl>
+                <Pnl value={cycle.final.test.net_pnl}>
+                  {signedInr(cycle.final.test.net_pnl)}
+                </Pnl>
               </div>
             )}
           </>
         ) : (
-          <span className="secondary">{cycle.message ?? (running ? "Working…" : "–")}</span>
+          <span className="secondary">
+            {cycle.message ?? (running ? "Working…" : "–")}
+          </span>
         )}
       </td>
       <td className="wrap-cell">
-        {cycle.kept.length ? cycle.kept.map((k) => <div key={k.id}>{k.name}</div>) : <span className="muted">None</span>}
-        {cycle.archived > 0 && <div className="secondary">{cycle.archived} archived</div>}
+        {cycle.kept.length ? (
+          cycle.kept.map((k) => <div key={k.id}>{k.name}</div>)
+        ) : (
+          <span className="muted">None</span>
+        )}
+        {cycle.archived > 0 && (
+          <div className="secondary">{cycle.archived} archived</div>
+        )}
       </td>
     </tr>
   );
@@ -115,28 +162,43 @@ function AutopilotPanel({
   onSelect: (id: string) => void;
 }) {
   const state = data.autopilot;
-  const [settings, setSettings] = useState<AutopilotSettings>(() =>
-    state?.settings ?? { cycles: 20, hours: 8, per_cycle: 4, tune_rounds: 3, guidance: "" },
+  const [settings, setSettings] = useState<AutopilotSettings>(
+    () =>
+      state?.settings ?? {
+        cycles: 20,
+        hours: 8,
+        per_cycle: 4,
+        tune_rounds: 3,
+        guidance: "",
+      },
   );
   const live = data.job?.kind === "autopilot" && data.job.state === "running";
   const cycles = state ? [...state.cycles].reverse() : [];
   const kept = state?.cycles.flatMap((c) => c.kept) ?? [];
-  const designed = state?.cycles.reduce((sum, c) => sum + c.designed.length, 0) ?? 0;
-  const number = (key: keyof typeof AUTOPILOT_LIMITS, label: string, hint: string) => (
-    <label className="field">
-      {label}
-      <input
+  const designed =
+    state?.cycles.reduce((sum, c) => sum + c.designed.length, 0) ?? 0;
+  const number = (
+    key: keyof typeof AUTOPILOT_LIMITS,
+    label: string,
+    hint: string,
+  ) => (
+    <Field label={label} hint={hint}>
+      <TextInput
+        small
         type="number"
+        narrow
         min={AUTOPILOT_LIMITS[key][0]}
         max={AUTOPILOT_LIMITS[key][1]}
         value={settings[key]}
         disabled={live}
         onChange={(e) =>
-          setSettings({ ...settings, [key]: clampSetting(Number(e.target.value), AUTOPILOT_LIMITS[key]) })
+          setSettings({
+            ...settings,
+            [key]: clampSetting(Number(e.target.value), AUTOPILOT_LIMITS[key]),
+          })
         }
       />
-      <small className="muted">{hint}</small>
-    </label>
+    </Field>
   );
 
   return (
@@ -146,11 +208,13 @@ function AutopilotPanel({
     >
       <div className="builder">
         <p className="secondary">
-          Runs on its own until it reaches a limit or you stop it. Each cycle the AI designs new
-          strategies, the best one on training data is tuned one setting at a time, and the result
-          gets a final test on a period nothing has seen. Strategies that held up stay in the lab.
-          The rest are moved to the archive, which the AI still learns from. The more it tries, the
-          stricter the luck check gets, so a long run is not a way to force a pass.
+          Runs on its own until it reaches a limit or you stop it. Each cycle
+          the AI designs new strategies, the best one on training data is tuned
+          one setting at a time, and the result gets a final test on a period
+          nothing has seen. Strategies that held up stay in the lab. The rest
+          are moved to the archive, which the AI still learns from. The more it
+          tries, the stricter the luck check gets, so a long run is not a way to
+          force a pass.
         </p>
         <div className="builder-row autopilot-settings">
           {number("cycles", "Cycles", "1 to 200")}
@@ -159,41 +223,52 @@ function AutopilotPanel({
           {number("tune_rounds", "Tuning rounds", "1 to 15")}
         </div>
         <div className="builder-row">
-          <label className="field grow">
-            <span>Optional direction for the AI</span>
-            <input
+          <Field label="Optional direction for the AI" className="field-grow">
+            <TextInput
+              small
               value={settings.guidance}
               maxLength={500}
               disabled={live}
               placeholder="For example: intraday Nifty ideas with defined risk"
-              onChange={(e) => setSettings({ ...settings, guidance: e.target.value })}
+              onChange={(e) =>
+                setSettings({ ...settings, guidance: e.target.value })
+              }
             />
-          </label>
+          </Field>
           {live ? (
-            <button type="button" className="button ghost" onClick={onStop}>
-              Stop after this step
-            </button>
+            <Button onClick={onStop}>Stop after this step</Button>
           ) : (
-            <button
-              type="button"
-              className="button"
-              disabled={busy || !data.history.ready || !data.ladder_ready || !data.ai.enabled}
+            <Button
+              variant="primary"
+              disabled={
+                busy ||
+                !data.history.ready ||
+                !data.ladder_ready ||
+                !data.ai.enabled
+              }
               onClick={() => onStart(settings)}
             >
               Start autopilot
-            </button>
+            </Button>
           )}
         </div>
-        {!data.ai.enabled && <p className="secondary">The AI model is turned off, so autopilot cannot run.</p>}
+        {!data.ai.enabled && (
+          <p className="secondary">
+            The AI model is turned off, so autopilot cannot run.
+          </p>
+        )}
       </div>
 
       {state && (
         <div className="autopilot-log">
           <p className="autopilot-summary">
-            <Status tone={state.running ? "neutral" : "good"}>{state.running ? "Running" : "Stopped"}</Status>
+            <Status tone={state.running ? "neutral" : "good"}>
+              {state.running ? "Running" : "Stopped"}
+            </Status>
             <span>
-              {state.cycles.length} of {state.settings.cycles} cycles, {designed} strategies designed,{" "}
-              {kept.length} kept. Started {dateTimeIst(state.started_at)}.
+              {state.cycles.length} of {state.settings.cycles} cycles,{" "}
+              {designed} strategies designed, {kept.length} kept. Started{" "}
+              {dateTimeIst(state.started_at)}.
               {state.ended && ` ${state.ended}.`.replace("..", ".")}
             </span>
           </p>
@@ -201,31 +276,33 @@ function AutopilotPanel({
             <div className="autopilot-kept">
               <span className="muted">Kept so far:</span>
               {kept.map((k) => (
-                <button key={k.id} type="button" className="link-button" onClick={() => onSelect(k.id)}>
+                <Button
+                  variant="link"
+                  key={k.id}
+                  onClick={() => onSelect(k.id)}
+                >
                   {k.name}
-                </button>
+                </Button>
               ))}
             </div>
           )}
           {cycles.length > 0 && (
-            <div className="table-wrap">
-              <table className="table compact-table">
-                <thead>
-                  <tr>
-                    <th className="right">Cycle</th>
-                    <th>Designed</th>
-                    <th>Tuned</th>
-                    <th>Final test</th>
-                    <th>Kept</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cycles.map((cycle) => (
-                    <CycleRow key={cycle.number} cycle={cycle} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table compact>
+              <thead>
+                <tr>
+                  <th className="right">Cycle</th>
+                  <th>Designed</th>
+                  <th>Tuned</th>
+                  <th>Final test</th>
+                  <th>Kept</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cycles.map((cycle) => (
+                  <CycleRow key={cycle.number} cycle={cycle} />
+                ))}
+              </tbody>
+            </Table>
           )}
         </div>
       )}
@@ -249,16 +326,25 @@ function LadderPanel({
   const final = report?.final;
   const verdict = final ? VERDICTS[final.verdict] : null;
   return (
-    <Panel title="Strategy ladder" aside={report ? <span className="muted">{report.trials} variations tested</span> : undefined}>
+    <Panel
+      title="Strategy ladder"
+      aside={
+        report ? (
+          <span className="muted">{report.trials} variations tested</span>
+        ) : undefined
+      }
+    >
       <div className="builder">
         <p className="secondary">
-          Starts with a simple strategy and adds one change at a time: a condition, a better
-          structure, or a different exit. A change stays only if it does better on sessions it was
-          not designed on, by more than luck explains. One winner then gets a final test on a period
+          Starts with a simple strategy and adds one change at a time: a
+          condition, a better structure, or a different exit. A change stays
+          only if it does better on sessions it was not designed on, by more
+          than luck explains. One winner then gets a final test on a period
           nothing has seen.
         </p>
         <div className="builder-row">
-          <Select
+          <LabeledSelect
+            stacked
             label="Start from"
             value={start}
             onChange={setStart}
@@ -270,14 +356,13 @@ function LadderPanel({
               })),
             ]}
           />
-          <button
-            type="button"
-            className="button"
+          <Button
+            variant="primary"
             disabled={busy || !data.ladder_ready}
             onClick={() => onBuild(start || null)}
           >
             Build ladder
-          </button>
+          </Button>
         </div>
       </div>
       {report && (
@@ -286,10 +371,13 @@ function LadderPanel({
             <ol className="ladder-path">
               {report.lineage.map((node) => (
                 <li key={node.id}>
-                  <span className={`ladder-level ${node.level}`}>{LEVELS[node.level]}</span>
+                  <span className={`ladder-level ${node.level}`}>
+                    {LEVELS[node.level]}
+                  </span>
                   <strong>{node.step ?? node.name}</strong>
                   <small className="secondary">
-                    Unseen Sharpe {num(node.validate.sharpe, 2)}, {node.validate.trades} trades
+                    Unseen Sharpe {num(node.validate.sharpe, 2)},{" "}
+                    {node.validate.trades} trades
                   </small>
                 </li>
               ))}
@@ -299,34 +387,41 @@ function LadderPanel({
             <div className="ladder-final">
               <Status tone={verdict.tone}>{verdict.label}</Status>
               <span>
-                Final test: {final.test.trades} trades, <Pnl value={final.test.net_pnl}>{signedInr(final.test.net_pnl)}</Pnl>
+                Final test: {final.test.trades} trades,{" "}
+                <Pnl value={final.test.net_pnl}>
+                  {signedInr(final.test.net_pnl)}
+                </Pnl>
                 {", at 2x slippage "}
-                <Pnl value={final.test_2x.net_pnl ?? 0}>{signedInr(final.test_2x.net_pnl)}</Pnl>
+                <Pnl value={final.test_2x.net_pnl ?? 0}>
+                  {signedInr(final.test_2x.net_pnl)}
+                </Pnl>
               </span>
               {report.winner_id && (
-                <button type="button" className="link-button" onClick={() => onSelect(report.winner_id as string)}>
+                <Button
+                  variant="link"
+                  onClick={() => onSelect(report.winner_id as string)}
+                >
                   View strategy
-                </button>
+                </Button>
               )}
             </div>
           )}
           {report.final_period_uses > 1 && (
             <p className="secondary">
-              The final test period has now been used {report.final_period_uses} times, so each new
-              result counts for less.
+              The final test period has now been used {report.final_period_uses}{" "}
+              times, so each new result counts for less.
             </p>
           )}
           <details className="ladder-report">
             <summary>Every change tried, rung by rung</summary>
-          {report.rungs.map((rung) => {
-            const kept = rung.tried.filter((node) => node.accepted).length;
-            return (
-              <details key={rung.rung}>
-                <summary>
-                  Rung {rung.rung}: {kept} of {rung.tried.length} kept
-                </summary>
-                <div className="table-wrap">
-                  <table className="table compact-table">
+            {report.rungs.map((rung) => {
+              const kept = rung.tried.filter((node) => node.accepted).length;
+              return (
+                <details key={rung.rung}>
+                  <summary>
+                    Rung {rung.rung}: {kept} of {rung.tried.length} kept
+                  </summary>
+                  <Table compact>
                     <thead>
                       <tr>
                         <th>{rung.rung === 1 ? "Strategy" : "Change"}</th>
@@ -341,29 +436,38 @@ function LadderPanel({
                       {rung.tried.map((node) => (
                         <tr key={node.id}>
                           <td className="wrap-cell">
-                            <div className="primary">{node.step ?? node.name}</div>
+                            <div className="primary">
+                              {node.step ?? node.name}
+                            </div>
                             <div className="secondary">{node.legs}</div>
                           </td>
                           <td className="right">{node.validate.trades}</td>
                           <td className="right">
-                            <Pnl value={node.validate.net_pnl}>{signedInr(node.validate.net_pnl)}</Pnl>
+                            <Pnl value={node.validate.net_pnl}>
+                              {signedInr(node.validate.net_pnl)}
+                            </Pnl>
                           </td>
-                          <td className="right">{num(node.validate.sharpe, 2)}</td>
                           <td className="right">
-                            {node.prob_better === null ? "–" : `${Math.round(node.prob_better * 100)}%`}
+                            {num(node.validate.sharpe, 2)}
+                          </td>
+                          <td className="right">
+                            {node.prob_better === null
+                              ? "–"
+                              : `${Math.round(node.prob_better * 100)}%`}
                           </td>
                           <td className="wrap-cell">
-                            <Status tone={node.accepted ? "good" : "neutral"}>{node.accepted ? "Kept" : "Dropped"}</Status>
+                            <Status tone={node.accepted ? "good" : "neutral"}>
+                              {node.accepted ? "Kept" : "Dropped"}
+                            </Status>
                             <div className="secondary">{node.reason}</div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
-                  </table>
-                </div>
-              </details>
-            );
-          })}
+                  </Table>
+                </details>
+              );
+            })}
           </details>
         </div>
       )}
@@ -372,8 +476,11 @@ function LadderPanel({
 }
 
 function Blocked({ summary }: { summary: LabSummary }) {
-  const rows = Object.entries({ ...summary.blocked, ...summary.unfilled }).sort((a, b) => b[1] - a[1]);
-  if (!rows.length) return <span className="secondary">No days were skipped.</span>;
+  const rows = Object.entries({ ...summary.blocked, ...summary.unfilled }).sort(
+    (a, b) => b[1] - a[1],
+  );
+  if (!rows.length)
+    return <span className="secondary">No days were skipped.</span>;
   return (
     <ul className="plain-list">
       {rows.map(([reason, count]) => (
@@ -442,25 +549,32 @@ function Detail({
       </details>
       <div className="detail-actions">
         {result && spec.id ? (
-          <a className="button" href={`#lab/backtest/${encodeURIComponent(spec.id)}`}>
+          <ButtonLink
+            variant="primary"
+            href={`#lab/backtest/${encodeURIComponent(spec.id)}`}
+          >
             Full backtest
-          </a>
+          </ButtonLink>
         ) : null}
-        <button type="button" className={result ? "button ghost" : "button"} disabled={busy} onClick={onTest}>
+        <Button
+          variant={result ? "secondary" : "primary"}
+          disabled={busy}
+          onClick={onTest}
+        >
           {result ? "Test again" : "Test"}
-        </button>
+        </Button>
         {spec.id && (
-          <a className="button ghost" href={`#lab/tune/from/${encodeURIComponent(spec.id)}`}>
+          <ButtonLink href={`#lab/tune/from/${encodeURIComponent(spec.id)}`}>
             Tune
-          </a>
+          </ButtonLink>
         )}
-        <button type="button" className="button ghost" onClick={onEdit}>
+        <Button onClick={onEdit}>
           {spec.source !== "template" ? "Edit" : "Copy and edit"}
-        </button>
+        </Button>
         {spec.source !== "template" && (
-          <button type="button" className="link-button danger" onClick={onDelete}>
+          <Button variant="link-danger" className="push-end" onClick={onDelete}>
             Delete
-          </button>
+          </Button>
         )}
       </div>
 
@@ -471,32 +585,53 @@ function Detail({
           {verdict && <Status tone={verdict.tone}>{verdict.label}</Status>}
           {result.verdict === "too_few_trades" && (
             <p className="secondary">
-              Fewer than {minTrades} trades in the test period, so the result says nothing either way.
+              Fewer than {minTrades} trades in the test period, so the result
+              says nothing either way.
             </p>
           )}
-          <div className="tiles tiles-3">
+          <Tiles columns={3}>
             <Tile
               label="Test net P&L"
-              value={<Pnl value={result.test.net_pnl}>{signedInr(result.test.net_pnl)}</Pnl>}
+              value={
+                <Pnl value={result.test.net_pnl}>
+                  {signedInr(result.test.net_pnl)}
+                </Pnl>
+              }
               hint={`${result.test.trades} trades`}
             />
             <Tile
               label="At 2x slippage"
-              value={<Pnl value={result.test_2x.net_pnl ?? 0}>{signedInr(result.test_2x.net_pnl)}</Pnl>}
+              value={
+                <Pnl value={result.test_2x.net_pnl ?? 0}>
+                  {signedInr(result.test_2x.net_pnl)}
+                </Pnl>
+              }
             />
-            <Tile label="Test Sharpe" value={num(result.test.sharpe, 2)} hint={`Win rate ${fraction(result.test.win_rate, 0)}`} />
+            <Tile
+              label="Test Sharpe"
+              value={num(result.test.sharpe, 2)}
+              hint={`Win rate ${fraction(result.test.win_rate, 0)}`}
+            />
             <Tile
               label="Training net P&L"
-              value={<Pnl value={result.train.net_pnl}>{signedInr(result.train.net_pnl)}</Pnl>}
+              value={
+                <Pnl value={result.train.net_pnl}>
+                  {signedInr(result.train.net_pnl)}
+                </Pnl>
+              }
               hint={`${result.train.trades} trades`}
             />
             <Tile label="Training Sharpe" value={num(result.train.sharpe, 2)} />
-            <Tile label="Test max drawdown" value={signedInr(-(result.test.max_drawdown ?? 0))} />
-          </div>
+            <Tile
+              label="Test max drawdown"
+              value={signedInr(-(result.test.max_drawdown ?? 0))}
+            />
+          </Tiles>
           <h3>
             Test period
             <small>
-              {shortDate(result.windows.test_start)} to {shortDate(result.windows.test_end)}, after costs
+              {shortDate(result.windows.test_start)} to{" "}
+              {shortDate(result.windows.test_end)}, after costs
             </small>
           </h3>
           {series[0].points.length < 2 ? (
@@ -509,21 +644,29 @@ function Detail({
               includeZero
               tickX={timeTicks}
               label={`Test-period cumulative P&L for ${spec.name}`}
-              formatX={(x) => shortDate(new Date(x + 19800000).toISOString().slice(0, 10))}
+              formatX={(x) =>
+                shortDate(new Date(x + 19800000).toISOString().slice(0, 10))
+              }
               formatY={inrCompact}
               formatTipY={(y) => signedInr(y)}
             />
           )}
           <h3>Why days were skipped, test period</h3>
           <Blocked summary={result.test} />
-          <p className="secondary">Tested {dateTimeIst(result.evaluated_at)}.</p>
+          <p className="secondary">
+            Tested {dateTimeIst(result.evaluated_at)}.
+          </p>
         </>
       )}
     </div>
   );
 }
 
-export function LabView({ initialSelected }: { initialSelected: string | null }) {
+export function LabView({
+  initialSelected,
+}: {
+  initialSelected: string | null;
+}) {
   const [data, setData] = useState<LabOverview | null>(null);
   const [selected, setSelected] = useState<string | null>(initialSelected);
   const [source, setSource] = useState("all");
@@ -551,32 +694,38 @@ export function LabView({ initialSelected }: { initialSelected: string | null })
       await action();
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The request failed.");
+      setError(
+        reason instanceof Error ? reason.message : "The request failed.",
+      );
     }
   };
 
   if (!data) return <Empty title={error ?? "Loading the strategy lab…"} />;
-  const rows = data.strategies.filter((row) => source === "all" || row.spec.source === source);
-  const current = rows.find((row) => row.spec.id === selected) ?? rows[0] ?? null;
+  const rows = data.strategies.filter(
+    (row) => source === "all" || row.spec.source === source,
+  );
+  const current =
+    rows.find((row) => row.spec.id === selected) ?? rows[0] ?? null;
   const ready = data.history.ready;
   const job = data.job;
 
   return (
     <>
       {!ready && (
-        <div className="warning-box">
-          <Status tone="warning">History needed</Status>
+        <Alert tone="warning" title="History needed">
           <p>
-            Testing needs {data.history.needed} sessions of history and {data.history.sessions} are
-            stored. The collector adds one session after each market close. To go further back, run{" "}
-            <code>algoverse history-s3</code> to pull from your S3 bucket, or import NSE bhavcopy
-            files with <code>algoverse history-import &lt;folder&gt;</code>. You can still create
-            strategies now.
+            Testing needs {data.history.needed} sessions of history and{" "}
+            {data.history.sessions} are stored. The collector adds one session
+            after each market close. To go further back, run{" "}
+            <code>algoverse history-s3</code> to pull from your S3 bucket, or
+            import NSE bhavcopy files with{" "}
+            <code>algoverse history-import &lt;folder&gt;</code>. You can still
+            create strategies now.
           </p>
-        </div>
+        </Alert>
       )}
       {job && <JobStatus job={job} />}
-      {error && <p className="ai-error">{error}</p>}
+      {error && <Alert tone="critical">{error}</Alert>}
 
       <div className="toolbar">
         <Segmented
@@ -588,101 +737,127 @@ export function LabView({ initialSelected }: { initialSelected: string | null })
             count:
               option.value === "all"
                 ? data.strategies.length
-                : data.strategies.filter((row) => row.spec.source === option.value).length,
+                : data.strategies.filter(
+                    (row) => row.spec.source === option.value,
+                  ).length,
           }))}
         />
         <span className="toolbar-note">
-          {data.tested} of {data.strategies.length} tested, {data.trials_logged} trials logged
+          {data.tested} of {data.strategies.length} tested, {data.trials_logged}{" "}
+          trials logged
         </span>
         <div className="toolbar-actions">
-          <button
-            type="button"
-            className="button ghost"
+          <Button
             disabled={running || !ready}
             onClick={() => act(() => api.labBacktest(null))}
           >
             Test all
-          </button>
-          <a className="button ghost" href="#lab/tune">
-            Tune a strategy
-          </a>
-          <a className="button" href="#lab/new">
+          </Button>
+          <ButtonLink href="#lab/tune">Tune a strategy</ButtonLink>
+          <ButtonLink variant="primary" href="#lab/new">
             New strategy
-          </a>
+          </ButtonLink>
         </div>
       </div>
 
       <div className="split">
         <Panel
           title="Leaderboard"
-          aside={<span className="muted">Ranked on the unseen test period, after costs</span>}
+          aside={
+            <span className="muted">
+              Ranked on the unseen test period, after costs
+            </span>
+          }
         >
           {rows.length === 0 ? (
             <Empty title="No strategies here yet" />
           ) : (
-            <div className="table-wrap">
-              <table className="table table-ideas leaderboard">
-                <thead>
-                  <tr>
-                    <th>Strategy</th>
-                    <th>Verdict</th>
-                    <th className="right">Test trades</th>
-                    <th className="right">Test P&amp;L</th>
-                    <th className="right">At 2x slippage</th>
-                    <th className="right">Test Sharpe</th>
-                    <th className="right">Training P&amp;L</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => {
-                    const result = row.result;
-                    const verdict = result ? VERDICTS[result.verdict] : null;
-                    return (
-                      <tr
-                        key={row.spec.id}
-                        className={row.spec.id === current?.spec.id ? "selected" : ""}
-                        onClick={() => setSelected(row.spec.id as string)}
-                        tabIndex={0}
-                        onKeyDown={(event) => event.key === "Enter" && setSelected(row.spec.id as string)}
-                      >
-                        <td className="wrap-cell">
-                          <div className="primary">{row.spec.name}</div>
-                          <div className="secondary">
-                            {SOURCES[row.spec.source ?? "user"]} · {LEVELS[row.level]} · {row.legs_text}
-                          </div>
-                        </td>
-                        <td>
-                          {verdict ? (
-                            <Status tone={verdict.tone}>{verdict.label}</Status>
-                          ) : (
-                            <span className="secondary">Not tested</span>
-                          )}
-                        </td>
-                        <td className="right">{result ? result.test.trades : "–"}</td>
-                        <td className="right">
-                          {result ? <Pnl value={result.test.net_pnl}>{signedInr(result.test.net_pnl)}</Pnl> : "–"}
-                        </td>
-                        <td className="right">
-                          {result ? (
-                            <Pnl value={result.test_2x.net_pnl ?? 0}>{signedInr(result.test_2x.net_pnl)}</Pnl>
-                          ) : (
-                            "–"
-                          )}
-                        </td>
-                        <td className="right">{result ? num(result.test.sharpe, 2) : "–"}</td>
-                        <td className="right">
-                          {result ? <Pnl value={result.train.net_pnl}>{signedInr(result.train.net_pnl)}</Pnl> : "–"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <Table className="table-ideas leaderboard">
+              <thead>
+                <tr>
+                  <th>Strategy</th>
+                  <th>Verdict</th>
+                  <th className="right">Test trades</th>
+                  <th className="right">Test P&amp;L</th>
+                  <th className="right">At 2x slippage</th>
+                  <th className="right">Test Sharpe</th>
+                  <th className="right">Training P&amp;L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const result = row.result;
+                  const verdict = result ? VERDICTS[result.verdict] : null;
+                  return (
+                    <tr
+                      key={row.spec.id}
+                      className={
+                        row.spec.id === current?.spec.id ? "selected" : ""
+                      }
+                      onClick={() => setSelected(row.spec.id as string)}
+                      tabIndex={0}
+                      onKeyDown={(event) =>
+                        event.key === "Enter" &&
+                        setSelected(row.spec.id as string)
+                      }
+                    >
+                      <td className="wrap-cell">
+                        <div className="primary">{row.spec.name}</div>
+                        <div className="secondary">
+                          {SOURCES[row.spec.source ?? "user"]} ·{" "}
+                          {LEVELS[row.level]} · {row.legs_text}
+                        </div>
+                      </td>
+                      <td>
+                        {verdict ? (
+                          <Status tone={verdict.tone}>{verdict.label}</Status>
+                        ) : (
+                          <span className="secondary">Not tested</span>
+                        )}
+                      </td>
+                      <td className="right">
+                        {result ? result.test.trades : "–"}
+                      </td>
+                      <td className="right">
+                        {result ? (
+                          <Pnl value={result.test.net_pnl}>
+                            {signedInr(result.test.net_pnl)}
+                          </Pnl>
+                        ) : (
+                          "–"
+                        )}
+                      </td>
+                      <td className="right">
+                        {result ? (
+                          <Pnl value={result.test_2x.net_pnl ?? 0}>
+                            {signedInr(result.test_2x.net_pnl)}
+                          </Pnl>
+                        ) : (
+                          "–"
+                        )}
+                      </td>
+                      <td className="right">
+                        {result ? num(result.test.sharpe, 2) : "–"}
+                      </td>
+                      <td className="right">
+                        {result ? (
+                          <Pnl value={result.train.net_pnl}>
+                            {signedInr(result.train.net_pnl)}
+                          </Pnl>
+                        ) : (
+                          "–"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
           )}
           <p className="panel-note">
-            The more strategies are tested, the more likely the top one is there by luck. Treat a
-            leader as a candidate for forward testing, not as proof.
+            The more strategies are tested, the more likely the top one is there
+            by luck. Treat a leader as a candidate for forward testing, not as
+            proof.
           </p>
         </Panel>
         <aside className="panel detail-panel">
@@ -693,12 +868,17 @@ export function LabView({ initialSelected }: { initialSelected: string | null })
               signals={data.signals}
               minTrades={data.min_test_trades}
               busy={running || !ready}
-              onTest={() => act(() => api.labBacktest([current.spec.id as string]))}
+              onTest={() =>
+                act(() => api.labBacktest([current.spec.id as string]))
+              }
               onEdit={() => {
-                const action = current.spec.source === "template" ? "copy" : "edit";
+                const action =
+                  current.spec.source === "template" ? "copy" : "edit";
                 window.location.hash = `lab/${action}/${current.spec.id}`;
               }}
-              onDelete={() => act(() => api.labDelete(current.spec.id as string))}
+              onDelete={() =>
+                act(() => api.labDelete(current.spec.id as string))
+              }
             />
           )}
         </aside>
@@ -708,7 +888,8 @@ export function LabView({ initialSelected }: { initialSelected: string | null })
         <header className="section-head">
           <h2>Find strategies automatically</h2>
           <p className="secondary">
-            Each judges every candidate on sessions it was not built on, then spends the final test period once.
+            Each judges every candidate on sessions it was not built on, then
+            spends the final test period once.
           </p>
         </header>
         <AutopilotPanel
@@ -719,45 +900,47 @@ export function LabView({ initialSelected }: { initialSelected: string | null })
           onSelect={setSelected}
         />
         <div className="lab-tools-grid">
-        <LadderPanel
-        data={data}
-        busy={running}
-        onBuild={(startId) => act(() => api.labLadder(startId))}
-        onSelect={setSelected}
-      />
+          <LadderPanel
+            data={data}
+            busy={running}
+            onBuild={(startId) => act(() => api.labLadder(startId))}
+            onSelect={setSelected}
+          />
 
-        <Panel
-        title="Let the AI design strategies"
-        aside={<span className="muted">{data.ai.model}</span>}
-      >
-        <div className="builder">
-          <p className="secondary">
-            The AI proposes {data.defaults.per_round} strategies per round for {data.defaults.rounds}{" "}
-            rounds. Each is backtested at once, and the AI sees only training-period results before the
-            next round. The ranking below uses a later period it never saw.
-          </p>
-          <div className="builder-row">
-            <label className="field grow">
-              <span>Optional direction for the AI</span>
-              <input
-                value={guidance}
-                maxLength={500}
-                placeholder="For example: defined-risk ideas for range-bound weeks"
-                onChange={(event) => setGuidance(event.target.value)}
-              />
-            </label>
-            <button
-              type="button"
-              className="button"
-              disabled={running || !ready || !data.ai.enabled}
-              onClick={() => act(() => api.labGenerate(guidance))}
-            >
-              Generate and test
-            </button>
-          </div>
-        </div>
-      </Panel>
-
+          <Panel
+            title="Let the AI design strategies"
+            aside={<span className="muted">{data.ai.model}</span>}
+          >
+            <div className="builder">
+              <p className="secondary">
+                The AI proposes {data.defaults.per_round} strategies per round
+                for {data.defaults.rounds} rounds. Each is backtested at once,
+                and the AI sees only training-period results before the next
+                round. The ranking below uses a later period it never saw.
+              </p>
+              <div className="builder-row">
+                <Field
+                  label="Optional direction for the AI"
+                  className="field-grow"
+                >
+                  <TextInput
+                    small
+                    value={guidance}
+                    maxLength={500}
+                    placeholder="For example: defined-risk ideas for range-bound weeks"
+                    onChange={(event) => setGuidance(event.target.value)}
+                  />
+                </Field>
+                <Button
+                  variant="primary"
+                  disabled={running || !ready || !data.ai.enabled}
+                  onClick={() => act(() => api.labGenerate(guidance))}
+                >
+                  Generate and test
+                </Button>
+              </div>
+            </div>
+          </Panel>
         </div>
       </section>
     </>

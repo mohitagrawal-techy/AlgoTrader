@@ -19,7 +19,23 @@ import {
   shortDate,
   signedInr,
 } from "../format";
-import { Empty, JobStatus, Panel, Pnl, Select, Status, Tile, type Tone } from "../ui";
+import {
+  Empty,
+  JobStatus,
+  Panel,
+  Pnl,
+  LabeledSelect,
+  Status,
+  Tile,
+  type Tone,
+  Alert,
+  Button,
+  ChipCheck,
+  Field,
+  Table,
+  TextInput,
+  Tiles,
+} from "../components/ui";
 
 const VERDICTS: Record<string, { tone: Tone; label: string }> = {
   passed_walk_forward: { tone: "good", label: "Passed walk-forward" },
@@ -49,52 +65,64 @@ function ratio(value: number | null | undefined): string {
 
 function fullDate(iso: string | undefined): string {
   if (!iso) return "–";
-  return new Date(`${iso.slice(0, 10)}T00:00:00+05:30`).toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "Asia/Kolkata",
-  });
+  return new Date(`${iso.slice(0, 10)}T00:00:00+05:30`).toLocaleDateString(
+    "en-IN",
+    {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "Asia/Kolkata",
+    },
+  );
 }
 
 function Verdict({ value }: { value: string | null }) {
-  const verdict = VERDICTS[value ?? ""] ?? { tone: "neutral" as Tone, label: value ?? "Unknown" };
+  const verdict = VERDICTS[value ?? ""] ?? {
+    tone: "neutral" as Tone,
+    label: value ?? "Unknown",
+  };
   return <Status tone={verdict.tone}>{verdict.label}</Status>;
 }
 
-function BreakdownTable({ rows, name }: { rows: BreakdownRow[]; name: string }) {
+function BreakdownTable({
+  rows,
+  name,
+}: {
+  rows: BreakdownRow[];
+  name: string;
+}) {
   if (!rows.length) return <Empty title="No trades to break down" />;
   return (
-    <div className="table-wrap">
-      <table className="table">
-        <thead>
-          <tr>
-            <th>{BREAKDOWN_LABELS[name]}</th>
-            <th className="right">Trades</th>
-            <th className="right">Net P&amp;L</th>
-            <th className="right">Win rate</th>
-            <th className="right">Expectancy</th>
-            <th className="right">Profit factor</th>
-            <th className="right">Worst 5%</th>
+    <Table>
+      <thead>
+        <tr>
+          <th>{BREAKDOWN_LABELS[name]}</th>
+          <th className="right">Trades</th>
+          <th className="right">Net P&amp;L</th>
+          <th className="right">Win rate</th>
+          <th className="right">Expectancy</th>
+          <th className="right">Profit factor</th>
+          <th className="right">Worst 5%</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.group}>
+            <td className="primary">
+              {STRATEGY_LABELS[row.group] ?? row.group}
+            </td>
+            <td className="right">{row.trades}</td>
+            <td className="right">
+              <Pnl value={row.net_pnl}>{signedInr(row.net_pnl)}</Pnl>
+            </td>
+            <td className="right">{fraction(row.win_rate, 0)}</td>
+            <td className="right">{signedInr(row.expectancy)}</td>
+            <td className="right">{ratio(row.profit_factor)}</td>
+            <td className="right">{signedInr(row.tail_loss)}</td>
           </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.group}>
-              <td className="primary">{STRATEGY_LABELS[row.group] ?? row.group}</td>
-              <td className="right">{row.trades}</td>
-              <td className="right">
-                <Pnl value={row.net_pnl}>{signedInr(row.net_pnl)}</Pnl>
-              </td>
-              <td className="right">{fraction(row.win_rate, 0)}</td>
-              <td className="right">{signedInr(row.expectancy)}</td>
-              <td className="right">{ratio(row.profit_factor)}</td>
-              <td className="right">{signedInr(row.tail_loss)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+        ))}
+      </tbody>
+    </Table>
   );
 }
 
@@ -115,27 +143,37 @@ function Report({ report }: { report: BacktestReport }) {
     ],
     [summary.equity],
   );
-  const formatDay = (x: number) => shortDate(new Date(x + 19800000).toISOString().slice(0, 10));
+  const formatDay = (x: number) =>
+    shortDate(new Date(x + 19800000).toISOString().slice(0, 10));
   return (
     <>
       {summary.warnings.length > 0 && (
-        <div className="warning-box">
-          <Status tone="warning">Read with care</Status>
-          <ul>
+        <Alert tone="warning" title="Read with care">
+          <ul className="alert-list">
             {summary.warnings.map((warning) => (
               <li key={warning}>{warning}</li>
             ))}
           </ul>
-        </div>
+        </Alert>
       )}
-      <div className="tiles tiles-6">
-        <Tile label="Verdict" value={<Verdict value={report.verdict} />} hint={KINDS[report.kind]} />
+      <Tiles columns={6}>
+        <Tile
+          label="Verdict"
+          value={<Verdict value={report.verdict} />}
+          hint={KINDS[report.kind]}
+        />
         <Tile
           label="Net P&L after costs"
-          value={<Pnl value={overall.net_pnl ?? 0}>{signedInr(overall.net_pnl)}</Pnl>}
+          value={
+            <Pnl value={overall.net_pnl ?? 0}>{signedInr(overall.net_pnl)}</Pnl>
+          }
           hint={`Costs ${inr(overall.costs)}`}
         />
-        <Tile label="Sharpe" value={ratio(overall.sharpe)} hint={`Sortino ${ratio(overall.sortino)}`} />
+        <Tile
+          label="Sharpe"
+          value={ratio(overall.sharpe)}
+          hint={`Sortino ${ratio(overall.sortino)}`}
+        />
         <Tile
           label="Max drawdown"
           value={inr(overall.max_drawdown)}
@@ -151,14 +189,16 @@ function Report({ report }: { report: BacktestReport }) {
           value={num(report.trials_to_date)}
           hint="More trials make the best result less trustworthy"
         />
-      </div>
+      </Tiles>
 
       <Panel
         title="Cumulative P&L"
         aside={
           <span className="muted">
-            {report.kind === "walk_forward" ? "Unseen test windows only" : "One window"},{" "}
-            {fullDate(report.window.start)} to {fullDate(report.window.end)}
+            {report.kind === "walk_forward"
+              ? "Unseen test windows only"
+              : "One window"}
+            , {fullDate(report.window.start)} to {fullDate(report.window.end)}
           </span>
         }
       >
@@ -244,7 +284,9 @@ function Report({ report }: { report: BacktestReport }) {
             {summary.stress_windows.map((window) => (
               <div key={window.name}>
                 <dt>{window.name}</dt>
-                <dd>{window.covered ? signedInr(window.net_pnl) : "Not in data"}</dd>
+                <dd>
+                  {window.covered ? signedInr(window.net_pnl) : "Not in data"}
+                </dd>
               </div>
             ))}
           </dl>
@@ -254,11 +296,14 @@ function Report({ report }: { report: BacktestReport }) {
       <Panel
         title="Results by group"
         aside={
-          <Select
+          <LabeledSelect
             label="Group by"
             value={split}
             onChange={setSplit}
-            options={Object.entries(BREAKDOWN_LABELS).map(([value, label]) => ({ value, label }))}
+            options={Object.entries(BREAKDOWN_LABELS).map(([value, label]) => ({
+              value,
+              label,
+            }))}
           />
         }
       >
@@ -266,49 +311,56 @@ function Report({ report }: { report: BacktestReport }) {
       </Panel>
 
       {report.folds && (
-        <Panel title="Walk-forward folds" aside={<span className="muted">{report.grid_size} settings tried per fold</span>}>
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Unseen test window</th>
-                  <th>Chosen on training data</th>
-                  <th className="right">Train Sharpe</th>
-                  <th className="right">Test Sharpe</th>
-                  <th className="right">Test trades</th>
-                  <th className="right">Test P&amp;L</th>
+        <Panel
+          title="Walk-forward folds"
+          aside={
+            <span className="muted">
+              {report.grid_size} settings tried per fold
+            </span>
+          }
+        >
+          <Table>
+            <thead>
+              <tr>
+                <th>Unseen test window</th>
+                <th>Chosen on training data</th>
+                <th className="right">Train Sharpe</th>
+                <th className="right">Test Sharpe</th>
+                <th className="right">Test trades</th>
+                <th className="right">Test P&amp;L</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.folds.map((fold) => (
+                <tr key={fold.test[0]}>
+                  <td>
+                    {fullDate(fold.test[0])} to {fullDate(fold.test[1])}
+                  </td>
+                  <td className="secondary">
+                    {fold.chosen
+                      ? `Score ≥ ${fold.chosen.min_score}${
+                          fold.chosen.disabled_profiles.length
+                            ? `, without ${fold.chosen.disabled_profiles.join(", ").replaceAll("_", " ")}`
+                            : ""
+                        }${fold.sensitivity?.sharp_peak ? " (unstable)" : ""}`
+                      : "Sat out, nothing qualified"}
+                  </td>
+                  <td className="right">{ratio(fold.train_sharpe)}</td>
+                  <td className="right">{ratio(fold.test_sharpe)}</td>
+                  <td className="right">{num(fold.test_trades)}</td>
+                  <td className="right">
+                    {fold.test_net_pnl === undefined ? (
+                      "–"
+                    ) : (
+                      <Pnl value={fold.test_net_pnl}>
+                        {signedInr(fold.test_net_pnl)}
+                      </Pnl>
+                    )}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {report.folds.map((fold) => (
-                  <tr key={fold.test[0]}>
-                    <td>
-                      {fullDate(fold.test[0])} to {fullDate(fold.test[1])}
-                    </td>
-                    <td className="secondary">
-                      {fold.chosen
-                        ? `Score ≥ ${fold.chosen.min_score}${
-                            fold.chosen.disabled_profiles.length
-                              ? `, without ${fold.chosen.disabled_profiles.join(", ").replaceAll("_", " ")}`
-                              : ""
-                          }${fold.sensitivity?.sharp_peak ? " (unstable)" : ""}`
-                        : "Sat out, nothing qualified"}
-                    </td>
-                    <td className="right">{ratio(fold.train_sharpe)}</td>
-                    <td className="right">{ratio(fold.test_sharpe)}</td>
-                    <td className="right">{num(fold.test_trades)}</td>
-                    <td className="right">
-                      {fold.test_net_pnl === undefined ? (
-                        "–"
-                      ) : (
-                        <Pnl value={fold.test_net_pnl}>{signedInr(fold.test_net_pnl)}</Pnl>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </Table>
         </Panel>
       )}
     </>
@@ -336,8 +388,12 @@ function RunPanel({
 }) {
   const single = options.single;
   const wf = options.walk_forward;
-  const [mode, setMode] = useState<"walk_forward" | "backtest">(wf.ready ? "walk_forward" : "backtest");
-  const [start, setStart] = useState(single.first && single.last ? defaultStart(single.first, single.last) : "");
+  const [mode, setMode] = useState<"walk_forward" | "backtest">(
+    wf.ready ? "walk_forward" : "backtest",
+  );
+  const [start, setStart] = useState(
+    single.first && single.last ? defaultStart(single.first, single.last) : "",
+  );
   const [end, setEnd] = useState(single.last ?? "");
   const [minScore, setMinScore] = useState(String(single.min_scores[0] ?? 0));
   const [disabled, setDisabled] = useState<string[]>([]);
@@ -352,27 +408,38 @@ function RunPanel({
       const started =
         mode === "walk_forward"
           ? await api.startWalkForward()
-          : await api.startBacktest({ start, end, min_score: Number(minScore), disabled_profiles: disabled });
+          : await api.startBacktest({
+              start,
+              end,
+              min_score: Number(minScore),
+              disabled_profiles: disabled,
+            });
       onStarted(started);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start the backtest.");
+      setError(
+        err instanceof Error ? err.message : "Could not start the backtest.",
+      );
     } finally {
       setSending(false);
     }
   };
 
   return (
-    <Panel
-      title="Run a backtest"
-    >
+    <Panel title="Run a backtest">
       {job && (running || job.state === "failed") && (
         <div className="panel-job">
-          <JobStatus job={{ ...job, message: `${job.kind === "walk_forward" ? "Walk-forward" : "Backtest"}: ${job.message}` }} />
+          <JobStatus
+            job={{
+              ...job,
+              message: `${job.kind === "walk_forward" ? "Walk-forward" : "Backtest"}: ${job.message}`,
+            }}
+          />
         </div>
       )}
       <div className="builder">
         <div className="builder-row">
-          <Select
+          <LabeledSelect
+            stacked
             label="Kind"
             value={mode}
             onChange={(value) => setMode(value as typeof mode)}
@@ -383,27 +450,28 @@ function RunPanel({
           />
           {mode === "backtest" && (
             <>
-              <label className="field">
-                From
-                <input
+              <Field label="From">
+                <TextInput
+                  small
                   type="date"
                   value={start}
                   min={single.first ?? undefined}
                   max={single.last ?? undefined}
                   onChange={(event) => setStart(event.target.value)}
                 />
-              </label>
-              <label className="field">
-                To
-                <input
+              </Field>
+              <Field label="To">
+                <TextInput
+                  small
                   type="date"
                   value={end}
                   min={single.first ?? undefined}
                   max={single.last ?? undefined}
                   onChange={(event) => setEnd(event.target.value)}
                 />
-              </label>
-              <Select
+              </Field>
+              <LabeledSelect
+                stacked
                 label="Minimum idea score"
                 value={minScore}
                 onChange={setMinScore}
@@ -414,49 +482,63 @@ function RunPanel({
               />
             </>
           )}
-          <button
-            type="button"
-            className="button"
-            disabled={running || sending || (mode === "walk_forward" && !wf.ready) || (mode === "backtest" && (!start || !end))}
+          <Button
+            variant="primary"
+            disabled={
+              running ||
+              sending ||
+              (mode === "walk_forward" && !wf.ready) ||
+              (mode === "backtest" && (!start || !end))
+            }
             onClick={run}
           >
             {running ? "Running…" : sending ? "Starting…" : "Run"}
-          </button>
+          </Button>
         </div>
         {mode === "backtest" && (
-          <div className="checks run-profiles">
+          <div
+            className="checks run-profiles"
+            role="group"
+            aria-label="Leave out"
+          >
             <span className="muted">Leave out:</span>
             {single.profiles.map((profile) => (
-              <label key={profile}>
-                <input
-                  type="checkbox"
-                  checked={disabled.includes(profile)}
-                  onChange={(event) =>
-                    setDisabled(
-                      event.target.checked ? [...disabled, profile] : disabled.filter((p) => p !== profile),
-                    )
-                  }
-                />
+              <ChipCheck
+                key={profile}
+                checked={disabled.includes(profile)}
+                onChange={(checked) =>
+                  setDisabled(
+                    checked
+                      ? [...disabled, profile]
+                      : disabled.filter((p) => p !== profile),
+                  )
+                }
+              >
                 {PROFILE_LABELS[profile] ?? profile}
-              </label>
+              </ChipCheck>
             ))}
           </div>
         )}
-        {error && <div className="banner banner-critical">{error}</div>}
+        {error && <Alert tone="critical">{error}</Alert>}
         <p className="panel-note">
           {mode === "walk_forward"
             ? wf.ready
               ? `Tries ${wf.settings} settings of the idea engine on ${wf.train_sessions} sessions, tests the best on the next ${wf.test_sessions} unseen sessions, and rolls forward: ${wf.folds} folds here. The last ${wf.holdout_sessions} sessions are kept back untouched. Takes several minutes.`
               : `Needs at least ${wf.needed} sessions of history.`
             : `Replays the idea engine over the dates you pick, with ${single.first ? `history from ${fullDate(single.first)}` : "no history yet"}. Good for looking at a period; it does not show an edge, because nothing is held back.`}{" "}
-          This tests the app&apos;s own idea engine. Strategies you build are tested in the Strategy lab.
+          This tests the app&apos;s own idea engine. Strategies you build are
+          tested in the Strategy lab.
         </p>
       </div>
     </Panel>
   );
 }
 
-export function BacktestsView({ listing: initial }: { listing: BacktestListing }) {
+export function BacktestsView({
+  listing: initial,
+}: {
+  listing: BacktestListing;
+}) {
   const [listing, setListing] = useState(initial);
   const [selected, setSelected] = useState("");
   const [report, setReport] = useState<BacktestReport | null>(null);
@@ -476,7 +558,8 @@ export function BacktestsView({ listing: initial }: { listing: BacktestListing }
         .backtests()
         .then((body) => {
           setListing(body);
-          if (body.job?.state === "done" && body.job.report_id) setSelected(body.job.report_id);
+          if (body.job?.state === "done" && body.job.report_id)
+            setSelected(body.job.report_id);
         })
         .catch(() => undefined);
     }, JOB_POLL_MS);
@@ -501,22 +584,32 @@ export function BacktestsView({ listing: initial }: { listing: BacktestListing }
     <RunPanel
       options={listing.options}
       job={job}
-      onStarted={(started) => setListing((current) => ({ ...current, job: started }))}
+      onStarted={(started) =>
+        setListing((current) => ({ ...current, job: started }))
+      }
     />
   );
   if (!listing.reports.length) {
     return (
       <>
         {runPanel}
-        <Empty title={history.sessions ? "No backtests have been run yet" : "No historical data imported yet"}>
+        <Empty
+          title={
+            history.sessions
+              ? "No backtests have been run yet"
+              : "No historical data imported yet"
+          }
+        >
           {history.sessions ? (
             <>
-              {history.sessions} sessions imported, {fullDate(history.start ?? undefined)} to{" "}
+              {history.sessions} sessions imported,{" "}
+              {fullDate(history.start ?? undefined)} to{" "}
               {fullDate(history.end ?? undefined)}. Start one above.
             </>
           ) : (
             <>
-              Download daily F&amp;O bhavcopy files from NSE's website into a folder, then run{" "}
+              Download daily F&amp;O bhavcopy files from NSE's website into a
+              folder, then run{" "}
               <code>algoverse history-import &lt;folder&gt;</code>.
             </>
           )}
@@ -528,7 +621,7 @@ export function BacktestsView({ listing: initial }: { listing: BacktestListing }
     <>
       {runPanel}
       <div className="filters">
-        <Select
+        <LabeledSelect
           label="Report"
           value={current}
           onChange={setSelected}
@@ -538,7 +631,8 @@ export function BacktestsView({ listing: initial }: { listing: BacktestListing }
           }))}
         />
         <span className="filter-count">
-          {history.sessions} sessions imported, {fullDate(history.start ?? undefined)} to{" "}
+          {history.sessions} sessions imported,{" "}
+          {fullDate(history.start ?? undefined)} to{" "}
           {fullDate(history.end ?? undefined)}
         </span>
       </div>

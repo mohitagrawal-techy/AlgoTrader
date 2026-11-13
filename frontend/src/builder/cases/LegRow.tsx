@@ -1,9 +1,14 @@
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import type { LabLeg } from "../../api";
-import { LegLevel } from "../ui/amounts";
-import { Button, cx } from "../ui/Button";
-import { InputGroup, NumberInput, Select } from "../ui/inputs";
+import { LegLevel } from "../amounts";
+import {
+  Button,
+  cx,
+  InputGroup,
+  NumberInput,
+  Select,
+} from "../../components/ui";
 
 const STEP = { delta: 0.05, premium: 5, atm_offset: 1 };
 const START = { delta: 0.3, premium: 100, atm_offset: 0 };
