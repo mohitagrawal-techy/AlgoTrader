@@ -5,6 +5,8 @@ import {
   api,
   type ExitUnit,
   type LabCondition,
+  type LabCase,
+  type TechOperand,
   type LabLeg,
   type LabOverview,
   type LabSpec,
@@ -100,6 +102,8 @@ function AmountInput({
   );
 }
 
+const MAX_CASES = 3;
+
 const NEW_LEG: LabLeg = {
   action: "buy",
   option_type: "CE",
@@ -137,26 +141,34 @@ function inRange(value: number | null, low: number, high: number): boolean {
   return value !== null && Number.isFinite(value) && value >= low && value <= high;
 }
 
+function legProblems(legs: LabLeg[], prefix: string, problems: Problems): void {
+  legs.forEach((leg, index) => {
+    if (!inRange(leg.ratio, 1, 4) || !Number.isInteger(leg.ratio)) {
+      problems[`${prefix}-${index}-ratio`] = "Use a whole number from 1 to 4.";
+    }
+    if (leg.select === "delta" && !inRange(leg.value, 0.05, 0.95)) {
+      problems[`${prefix}-${index}-value`] = "Use a delta from 0.05 to 0.95.";
+    }
+    if (leg.select === "atm_offset" && (!inRange(leg.value, -20, 20) || !Number.isInteger(leg.value))) {
+      problems[`${prefix}-${index}-value`] = "Use a whole number from -20 to 20.";
+    }
+  });
+  const seen = new Set<string>();
+  legs.forEach((leg, index) => {
+    const key = [leg.option_type, leg.select, leg.value, leg.expiry].join("|");
+    if (seen.has(key)) problems[`${prefix}-${index}-value`] = "Another leg already uses this strike.";
+    seen.add(key);
+  });
+}
+
 /** The server checks these too. Here they point at the exact field while editing. */
 function findProblems(spec: LabSpec): Problems {
   const problems: Problems = {};
   if (!spec.name.trim()) problems.name = "Give the strategy a name.";
-  spec.legs.forEach((leg, index) => {
-    if (!inRange(leg.ratio, 1, 4) || !Number.isInteger(leg.ratio)) {
-      problems[`leg-${index}-ratio`] = "Use a whole number from 1 to 4.";
-    }
-    if (leg.select === "delta" && !inRange(leg.value, 0.05, 0.95)) {
-      problems[`leg-${index}-value`] = "Use a delta from 0.05 to 0.95.";
-    }
-    if (leg.select === "atm_offset" && (!inRange(leg.value, -20, 20) || !Number.isInteger(leg.value))) {
-      problems[`leg-${index}-value`] = "Use a whole number from -20 to 20.";
-    }
-  });
-  const seen = new Set<string>();
-  spec.legs.forEach((leg, index) => {
-    const key = [leg.option_type, leg.select, leg.value, leg.expiry].join("|");
-    if (seen.has(key)) problems[`leg-${index}-value`] = "Another leg already uses this strike.";
-    seen.add(key);
+  legProblems(spec.legs, "leg", problems);
+  (spec.cases ?? []).forEach((item, index) => {
+    if (!item.name.trim()) problems[`case-${index}-name`] = "Name the case.";
+    legProblems(item.legs, `case-${index}-leg`, problems);
   });
   const { entry, exits } = spec;
   if (entry.iv_rank_min !== null && !inRange(entry.iv_rank_min, 0, 100)) {
@@ -168,7 +180,11 @@ function findProblems(spec: LabSpec): Problems {
   if (entry.iv_rank_min !== null && entry.iv_rank_max !== null && entry.iv_rank_min > entry.iv_rank_max) {
     problems.iv_rank_max = "Must not be below the minimum.";
   }
-  if (!inRange(entry.dte_min, 1, 45)) problems.dte_min = "Use 1 to 45 days.";
+  // Expiry day itself (0) is allowed for intraday strategies that square off the same day.
+  const sameDay = (spec.decide_every ?? "day") !== "day" && !!exits.square_off;
+  if (!inRange(entry.dte_min, sameDay ? 0 : 1, 45)) {
+    problems.dte_min = sameDay ? "Use 0 (expiry day) to 45 days." : "Use 1 to 45 days.";
+  }
   if (!inRange(entry.dte_max, 1, 45)) problems.dte_max = "Use 1 to 45 days.";
   if (!problems.dte_min && !problems.dte_max && entry.dte_min > entry.dte_max) {
     problems.dte_max = "Must not be below the minimum.";
@@ -191,7 +207,11 @@ function findProblems(spec: LabSpec): Problems {
     problems.max_trades_per_day = "Use 1 to 50, or leave empty.";
   }
   if (!inRange(exits.exit_dte, 0, 10)) problems.exit_dte = "Use 0 to 10 days.";
-  if (!problems.dte_min && !problems.exit_dte && entry.dte_min <= exits.exit_dte) {
+  if (
+    !problems.dte_min &&
+    !problems.exit_dte &&
+    (entry.dte_min < exits.exit_dte || (entry.dte_min === exits.exit_dte && !sameDay))
+  ) {
     problems.exit_dte = "Must be below the minimum days to expiry, or no trade can be entered.";
   }
   (entry.conditions ?? []).forEach((condition, index) => {
@@ -200,6 +220,166 @@ function findProblems(spec: LabSpec): Problems {
     }
   });
   return problems;
+}
+
+function LegsEditor({
+  legs,
+  problems,
+  onChange,
+  prefix = "leg",
+}: {
+  legs: LabLeg[];
+  problems: Problems;
+  onChange: (legs: LabLeg[]) => void;
+  prefix?: string;
+}) {
+  const setLeg = (index: number, change: Partial<LabLeg>) =>
+    onChange(legs.map((leg, i) => (i === index ? { ...leg, ...change } : leg)));
+  return (
+    <>
+            <div className="vstack gap-3">
+              {legs.map((leg, index) => (
+                <div className="border rounded p-2" key={index}>
+                  <div className="d-flex justify-content-between align-items-center mb-2">
+                    <strong className="small">Leg {index + 1}</strong>
+                    {legs.length > 1 && (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-link text-danger p-0"
+                        onClick={() => onChange(legs.filter((_, i) => i !== index))}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <div className="row g-2">
+                    <div className="col-6 col-md-3">
+                      <span className="form-label d-block">Action</span>
+                      <Toggle
+                        name={`${prefix}-${index}-action`}
+                        label="Action"
+                        value={leg.action}
+                        options={[
+                          { value: "buy", label: "Buy" },
+                          { value: "sell", label: "Sell" },
+                        ]}
+                        onChange={(action) => setLeg(index, { action })}
+                      />
+                    </div>
+                    <div className="col-6 col-md-3">
+                      <span className="form-label d-block">Type</span>
+                      <Toggle
+                        name={`${prefix}-${index}-type`}
+                        label="Option type"
+                        value={leg.option_type}
+                        options={[
+                          { value: "CE", label: "Call" },
+                          { value: "PE", label: "Put" },
+                        ]}
+                        onChange={(option_type) => setLeg(index, { option_type })}
+                      />
+                    </div>
+                    <div className="col-4 col-md-2">
+                      <Field id={`${prefix}-${index}-ratio`} label="Qty" problem={problems[`${prefix}-${index}-ratio`]}>
+                        <NumberInput
+                          id={`${prefix}-${index}-ratio`}
+                          value={leg.ratio}
+                          invalid={!!problems[`${prefix}-${index}-ratio`]}
+                          onChange={(value) => setLeg(index, { ratio: value as number })}
+                        />
+                      </Field>
+                    </div>
+                    <div className="col-8 col-md-4">
+                      <Field id={`${prefix}-${index}-expiry`} label="Expiry">
+                        <select
+                          id={`${prefix}-${index}-expiry`}
+                          className="form-select"
+                          value={leg.expiry}
+                          onChange={(event) => setLeg(index, { expiry: Number(event.target.value) })}
+                        >
+                          <option value={0}>Entry expiry</option>
+                          <option value={1}>Next expiry</option>
+                          <option value={2}>Expiry after next</option>
+                        </select>
+                      </Field>
+                    </div>
+                    <div className="col-7 col-md-5">
+                      <Field id={`${prefix}-${index}-select`} label="Choose strike by">
+                        <select
+                          id={`${prefix}-${index}-select`}
+                          className="form-select"
+                          value={leg.select}
+                          onChange={(event) => {
+                            const select = event.target.value as LabLeg["select"];
+                            setLeg(index, { select, value: select === "delta" ? 0.3 : 0 });
+                          }}
+                        >
+                          <option value="delta">Delta</option>
+                          <option value="atm_offset">Strikes from ATM</option>
+                        </select>
+                      </Field>
+                    </div>
+                    <div className="col-5 col-md-3">
+                      <Field
+                        id={`${prefix}-${index}-value`}
+                        label={leg.select === "delta" ? "Delta" : "Strikes"}
+                        problem={problems[`${prefix}-${index}-value`]}
+                      >
+                        <NumberInput
+                          id={`${prefix}-${index}-value`}
+                          value={leg.value}
+                          step={leg.select === "delta" ? 0.05 : 1}
+                          invalid={!!problems[`${prefix}-${index}-value`]}
+                          onChange={(value) => setLeg(index, { value: value as number })}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {legs.length < MAX_LEGS && (
+              <button
+                type="button"
+                className="btn btn-outline-primary btn-sm mt-3"
+                onClick={() => onChange([...legs, { ...NEW_LEG, value: 0.3 }])}
+              >
+                Add a leg
+              </button>
+            )}
+    </>
+  );
+}
+
+/** The other side of a case: calls become puts, "above" becomes "below", highs become lows.
+ * For a breakout that buys calls above a range, this is the put bought below it. */
+function mirrorRule(rule: TechRule): TechRule {
+  if (rule.type !== "compare") return rule;
+  const flip: Record<string, string> = {
+    above: "below",
+    below: "above",
+    crosses_above: "crosses_below",
+    crosses_below: "crosses_above",
+  };
+  const fields: Record<string, string> = { high: "low", low: "high", upper: "lower", lower: "upper" };
+  const side = (operand: TechOperand): TechOperand =>
+    operand.field && fields[operand.field] ? { ...operand, field: fields[operand.field] } : operand;
+  return { ...rule, op: flip[rule.op] as typeof rule.op, left: side(rule.left), right: side(rule.right) };
+}
+
+function oppositeCase(spec: LabSpec): LabCase {
+  const bias = spec.bias === "bullish" ? "bearish" : spec.bias === "bearish" ? "bullish" : "neutral";
+  return {
+    name: spec.legs.every((leg) => leg.option_type === "CE") ? "Put side" : "Call side",
+    bias,
+    legs: spec.legs.map((leg) => ({
+      ...leg,
+      option_type: leg.option_type === "CE" ? "PE" : "CE",
+      value: leg.select === "atm_offset" ? -leg.value : leg.value,
+    })),
+    rules: (spec.entry.rules ?? []).map(mirrorRule),
+    any_rules: (spec.entry.any_rules ?? []).map(mirrorRule),
+  };
 }
 
 function legText(leg: LabLeg): string {
@@ -446,10 +626,11 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
     setSpec((current) => ({ ...current, entry: { ...current.entry, ...change } }));
   const setExits = (change: Partial<LabSpec["exits"]>) =>
     setSpec((current) => ({ ...current, exits: { ...current.exits, ...change } }));
-  const setLeg = (index: number, change: Partial<LabLeg>) =>
+  const cases: LabCase[] = spec.cases ?? [];
+  const setCase = (index: number, change: Partial<LabCase>) =>
     setSpec((current) => ({
       ...current,
-      legs: current.legs.map((leg, i) => (i === index ? { ...leg, ...change } : leg)),
+      cases: (current.cases ?? []).map((item, i) => (i === index ? { ...item, ...change } : item)),
     }));
   const setCondition = (index: number, change: Partial<LabCondition>) =>
     setEntry({ conditions: conditions.map((item, i) => (i === index ? { ...item, ...change } : item)) });
@@ -686,115 +867,76 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
           </Section>
 
           <Section title="Legs" hint="The options bought and sold when the strategy enters." aside={<span className="badge text-bg-secondary">{spec.legs.length} of {MAX_LEGS}</span>}>
+            <LegsEditor legs={spec.legs} problems={visible} onChange={(legs) => setSpec({ ...spec, legs })} />
+          </Section>
+
+          <Section
+            title="Other cases"
+            hint="More ways into this strategy, each with its own legs and indicator rules. The time window, days to expiry, market filters, the day's trade limit and every exit are shared. When several cases hold at once, the best-scoring trade is taken."
+            aside={<span className="badge text-bg-secondary">{cases.length} of {MAX_CASES}</span>}
+          >
+            {cases.length === 0 && (
+              <p className="form-text mt-0">
+                For example, an opening-range breakout buys a call when price closes above the range; add the
+                opposite case to buy a put when it closes below.
+              </p>
+            )}
             <div className="vstack gap-3">
-              {spec.legs.map((leg, index) => (
+              {cases.map((item, index) => (
                 <div className="border rounded p-2" key={index}>
-                  <div className="d-flex justify-content-between align-items-center mb-2">
-                    <strong className="small">Leg {index + 1}</strong>
-                    {spec.legs.length > 1 && (
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-link text-danger p-0"
-                        onClick={() => setSpec({ ...spec, legs: spec.legs.filter((_, i) => i !== index) })}
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                  <div className="row g-2">
-                    <div className="col-6 col-md-3">
-                      <span className="form-label d-block">Action</span>
-                      <Toggle
-                        name={`leg-${index}-action`}
-                        label="Action"
-                        value={leg.action}
-                        options={[
-                          { value: "buy", label: "Buy" },
-                          { value: "sell", label: "Sell" },
-                        ]}
-                        onChange={(action) => setLeg(index, { action })}
+                  <div className="d-flex justify-content-between align-items-center gap-2 mb-2">
+                    <Field id={`case-${index}-name`} label={`Case ${index + 2} name`} problem={visible[`case-${index}-name`]}>
+                      <input
+                        id={`case-${index}-name`}
+                        className={`form-control form-control-sm${visible[`case-${index}-name`] ? " is-invalid" : ""}`}
+                        maxLength={40}
+                        value={item.name}
+                        onChange={(event) => setCase(index, { name: event.target.value })}
                       />
-                    </div>
-                    <div className="col-6 col-md-3">
-                      <span className="form-label d-block">Type</span>
-                      <Toggle
-                        name={`leg-${index}-type`}
-                        label="Option type"
-                        value={leg.option_type}
-                        options={[
-                          { value: "CE", label: "Call" },
-                          { value: "PE", label: "Put" },
-                        ]}
-                        onChange={(option_type) => setLeg(index, { option_type })}
-                      />
-                    </div>
-                    <div className="col-4 col-md-2">
-                      <Field id={`leg-${index}-ratio`} label="Qty" problem={visible[`leg-${index}-ratio`]}>
-                        <NumberInput
-                          id={`leg-${index}-ratio`}
-                          value={leg.ratio}
-                          invalid={!!visible[`leg-${index}-ratio`]}
-                          onChange={(value) => setLeg(index, { ratio: value as number })}
-                        />
-                      </Field>
-                    </div>
-                    <div className="col-8 col-md-4">
-                      <Field id={`leg-${index}-expiry`} label="Expiry">
-                        <select
-                          id={`leg-${index}-expiry`}
-                          className="form-select"
-                          value={leg.expiry}
-                          onChange={(event) => setLeg(index, { expiry: Number(event.target.value) })}
-                        >
-                          <option value={0}>Entry expiry</option>
-                          <option value={1}>Next expiry</option>
-                          <option value={2}>Expiry after next</option>
-                        </select>
-                      </Field>
-                    </div>
-                    <div className="col-7 col-md-5">
-                      <Field id={`leg-${index}-select`} label="Choose strike by">
-                        <select
-                          id={`leg-${index}-select`}
-                          className="form-select"
-                          value={leg.select}
-                          onChange={(event) => {
-                            const select = event.target.value as LabLeg["select"];
-                            setLeg(index, { select, value: select === "delta" ? 0.3 : 0 });
-                          }}
-                        >
-                          <option value="delta">Delta</option>
-                          <option value="atm_offset">Strikes from ATM</option>
-                        </select>
-                      </Field>
-                    </div>
-                    <div className="col-5 col-md-3">
-                      <Field
-                        id={`leg-${index}-value`}
-                        label={leg.select === "delta" ? "Delta" : "Strikes"}
-                        problem={visible[`leg-${index}-value`]}
-                      >
-                        <NumberInput
-                          id={`leg-${index}-value`}
-                          value={leg.value}
-                          step={leg.select === "delta" ? 0.05 : 1}
-                          invalid={!!visible[`leg-${index}-value`]}
-                          onChange={(value) => setLeg(index, { value: value as number })}
-                        />
-                      </Field>
-                    </div>
+                    </Field>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-link text-danger p-0"
+                      onClick={() => setSpec({ ...spec, cases: cases.filter((_, i) => i !== index) })}
+                    >
+                      Remove case
+                    </button>
                   </div>
+                  <strong className="small d-block mb-1">Legs</strong>
+                  <LegsEditor
+                    legs={item.legs}
+                    prefix={`case-${index}-leg`}
+                    problems={visible}
+                    onChange={(legs) => setCase(index, { legs })}
+                  />
+                  <strong className="small d-block mt-3 mb-1">Enters when all of these hold</strong>
+                  <TechRulesEditor
+                    catalog={lab.technical}
+                    rules={item.rules ?? []}
+                    problems={visible}
+                    intraday={intraday}
+                    prefix={`case-${index}-rule`}
+                    addLabel="Add a rule for this case"
+                    onChange={(next) => setCase(index, { rules: next })}
+                  />
                 </div>
               ))}
             </div>
-            {spec.legs.length < MAX_LEGS && (
-              <button
-                type="button"
-                className="btn btn-outline-primary btn-sm mt-3"
-                onClick={() => setSpec({ ...spec, legs: [...spec.legs, { ...NEW_LEG, value: 0.3 }] })}
-              >
-                Add a leg
-              </button>
+            {cases.length < MAX_CASES && (
+              <div className="d-flex flex-wrap gap-2 mt-3">
+                <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => setSpec({ ...spec, cases: [...cases, oppositeCase(spec)] })}>
+                  Add the opposite case
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary btn-sm"
+                  onClick={() =>
+                    setSpec({ ...spec, cases: [...cases, { name: `Case ${cases.length + 2}`, bias: "neutral", legs: [{ ...NEW_LEG }], rules: [], any_rules: [] }] })
+                  }
+                >
+                  Add an empty case
+                </button>
+              </div>
             )}
           </Section>
 

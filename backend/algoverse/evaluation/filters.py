@@ -32,7 +32,14 @@ def filter_reasons(
             reasons.append(f"{label}: volume {leg.volume:g} is too low")
 
     rule = risk.exits[candidate.profile]
-    if structure.dte <= rule.exit_dte:
+    # A position that squares off the same day may open on its time-exit day: the 15:00 time
+    # exit or the square-off closes it that afternoon.
+    inside = (
+        structure.dte < rule.exit_dte
+        if rule.square_off is not None
+        else (structure.dte <= rule.exit_dte)
+    )
+    if inside:
         reasons.append(f"{structure.dte} days to expiry is inside the {rule.exit_dte}-day exit")
     if structure.dte > filters.max_dte:
         reasons.append(f"{structure.dte} days to expiry exceeds {filters.max_dte}")

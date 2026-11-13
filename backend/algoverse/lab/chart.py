@@ -47,6 +47,13 @@ class Study(BaseModel):
     params: dict[str, float] = Field(default_factory=dict)
 
 
+class ChartCase(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    bias: Literal["bullish", "bearish", "neutral"] = "neutral"
+    rules: list[TechRule] = Field(default_factory=list, max_length=8)
+    any_rules: list[TechRule] = Field(default_factory=list, max_length=8)
+
+
 class ChartRequest(BaseModel):
     symbol: str = Field(min_length=1, max_length=20)
     timeframe: Literal["5m", "15m", "1h", "1d", "1w", "1mo"] = "1d"
@@ -55,6 +62,8 @@ class ChartRequest(BaseModel):
     studies: list[Study] = Field(default_factory=list, max_length=MAX_STUDIES)
     rules: list[TechRule] = Field(default_factory=list, max_length=8)
     any_rules: list[TechRule] = Field(default_factory=list, max_length=8)
+    # A strategy's further cases, each marked separately.
+    cases: list[ChartCase] = Field(default_factory=list, max_length=3)
 
 
 def _clean(values: pd.Series) -> list[float | None]:
@@ -156,10 +165,27 @@ def _study(frames: Frames, request: ChartRequest, study: Study, keep: slice) -> 
 
 
 def _signals(frames: Frames, request: ChartRequest, length: int, keep: slice) -> dict:
-    """Candles where every entry rule on this timeframe held. Rules on other timeframes
-    cannot be placed on these candles, so they are listed instead."""
+    """Candles where every entry rule on this timeframe held, for the first case and for each
+    further case. Rules on other timeframes cannot be placed on these candles, so they are
+    listed instead."""
+    found = _case_signals(frames, request, request.rules, request.any_rules, length, keep)
+    found["cases"] = []
+    for case in request.cases:
+        signals = _case_signals(frames, request, case.rules, case.any_rules, length, keep)
+        found["cases"].append({"name": case.name, "bias": case.bias, **signals})
+    return found
+
+
+def _case_signals(
+    frames: Frames,
+    request: ChartRequest,
+    all_rules: list,
+    any_rules: list,
+    length: int,
+    keep: slice,
+) -> dict:
     shown, other, problems = [], [], []
-    for group, rules in (("all", request.rules), ("any", request.any_rules)):
+    for group, rules in (("all", all_rules), ("any", any_rules)):
         for rule in rules:
             if rule.timeframe != request.timeframe:
                 other.append(rule_text(rule))

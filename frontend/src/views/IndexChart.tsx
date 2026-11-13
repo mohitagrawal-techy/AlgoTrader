@@ -327,7 +327,12 @@ function strategyLines(
 ): StrategyLines {
   const found: StrategyLines = { studies: [], levels: new Map(), priceLevels: [], elsewhere: 0 };
   if (!draft) return found;
-  const all = [...(draft.entry.rules ?? []), ...(draft.entry.any_rules ?? []), ...(draft.exits.rules ?? [])];
+  const all = [
+    ...(draft.entry.rules ?? []),
+    ...(draft.entry.any_rules ?? []),
+    ...(draft.exits.rules ?? []),
+    ...(draft.cases ?? []).flatMap((item) => [...(item.rules ?? []), ...(item.any_rules ?? [])]),
+  ];
   const userKeys = new Set(user.map((study) => studyKey(study.name, study.params)));
   const added = new Set<string>();
   for (const rule of all) {
@@ -361,7 +366,11 @@ function strategyLines(
 
 /** The timeframe and candles most of the entry rules read, which replay switches to. */
 function strategyFrame(draft: LabSpec): { timeframe: TechTimeframe; candles: CandleType } | null {
-  const rules = [...(draft.entry.rules ?? []), ...(draft.entry.any_rules ?? [])];
+  const rules = [
+    ...(draft.entry.rules ?? []),
+    ...(draft.entry.any_rules ?? []),
+    ...(draft.cases ?? []).flatMap((item) => [...(item.rules ?? []), ...(item.any_rules ?? [])]),
+  ];
   if (!rules.length) return null;
   const counts = new Map<string, number>();
   for (const rule of rules) {
@@ -507,6 +516,14 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule, draft
     studies: shown.map(({ id, name, params }) => ({ id, name, params })),
     rules: signals ? rules : [],
     anyRules: signals ? anyRules : [],
+    cases: signals
+      ? (draft?.cases ?? []).map((item) => ({
+          name: item.name.trim() || "Case",
+          bias: item.bias,
+          rules: item.rules ?? [],
+          any_rules: item.any_rules ?? [],
+        }))
+      : [],
   });
   useEffect(() => {
     const controller = new AbortController();
@@ -523,6 +540,7 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule, draft
             studies: body.studies,
             rules: body.rules,
             any_rules: body.anyRules,
+            cases: body.cases,
           },
           controller.signal,
         )
@@ -822,16 +840,27 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule, draft
       });
       markers.sort((a, b) => (a.time as number) - (b.time as number));
       createSeriesMarkers(candleSeries, markers);
-    } else if (signals && data.signals.hits.length) {
-      createSeriesMarkers(
-        candleSeries,
-        data.signals.hits.map((i) => ({
-          time: times[i] as Time,
-          position: "belowBar" as const,
-          color: css("--accent"),
-          shape: "arrowUp" as const,
-        })),
-      );
+    } else if (signals) {
+      // The first case's hits point up; a bearish further case's point down from above.
+      const shown = data.signals.hits
+        .filter((i) => i < end)
+        .map((i) => ({ time: times[i] as Time, position: "belowBar" as const, color: css("--accent"), shape: "arrowUp" as const }));
+      for (const item of data.signals.cases ?? []) {
+        const down = item.bias === "bearish";
+        for (const i of item.hits) {
+          if (i >= end) continue;
+          shown.push({
+            time: times[i] as Time,
+            position: (down ? "aboveBar" : "belowBar") as "belowBar",
+            color: css("--accent"),
+            shape: (down ? "arrowDown" : "arrowUp") as "arrowUp",
+          });
+        }
+      }
+      if (shown.length) {
+        shown.sort((a, b) => (a.time as number) - (b.time as number));
+        createSeriesMarkers(candleSeries, shown);
+      }
     }
     window.requestAnimationFrame(measurePanes);
     if (cursor !== null && playing) chart.timeScale().scrollToRealTime();
@@ -1431,6 +1460,21 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule, draft
                   ? "No entry rule uses this timeframe."
                   : "Add entry rules to see where they would have held."}
               </span>
+            )}
+            {(signalInfo.cases ?? []).map((item) =>
+              item.rules.length ? (
+                <span key={item.name}>
+                  <span className="chart-signal-mark" aria-hidden>
+                    {item.bias === "bearish" ? "▼" : "▲"}
+                  </span>{" "}
+                  {item.name} held on <strong>{item.hits.length}</strong> of {count} candles shown.
+                  {item.rules.map((rule) => (
+                    <span key={`${rule.group}-${rule.text}`} className="chart-signal-rule">
+                      {rule.text}: {rule.count}
+                    </span>
+                  ))}
+                </span>
+              ) : null,
             )}
             {signalInfo.other_timeframes.length > 0 && (
               <span className="muted">

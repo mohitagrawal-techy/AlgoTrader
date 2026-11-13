@@ -168,3 +168,24 @@ def test_minute_charts_read_only_recent_sessions_plus_warm_up():
     # 75 candles of warm-up leave a 20-candle EMA within a few millionths of the full value.
     tail = full["studies"][0]["lines"][0]["values"][-50:]
     assert short["studies"][0]["lines"][0]["values"] == pytest.approx(tail, rel=1e-5)
+
+
+def test_each_case_of_a_strategy_is_marked_separately():
+    above = {
+        "type": "compare",
+        "left": {"name": "close"},
+        "op": "above",
+        "right": {"kind": "value", "value": 1},
+    }
+    below = {**above, "op": "below"}
+    body = chart(
+        make_bars(count=30),
+        pd.DataFrame(),
+        request(
+            rules=[below],
+            cases=[{"name": "Put", "bias": "bearish", "rules": [above]}],
+        ),
+    )
+    assert body["signals"]["hits"] == []
+    put = body["signals"]["cases"][0]
+    assert put["name"] == "Put" and put["bias"] == "bearish" and len(put["hits"]) == 30

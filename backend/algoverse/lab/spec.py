@@ -97,7 +97,8 @@ class EntryRules(BaseModel):
     trend: list[Literal["up", "down", "range"]] = Field(default_factory=list)
     iv_rank_min: float | None = Field(default=None, ge=0, le=100)
     iv_rank_max: float | None = Field(default=None, ge=0, le=100)
-    dte_min: int = Field(default=3, ge=1, le=45)
+    # 0 allows entering on expiry day itself, for intraday strategies that square off.
+    dte_min: int = Field(default=3, ge=0, le=45)
     dte_max: int = Field(default=30, ge=1, le=45)
     # Every condition must hold. Several together make a more selective strategy.
     conditions: list[Condition] = Field(default_factory=list, max_length=6)
@@ -179,6 +180,17 @@ class ExitRules(BaseModel):
         return self
 
 
+class EntryCase(BaseModel):
+    """Another way into the same strategy: its own legs and indicator rules. The time window,
+    expiry window, market filters, day limits and exits are the strategy's own."""
+
+    name: str = Field(min_length=1, max_length=40)
+    bias: Literal["bullish", "bearish", "neutral"] = "neutral"
+    legs: list[LegSpec] = Field(min_length=1, max_length=4)
+    rules: list[TechRule] = Field(default_factory=list, max_length=8)
+    any_rules: list[TechRule] = Field(default_factory=list, max_length=8)
+
+
 class StrategySpec(BaseModel):
     id: str = Field(pattern=r"^[a-z0-9_]{1,48}$")
     name: str = Field(min_length=1, max_length=60)
@@ -198,17 +210,31 @@ class StrategySpec(BaseModel):
     parent_id: str | None = None
     rung: int = Field(default=1, ge=1, le=20)
     step: str | None = Field(default=None, max_length=120)
+    # More cases after the first (the legs and entry rules above). The first whose rules hold
+    # trades; the day's trade limit counts them together.
+    cases: list[EntryCase] = Field(default_factory=list, max_length=3)
 
     @model_validator(mode="after")
     def _check_exit_window(self) -> StrategySpec:
-        if self.entry.dte_min <= self.exits.exit_dte:
+        # An intraday strategy that squares off may enter on its time-exit day, before 15:00;
+        # otherwise the time exit would close it as soon as it opened.
+        same_day = self.decide_every != "day" and self.exits.square_off is not None
+        if self.entry.dte_min < self.exits.exit_dte or (
+            self.entry.dte_min == self.exits.exit_dte and not same_day
+        ):
             raise ValueError("dte_min must be greater than exit_dte, or no trade can be entered")
         intraday_only = (
             self.entry.time_from or self.entry.time_to or self.exits.square_off
         ) is not None
         minute_rules = any(
             needs_minutes(rules)
-            for rules in (self.entry.rules, self.entry.any_rules, self.exits.rules)
+            for rules in (
+                self.entry.rules,
+                self.entry.any_rules,
+                self.exits.rules,
+                *[case.rules for case in self.cases],
+                *[case.any_rules for case in self.cases],
+            )
         )
         if self.decide_every == "day" and (intraday_only or minute_rules):
             raise ValueError(
@@ -221,9 +247,14 @@ class StrategySpec(BaseModel):
 def signature(spec: StrategySpec) -> str:
     """Identifies the trading rules, ignoring the name and description."""
     rules = spec.model_dump(
-        include={"symbols", "legs", "entry", "exits", "bias", "decide_every"}, mode="json"
+        include={"symbols", "legs", "entry", "exits", "bias", "decide_every", "cases"},
+        mode="json",
     )
     rules["legs"] = sorted(rules["legs"], key=lambda leg: json.dumps(leg, sort_keys=True))
+    for case in rules["cases"]:
+        for rule in case["rules"] + case["any_rules"]:
+            if rule.get("candles") == "normal":
+                del rule["candles"]
     rules["symbols"] = sorted(rules["symbols"])
     # Settings added later are left out at their defaults, so older strategies keep their
     # results.
@@ -256,6 +287,7 @@ LATER_SETTINGS = (
     ("entry", "reenter_after_stop", True),
     ("entry", "any_rules", []),
     (None, "decide_every", "day"),
+    (None, "cases", []),
 )
 
 
@@ -268,12 +300,29 @@ def profile_key(spec: StrategySpec) -> str:
     return PROFILE_PREFIX + spec.id
 
 
+def variants(spec: StrategySpec) -> list[StrategySpec]:
+    """The strategy's first case, then each further one as the same strategy (same id, limits
+    and exits) with that case's legs and indicator rules."""
+    found = [spec.model_copy(update={"cases": []})]
+    for case in spec.cases:
+        entry = spec.entry.model_copy(update={"rules": case.rules, "any_rules": case.any_rules})
+        found.append(
+            spec.model_copy(
+                update={"legs": case.legs, "entry": entry, "bias": case.bias, "cases": []}
+            )
+        )
+    return found
+
+
 def has_undefined_risk(spec: StrategySpec) -> bool:
-    """True when more calls or more puts are sold than bought."""
-    net = Counter()
-    for leg in spec.legs:
-        net[leg.option_type] += (1 if leg.action == "buy" else -1) * leg.ratio
-    return net["CE"] < 0 or net["PE"] < 0
+    """True when any case sells more calls or more puts than it buys."""
+    for variant in variants(spec):
+        net = Counter()
+        for leg in variant.legs:
+            net[leg.option_type] += (1 if leg.action == "buy" else -1) * leg.ratio
+        if net["CE"] < 0 or net["PE"] < 0:
+            return True
+    return False
 
 
 def _filter_count(spec: StrategySpec) -> int:
@@ -317,7 +366,14 @@ def describe_entry(spec: StrategySpec) -> str:
         parts.append(f"between {start} and {end}")
     if spec.decide_every != "day":
         parts.append(f"checked every {spec.decide_every}")
-    return ", ".join(parts)
+    text = ", ".join(parts)
+    for case in spec.cases:
+        rules = [rule_text(rule) for rule in case.rules]
+        if case.any_rules:
+            rules.append("any of: " + " or ".join(rule_text(rule) for rule in case.any_rules))
+        legs = describe_legs(spec.model_copy(update={"legs": case.legs, "cases": []}))
+        text += f"; or {case.name}: {legs} when {', '.join(rules) or 'the shared rules hold'}"
+    return text
 
 
 def describe_legs(spec: StrategySpec) -> str:
@@ -545,7 +601,9 @@ class CustomSet:
         for spec in self.specs:
             if spec.symbols and symbol not in spec.symbols:
                 continue
-            failures = quick_failures(spec, now, shared)
+            # Idle only when every case fails; the first case's reason is reported.
+            per_case = [quick_failures(variant, now, shared) for variant in variants(spec)]
+            failures = [] if any(not found for found in per_case) else per_case[0]
             # A day limit is reported after the market rules, so it can only stand in for them
             # when there are none.
             if not failures and not _has_market_rules(spec):
@@ -589,13 +647,14 @@ class CustomSet:
         for spec in self.specs:
             if spec.symbols and ctx.symbol not in spec.symbols:
                 continue
-            candidate = build_candidate(spec, ctx.symbol, views, ctx.now.date())
-            if candidate is None:
-                self.no_contracts[spec.id] += 1
-            else:
-                failures = entry_failures(spec, ctx, candidate.front_expiry)
-                failures += self.limit_failures(spec, ctx.now.date())
-                found.append((candidate, failures))
+            limits = self.limit_failures(spec, ctx.now.date())
+            for variant in variants(spec):
+                candidate = build_candidate(variant, ctx.symbol, views, ctx.now.date())
+                if candidate is None:
+                    self.no_contracts[spec.id] += 1
+                    continue
+                failures = entry_failures(variant, ctx, candidate.front_expiry)
+                found.append((candidate, failures + limits))
         return found
 
 

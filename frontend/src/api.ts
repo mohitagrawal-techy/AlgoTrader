@@ -815,6 +815,13 @@ export interface ChartData {
     other_timeframes: string[];
     problems: string[];
     hits: number[];
+    /** A strategy's further cases, each with its own hits. */
+    cases?: {
+      name: string;
+      bias: "bullish" | "bearish" | "neutral";
+      rules: { group: "all" | "any"; text: string; count: number }[];
+      hits: number[];
+    }[];
   };
 }
 
@@ -934,6 +941,15 @@ export interface TechCatalog {
   patterns: { name: string; label: string; bias: "bullish" | "bearish" | "neutral"; description: string }[];
 }
 
+/** Another way into a strategy: its own legs and indicator rules, sharing everything else. */
+export interface LabCase {
+  name: string;
+  bias: "bullish" | "bearish" | "neutral";
+  legs: LabLeg[];
+  rules?: TechRule[];
+  any_rules?: TechRule[];
+}
+
 export interface LabSpec {
   id?: string;
   name: string;
@@ -942,6 +958,8 @@ export interface LabSpec {
   bias: "bullish" | "bearish" | "neutral";
   symbols: string[];
   legs: LabLeg[];
+  /** More cases after the first; the first whose rules hold trades. */
+  cases?: LabCase[];
   entry: {
     trend: ("up" | "down" | "range")[];
     iv_rank_min: number | null;
@@ -1332,6 +1350,7 @@ export const api = {
       studies: ChartStudyRequest[];
       rules: TechRule[];
       any_rules: TechRule[];
+      cases?: { name: string; bias: string; rules: TechRule[]; any_rules: TechRule[] }[];
     },
     signal?: AbortSignal,
   ) => sendJson<ChartData>("/api/lab/chart", "POST", body, signal),
