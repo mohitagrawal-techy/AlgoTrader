@@ -3,7 +3,7 @@ import { cx } from "./Button";
 
 const PILL = cx(
   "inline-flex h-8 cursor-pointer select-none items-center justify-center whitespace-nowrap px-3 text-[13px] font-semibold",
-  "text-ink-2 hover:bg-hover hover:text-ink peer-checked:bg-ink peer-checked:text-page",
+  "text-ink-2 hover:bg-hover hover:text-ink peer-checked:bg-accent-wash peer-checked:text-ink",
   "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
 );
 
@@ -82,7 +82,7 @@ export function ChipCheck({
       <span
         className={cx(
           PILL,
-          "rounded-full border border-line peer-checked:border-ink",
+          "rounded-sm border border-line peer-checked:border-accent",
         )}
       >
         {children}
@@ -130,8 +130,8 @@ export function Switch({
         className={cx(
           "relative h-5 w-9 shrink-0 rounded-full border border-axis bg-surface-2 transition-colors",
           "after:absolute after:top-0.5 after:left-0.5 after:size-3.5 after:rounded-full after:bg-ink-3",
-          "after:transition-transform peer-checked:border-ink peer-checked:bg-ink",
-          "peer-checked:after:translate-x-4 peer-checked:after:bg-page",
+          "after:transition-transform peer-checked:border-accent peer-checked:bg-accent",
+          "peer-checked:after:translate-x-4 peer-checked:after:bg-white",
           "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
           "peer-disabled:opacity-50",
         )}

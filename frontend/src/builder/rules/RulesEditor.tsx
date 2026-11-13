@@ -57,7 +57,7 @@ export function RulesEditor({
               key={preset.label}
               size="sm"
               icon={Plus}
-              className="rounded-full font-medium"
+              className="rounded-sm font-medium"
               onClick={() => add(preset.rule)}
             >
               {preset.label}

@@ -1,198 +1,80 @@
 /*
- * AlgoVerse: one trader's NSE options desk.
- * Colour means data: calls blue, puts orange, profit green, loss red. Everything else is
- * graphite. Amber marks where you are: the focused control, the current page, the selection.
- * Archivo throughout; its narrower widths set headings and figures like an instrument readout.
+ * AlgoVerse: one trader's NSE options desk, set as a dark terminal.
+ * Structure comes from 1px rules and spacing, never shadows. Colour means direction:
+ * emerald is long, calls and profit; crimson is short, puts and loss. Cobalt marks where you
+ * are: the selection, the focused control, the primary action. Everything else is slate.
+ * Geist for words, Geist Mono for every figure, so prices line up and never jitter.
  */
 
 :root {
-  color-scheme: light;
-  --font: "Archivo Variable", "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --readout: 600 normal 1em/1 var(--font);
-  --r-lg: 12px;
-  --r-md: 8px;
-  --r-sm: 5px;
-  --rail: 216px;
-  --bar-h: 48px;
-  --page: #eceef1;
-  --surface: #ffffff;
-  --surface-2: #f4f5f7;
-  --ink: #12161c;
-  --ink-2: #434b57;
-  --ink-3: #646d7b;
-  --tick: #858e9c;
-  --grid: #e2e5ea;
-  --axis: #c5cad2;
-  --border: rgba(18, 22, 28, 0.11);
-  --hover-wash: rgba(18, 22, 28, 0.045);
-  --selected: rgba(18, 22, 28, 0.07);
-  --accent: #b86e00;
-  --accent-ink: #945800;
-  --accent-wash: rgba(232, 150, 30, 0.14);
-  --series-1: #2a6fd0;
-  --series-2: #e06326;
-  --series-3: #14a272;
-  --series-4: #d49200;
-  --series-5: #d9668f;
-  --overlay-1: #14a272;
-  --overlay-2: #6250d6;
-  --up-wash: rgba(42, 111, 208, 0.12);
-  --call-itm: rgba(42, 111, 208, 0.09);
-  --call-itm-key: rgba(42, 111, 208, 0.35);
-  --call-bar: rgba(42, 111, 208, 0.3);
-  --put-itm: rgba(224, 99, 38, 0.1);
-  --put-itm-key: rgba(224, 99, 38, 0.38);
-  --put-bar: rgba(224, 99, 38, 0.32);
-  --down-wash: rgba(214, 60, 60, 0.11);
-  --meter-track: #d5e2f5;
-  --meter-fill: #2a6fd0;
-  --pnl-up: #0a7a3b;
-  --pnl-down: #c22d2d;
-  --good: #15a04a;
-  --warning: #e7a317;
-  --serious: #e57a4c;
-  --critical: #d03b3b;
-  --warning-wash: rgba(231, 163, 23, 0.14);
-  --critical-wash: rgba(208, 59, 59, 0.09);
-  --heat-0: #b83230;
-  --heat-ink-0: #ffffff;
-  --heat-1: #e0696a;
-  --heat-ink-1: #12161c;
-  --heat-2: #f4bcbb;
-  --heat-ink-2: #12161c;
-  --heat-3: #eef0f3;
-  --heat-ink-3: #12161c;
-  --heat-4: #b7d3f6;
-  --heat-ink-4: #12161c;
-  --heat-5: #5598e7;
-  --heat-ink-5: #12161c;
-  --heat-6: #1c5cab;
-  --heat-ink-6: #ffffff;
-  --bar-down: #d94343;
-  --shadow: 0 1px 2px rgba(18, 22, 28, 0.06);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) {
-    color-scheme: dark;
-    --page: #0e1116;
-    --surface: #151920;
-    --surface-2: #1c2129;
-    --ink: #e8ebf0;
-    --ink-2: #adb5c1;
-    --ink-3: #808999;
-    --tick: #7a8392;
-    --grid: #242a33;
-    --axis: #343b46;
-    --border: rgba(232, 235, 240, 0.085);
-    --hover-wash: rgba(232, 235, 240, 0.05);
-    --selected: rgba(232, 235, 240, 0.08);
-    --accent: #f2aa3c;
-    --accent-ink: #f2aa3c;
-    --accent-wash: rgba(242, 170, 60, 0.13);
-    --series-1: #4b8ff0;
-    --series-2: #ef7a3f;
-    --series-3: #2bb985;
-    --series-4: #d9a01a;
-    --series-5: #e06f98;
-    --overlay-1: #2bb985;
-    --overlay-2: #9b8ff0;
-    --up-wash: rgba(75, 143, 240, 0.16);
-    --call-itm: rgba(75, 143, 240, 0.13);
-    --call-itm-key: rgba(75, 143, 240, 0.5);
-    --call-bar: rgba(75, 143, 240, 0.42);
-    --put-itm: rgba(239, 122, 63, 0.15);
-    --put-itm-key: rgba(239, 122, 63, 0.55);
-    --put-bar: rgba(239, 122, 63, 0.45);
-    --down-wash: rgba(240, 106, 106, 0.15);
-    --meter-track: #1d3a63;
-    --meter-fill: #4b8ff0;
-    --pnl-up: #3fc274;
-    --pnl-down: #f26b6b;
-    --good: #2fb35f;
-    --warning: #f2b33c;
-    --serious: #ec835a;
-    --critical: #e05252;
-    --warning-wash: rgba(242, 179, 60, 0.11);
-    --critical-wash: rgba(224, 82, 82, 0.14);
-    --heat-0: #f26b6b;
-    --heat-ink-0: #0e1116;
-    --heat-1: #a83e3d;
-    --heat-ink-1: #ffffff;
-    --heat-2: #5c2b2a;
-    --heat-ink-2: #ffffff;
-    --heat-3: #2a303a;
-    --heat-ink-3: #e8ebf0;
-    --heat-4: #1d4a87;
-    --heat-ink-4: #ffffff;
-    --heat-5: #3577d6;
-    --heat-ink-5: #ffffff;
-    --heat-6: #8cb9f2;
-    --heat-ink-6: #0e1116;
-    --bar-down: #f26b6b;
-    --shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
-  }
-}
-
-:root[data-theme="dark"] {
   color-scheme: dark;
-  --page: #0e1116;
-  --surface: #151920;
-  --surface-2: #1c2129;
-  --ink: #e8ebf0;
-  --ink-2: #adb5c1;
-  --ink-3: #808999;
-  --tick: #7a8392;
-  --grid: #242a33;
-  --axis: #343b46;
-  --border: rgba(232, 235, 240, 0.085);
-  --hover-wash: rgba(232, 235, 240, 0.05);
-  --selected: rgba(232, 235, 240, 0.08);
-  --accent: #f2aa3c;
-  --accent-ink: #f2aa3c;
-  --accent-wash: rgba(242, 170, 60, 0.13);
-  --series-1: #4b8ff0;
-  --series-2: #ef7a3f;
-  --series-3: #2bb985;
-  --series-4: #d9a01a;
-  --series-5: #e06f98;
-  --overlay-1: #2bb985;
-  --overlay-2: #9b8ff0;
-  --up-wash: rgba(75, 143, 240, 0.16);
-  --call-itm: rgba(75, 143, 240, 0.13);
-  --call-itm-key: rgba(75, 143, 240, 0.5);
-  --call-bar: rgba(75, 143, 240, 0.42);
-  --put-itm: rgba(239, 122, 63, 0.15);
-  --put-itm-key: rgba(239, 122, 63, 0.55);
-  --put-bar: rgba(239, 122, 63, 0.45);
-  --down-wash: rgba(240, 106, 106, 0.15);
-  --meter-track: #1d3a63;
-  --meter-fill: #4b8ff0;
-  --pnl-up: #3fc274;
-  --pnl-down: #f26b6b;
-  --good: #2fb35f;
-  --warning: #f2b33c;
-  --serious: #ec835a;
-  --critical: #e05252;
-  --warning-wash: rgba(242, 179, 60, 0.11);
-  --critical-wash: rgba(224, 82, 82, 0.14);
-  --heat-0: #f26b6b;
-  --heat-ink-0: #0e1116;
-  --heat-1: #a83e3d;
-  --heat-ink-1: #ffffff;
-  --heat-2: #5c2b2a;
-  --heat-ink-2: #ffffff;
-  --heat-3: #2a303a;
-  --heat-ink-3: #e8ebf0;
-  --heat-4: #1d4a87;
-  --heat-ink-4: #ffffff;
-  --heat-5: #3577d6;
-  --heat-ink-5: #ffffff;
-  --heat-6: #8cb9f2;
-  --heat-ink-6: #0e1116;
-  --bar-down: #f26b6b;
-  --shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  --font: "Geist Variable", "Geist", ui-sans-serif, sans-serif;
+  --mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  --readout: 500 normal 1em/1 var(--mono);
+  --r-lg: 2px;
+  --r-md: 2px;
+  --r-sm: 2px;
+  --rail: 200px;
+  --bar-h: 40px;
+  --status-h: 26px;
+  --page: #0b0e14;
+  --surface: #151921;
+  --surface-2: #1b2029;
+  --ink: #f8fafc;
+  --ink-2: #94a3b8;
+  --ink-3: #7d8ba0;
+  --tick: #7d8ba0;
+  --grid: #1c212b;
+  --axis: #2a3140;
+  --border: #232937;
+  --hover-wash: rgba(248, 250, 252, 0.04);
+  --selected: rgba(62, 99, 221, 0.16);
+  --accent: #3e63dd;
+  --accent-ink: #7c9bff;
+  --accent-wash: rgba(62, 99, 221, 0.18);
+  --series-1: #10b981;
+  --series-2: #ef4444;
+  --series-3: #7c9bff;
+  --series-4: #e2b93b;
+  --series-5: #94a3b8;
+  --overlay-1: #7c9bff;
+  --overlay-2: #e2b93b;
+  --up-wash: rgba(16, 185, 129, 0.14);
+  --call-itm: rgba(16, 185, 129, 0.08);
+  --call-itm-key: rgba(16, 185, 129, 0.45);
+  --call-bar: rgba(16, 185, 129, 0.32);
+  --put-itm: rgba(239, 68, 68, 0.08);
+  --put-itm-key: rgba(239, 68, 68, 0.45);
+  --put-bar: rgba(239, 68, 68, 0.32);
+  --down-wash: rgba(239, 68, 68, 0.14);
+  --meter-track: #1f2a44;
+  --meter-fill: #3e63dd;
+  --pnl-up: #10b981;
+  --pnl-down: #ef4444;
+  --good: #10b981;
+  --warning: #e2b93b;
+  --serious: #f08a4b;
+  --critical: #ef4444;
+  --warning-wash: rgba(226, 185, 59, 0.1);
+  --critical-wash: rgba(239, 68, 68, 0.12);
+  --heat-0: #ef4444;
+  --heat-ink-0: #0b0e14;
+  --heat-1: #a53434;
+  --heat-ink-1: #f8fafc;
+  --heat-2: #4c2226;
+  --heat-ink-2: #f8fafc;
+  --heat-3: #1f2530;
+  --heat-ink-3: #f8fafc;
+  --heat-4: #134437;
+  --heat-ink-4: #f8fafc;
+  --heat-5: #0d8a63;
+  --heat-ink-5: #f8fafc;
+  --heat-6: #10b981;
+  --heat-ink-6: #0b0e14;
+  --bar-down: #ef4444;
+  --shadow: none;
+  /* Short enough to read as a response, not an animation. */
+  --flash: 120ms;
 }
 
 /* ---- Base --------------------------------------------------------------------------- */
@@ -227,7 +109,7 @@ p {
 
 code {
   padding: 0 4px;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--surface-2);
   font: 12px var(--mono);
 }
@@ -296,7 +178,6 @@ textarea {
   padding: 0 18px;
   font-size: 15px;
   font-weight: 700;
-  font-stretch: 88%;
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
@@ -306,7 +187,7 @@ textarea {
   flex: 0 0 18px;
   width: 18px;
   height: 18px;
-  border-radius: 5px;
+  border-radius: 2px;
   background:
     linear-gradient(135deg, transparent 46%, var(--page) 46%, var(--page) 58%, transparent 58%),
     var(--ink);
@@ -371,7 +252,7 @@ textarea {
   top: 8px;
   bottom: 8px;
   width: 3px;
-  border-radius: 0 3px 3px 0;
+  border-radius: 0 2px 2px 0;
   background: var(--accent);
 }
 
@@ -521,7 +402,6 @@ textarea {
 .tape-last {
   font-size: 15px;
   font-weight: 600;
-  font-stretch: 82%;
   letter-spacing: -0.01em;
 }
 
@@ -538,30 +418,6 @@ textarea {
   white-space: nowrap;
 }
 
-.connection {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--ink-2);
-  font-size: 12px;
-}
-
-.connection-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--tick);
-}
-
-.connection-dot.live {
-  background: var(--good);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent);
-}
-
-.connection-dot.off {
-  background: var(--warning);
-}
-
 .page-head {
   display: flex;
   flex-wrap: wrap;
@@ -574,7 +430,6 @@ textarea {
   margin: 0;
   font-size: 26px;
   font-weight: 650;
-  font-stretch: 80%;
   letter-spacing: -0.015em;
   line-height: 1.1;
 }
@@ -688,7 +543,6 @@ main {
 .panel-header h2 {
   font-size: 15px;
   font-weight: 650;
-  font-stretch: 88%;
   letter-spacing: -0.005em;
 }
 
@@ -756,7 +610,7 @@ main {
 
 .legs code {
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 2px;
   background: var(--surface-2);
 }
 
@@ -778,7 +632,7 @@ main {
 
 .reject-box {
   padding: 9px 10px;
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--critical-wash);
 }
 
@@ -844,7 +698,7 @@ main {
   display: inline-block;
   min-width: 62px;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 2px;
   font-weight: 500;
 }
 
@@ -865,7 +719,7 @@ main {
   height: 26px;
   padding: 0 9px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 2px;
   background: transparent;
   color: var(--ink-2);
   font: inherit;
@@ -889,7 +743,7 @@ main {
   gap: 8px;
   margin: 0 14px 12px;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--surface-2);
 }
 
@@ -951,7 +805,7 @@ main {
   height: 40px;
   padding: 0 15px;
   border: 0;
-  border-radius: 20px;
+  border-radius: 2px;
   background: var(--series-1);
   color: #fff;
   font: inherit;
@@ -1006,7 +860,7 @@ main {
 .chat-start button {
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 2px;
   background: transparent;
   color: var(--ink);
   font: inherit;
@@ -1021,7 +875,7 @@ main {
 .chat-message {
   max-width: 92%;
   padding: 8px 11px;
-  border-radius: 10px;
+  border-radius: 2px;
   overflow-wrap: anywhere;
 }
 
@@ -1048,7 +902,7 @@ main {
   flex: 1;
   padding: 7px 9px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--surface-2);
   color: var(--ink);
   font: inherit;
@@ -1203,11 +1057,11 @@ main {
 }
 
 .sector-track .bar-up {
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 2px 2px 0;
 }
 
 .sector-track .bar-down {
-  border-radius: 4px 0 0 4px;
+  border-radius: 2px 0 0 2px;
 }
 
 .bar-up {
@@ -1432,14 +1286,14 @@ main {
   max-width: 240px;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--surface-2);
 }
 
 .ladder-level {
   width: fit-content;
   padding: 0 6px;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--heat-3);
   color: var(--heat-ink-3);
   font-size: 10px;
@@ -1487,7 +1341,7 @@ main {
   overflow-y: auto;
   padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 2px;
   background: var(--surface);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
   font-size: 12px;
@@ -1575,7 +1429,7 @@ main {
   display: inline-block;
   min-width: 58px;
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: 2px;
   font-weight: 500;
   text-align: center;
 }
@@ -1786,7 +1640,7 @@ main {
   z-index: 5;
   inset: 0;
   border: 1px dashed var(--axis);
-  border-radius: 10px;
+  border-radius: 2px;
   background: var(--hover-wash);
   cursor: grab;
   transition: background 0.12s, border-color 0.12s;
@@ -1803,7 +1657,7 @@ main {
   gap: 10px;
   padding: 6px 8px 6px 14px;
   border-bottom: 1px solid var(--border);
-  border-radius: 10px 10px 0 0;
+  border-radius: 2px 2px 0 0;
   background: var(--surface);
 }
 
@@ -1894,7 +1748,7 @@ main {
   gap: 5px;
   padding: 10px 11px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--surface-2);
 }
 
@@ -1967,7 +1821,7 @@ main {
   padding: 10px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 2px;
   min-width: 0;
 }
 
@@ -2059,7 +1913,7 @@ main {
 .meter {
   display: block;
   height: 6px;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--meter-track);
   overflow: hidden;
 }
@@ -2067,7 +1921,7 @@ main {
 .meter > span {
   display: block;
   height: 100%;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--meter-fill);
 }
 
@@ -2252,7 +2106,7 @@ main {
 
 .moneyness {
   padding: 1px 0;
-  border-radius: 3px;
+  border-radius: 2px;
   color: var(--ink-3);
   font-size: 9.5px;
   font-weight: 600;
@@ -2287,7 +2141,7 @@ main {
   position: relative;
   padding: 2px 8px;
   border: 1px solid var(--axis);
-  border-radius: 10px;
+  border-radius: 2px;
   background: var(--surface);
   color: var(--ink);
   font-size: 10.5px;
@@ -2377,7 +2231,7 @@ main {
   padding: 7px 9px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 2px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
   font-size: 12px;
   pointer-events: none;
@@ -2724,7 +2578,7 @@ main {
   gap: 4px;
   padding: 2px 8px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 2px;
   font-size: 11.5px;
   color: var(--ink-3);
   cursor: pointer;
@@ -2846,7 +2700,7 @@ main {
   max-width: 720px;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--surface-2);
 }
 
@@ -2899,7 +2753,7 @@ main {
 .tune-analysis {
   margin-top: 4px;
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--selected);
   font-size: 12px;
 }
@@ -2953,7 +2807,6 @@ main {
   margin-top: 4px;
   font-size: 22px;
   font-weight: 620;
-  font-stretch: 80%;
   letter-spacing: -0.01em;
   line-height: 1.1;
 }
@@ -3071,7 +2924,6 @@ input[type="radio"] {
   color: var(--ink);
   font-size: 15px;
   font-weight: 650;
-  font-stretch: 88%;
 }
 
 .empty p {
@@ -3109,9 +2961,9 @@ main > .empty {
 }
 
 .chat-launcher {
-  border-radius: 999px;
-  background: var(--ink) !important;
-  color: var(--page) !important;
+  border-radius: 2px;
+  background: var(--accent) !important;
+  color: #fff !important;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
 }
 
@@ -3131,10 +2983,6 @@ main > .empty {
   .topbar {
     padding: 0 12px;
     gap: 10px;
-  }
-
-  .connection .muted {
-    display: none;
   }
 
   .page-title {
@@ -3172,7 +3020,6 @@ main > .empty {
 .section-head h2 {
   font-size: 19px;
   font-weight: 650;
-  font-stretch: 82%;
   letter-spacing: -0.01em;
 }
 
@@ -3256,7 +3103,6 @@ main > .empty {
 .start-panel h2 {
   font-size: 19px;
   font-weight: 650;
-  font-stretch: 82%;
 }
 
 .steps {
@@ -3337,14 +3183,12 @@ main > .empty {
   gap: 6px 12px;
   font-size: 26px;
   font-weight: 650;
-  font-stretch: 80%;
   letter-spacing: -0.015em;
   line-height: 1.15;
 }
 
 .strike-page-title .status {
   font-size: 12.5px;
-  font-stretch: 100%;
   letter-spacing: 0;
 }
 
@@ -3652,7 +3496,7 @@ main > .empty {
   position: relative;
   height: 6px;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: 2px;
   background: var(--surface-2);
   box-shadow: inset 0 0 0 1px var(--border);
 }
@@ -3660,7 +3504,7 @@ main > .empty {
 .job-bar > span {
   position: absolute;
   inset: 0 auto 0 0;
-  border-radius: 999px;
+  border-radius: 2px;
   background: var(--accent);
   transition: width 0.6s ease;
 }
@@ -3742,7 +3586,6 @@ main > .empty {
   margin: 0 0 4px;
   font-size: 18px;
   font-weight: 650;
-  font-stretch: 84%;
 }
 
 /* The change itself: the old value struck through, the new one in the selection colour. */
@@ -3850,7 +3693,7 @@ main > .empty {
 .tune-exit-bars span {
   height: 5px;
   min-width: 1px;
-  border-radius: 3px;
+  border-radius: 2px;
 }
 
 .tune-exit-bars .before {
@@ -4692,7 +4535,7 @@ body.chart-full-open {
 }
 .feature-help-setup span {
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: 2px;
   background: var(--surface-2);
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
@@ -4805,16 +4648,6 @@ main {
     padding-right: 24px;
   }
 }
-@media (max-width: 640px) {
-  .connection-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-}
 
 /* In the builder's map dialog the map has room for its steps and its diagram side by side,
    each at the size it was drawn for. */
@@ -4848,4 +4681,406 @@ main {
 .alert-list {
   margin: 4px 0 0;
   padding-left: 18px;
+}
+
+/* ======================================================================================
+ * Terminal layer. Comes last on purpose: it sets the density, the 1px structure and the
+ * monospace figures every page shares. Page rules above only add layout.
+ * ==================================================================================== */
+
+body {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Every figure is set in mono so columns line up and ticks never shift the layout. */
+.tile-value,
+.tape-last,
+.tape-change,
+.table td.right,
+.table th.right,
+.pnl-up,
+.pnl-down,
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Shell ------------------------------------------------------------------------- */
+
+.app {
+  padding-bottom: var(--status-h);
+}
+
+.sidebar {
+  background: var(--page);
+}
+
+.brand {
+  gap: 9px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.brand-mark {
+  flex-basis: 16px;
+  width: 16px;
+  height: 16px;
+  background:
+    linear-gradient(135deg, transparent 46%, var(--page) 46%, var(--page) 58%, transparent 58%),
+    var(--accent);
+}
+
+.sidebar nav {
+  padding: 10px 8px;
+}
+
+.nav-group + .nav-group {
+  margin-top: 14px;
+}
+
+.nav-title {
+  padding: 0 8px 4px;
+  font-size: 11px;
+}
+
+.sidebar nav a {
+  gap: 10px;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+.sidebar nav a.active {
+  background: var(--selected);
+  box-shadow: none;
+  font-weight: 500;
+}
+
+.sidebar nav a.active::before {
+  left: -8px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 0;
+}
+
+.sidebar-collapsed .sidebar {
+  flex-basis: 48px;
+}
+
+.sidebar-foot {
+  padding: 10px 12px;
+}
+
+.sidebar-foot-row .paper-tag {
+  display: none;
+}
+
+.topbar {
+  gap: 12px;
+  min-height: var(--bar-h);
+  padding: 0 12px 0 16px;
+  background: var(--page);
+  backdrop-filter: none;
+}
+
+.tape-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 14px;
+}
+
+.tape-name {
+  color: var(--ink-2);
+  font-size: 11.5px;
+}
+
+.tape-last {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.tape-change {
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.palette-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 500 11.5px var(--mono);
+  cursor: pointer;
+}
+
+.palette-button:hover {
+  border-color: var(--axis);
+  color: var(--ink);
+}
+
+.statusbar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 26;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: var(--status-h);
+  padding-left: 0;
+  border-top: 1px solid var(--border);
+  background: var(--page);
+  color: var(--ink-2);
+  font: 500 11.5px var(--mono);
+  white-space: nowrap;
+}
+
+.status-paper {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-right: 1px solid var(--border);
+}
+
+.status-item[data-tone]::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tick);
+}
+
+.status-item[data-tone="ok"]::before {
+  background: var(--good);
+}
+
+.status-item[data-tone="warn"]::before {
+  background: var(--warning);
+}
+
+.status-item[data-tone="bad"]::before {
+  background: var(--critical);
+}
+
+.status-clock {
+  margin-left: auto;
+  padding: 0 12px;
+  color: var(--ink);
+}
+
+.status-zone {
+  color: var(--ink-3);
+}
+
+/* The Ask AI button sits above the status bar. */
+.chat-launcher {
+  bottom: calc(var(--status-h) + 12px);
+}
+
+/* ---- Page frame -------------------------------------------------------------------- */
+
+main {
+  gap: 12px;
+  max-width: none;
+  padding: 16px 16px 72px;
+}
+
+.page-head {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.page-sub {
+  margin-top: 3px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+
+/* ---- Panels: flat surfaces on 1px rules -------------------------------------------- */
+
+.panel {
+  border-color: var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: none;
+}
+
+.panel-header {
+  min-height: 38px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-header h2 {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.panel > .chart,
+.panel > .limits {
+  margin: 12px;
+}
+
+/* ---- Tiles: one strip of cells divided by rules, not separate cards ---------------- */
+
+.tiles {
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.tile,
+.panel .tile {
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 0;
+  border-radius: 0;
+}
+
+.panel .tiles {
+  margin: 12px;
+}
+
+.tile-label {
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.tile-value {
+  margin-top: 4px;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.detail .tile-value {
+  font-size: 16px;
+}
+
+.tile-hint {
+  font-size: 11.5px;
+}
+
+/* ---- Tables: dense rows, rules only ------------------------------------------------- */
+
+.table th {
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+
+.table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--grid);
+}
+
+.compact-table td {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.panel > .table-wrap,
+.panel > div > .table-wrap {
+  padding: 0 4px 4px;
+}
+
+.table tbody tr.selected,
+.table-ideas tbody tr.selected {
+  background: var(--selected);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* ---- Live ticks ---------------------------------------------------------------------- */
+
+.flash {
+  animation: var(--flash) ease-out both;
+}
+
+.flash-up {
+  animation-name: flash-up;
+}
+
+.flash-down {
+  animation-name: flash-down;
+}
+
+@keyframes flash-up {
+  from {
+    background: rgba(16, 185, 129, 0.35);
+  }
+}
+
+@keyframes flash-down {
+  from {
+    background: rgba(239, 68, 68, 0.35);
+  }
+}
+
+@media (max-width: 900px) {
+  .status-wide {
+    display: none;
+  }
+
+  main {
+    padding: 12px 12px 72px;
+  }
+}
+
+/* The rail and the assistant drawer stop at the status bar instead of running under it. */
+.sidebar {
+  height: calc(100vh - var(--status-h));
+}
+
+.chat-drawer {
+  bottom: var(--status-h);
+}
+
+/* Words inside a figure cell, such as a verdict, stay in the text face. */
+.tile-value .status {
+  font-family: var(--font);
+}
+
+/* A new row in a live log slides in, quickly enough to read as a response. */
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }

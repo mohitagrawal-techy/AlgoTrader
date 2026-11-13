@@ -34,7 +34,7 @@ export function SummaryPanel({
       className="flex flex-col rounded-lg border border-line bg-surface shadow-card xl:sticky xl:top-[68px]"
     >
       <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
-        <h2 className="text-[15px] font-semibold [font-stretch:88%]">
+        <h2 className="text-[15px] font-semibold">
           Summary
         </h2>
         <div className="flex items-center gap-1">

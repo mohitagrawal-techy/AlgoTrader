@@ -70,7 +70,7 @@ export function LegRow({
         hasProblem ? "border-down/60" : "border-line",
       )}
     >
-      <span className="absolute -top-2.5 left-3 rounded-full bg-surface px-1.5 text-[11.5px] font-semibold text-ink-2">
+      <span className="absolute -top-2.5 left-3 rounded-sm bg-surface px-1.5 text-[11.5px] font-semibold text-ink-2">
         Leg {index + 1}
       </span>
       <Cell id={`${id}-action`} label="Action">
@@ -178,7 +178,7 @@ export function LegRow({
           icon={X}
           aria-label={`Remove leg ${index + 1}`}
           onClick={onRemove}
-          className="absolute -top-3 right-2 size-6 rounded-full border-line bg-surface text-ink-3 hover:text-down"
+          className="absolute -top-3 right-2 size-6 rounded-sm border-line bg-surface text-ink-3 hover:text-down"
         />
       )}
     </li>

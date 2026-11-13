@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type IndexRow } from "./api";
 import { num } from "./format";
-import { Pnl } from "./components/ui";
+import { Flash, Pnl } from "./components/ui";
 
 const POLL_MS = 30000;
 // The underlyings this desk trades, then the volatility gauge.
@@ -50,7 +50,9 @@ export function MarketTape() {
         return (
           <a className="tape-item" href="#overview" key={row.name} title={`${row.label}: open the overview`}>
             <span className="tape-name">{row.label}</span>
-            <span className="tape-last">{num(row.last, 2)}</span>
+            <span className="tape-last">
+              <Flash value={row.last}>{num(row.last, 2)}</Flash>
+            </span>
             <span className="tape-change">
               <Pnl value={change}>
                 {change === null ? "–" : `${change > 0 ? "+" : ""}${change.toFixed(2)}%`}

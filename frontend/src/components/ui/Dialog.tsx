@@ -4,7 +4,8 @@ import { Button, cx } from "./Button";
 
 /** A modal over the page. The browser's own dialog keeps keyboard focus inside it. Escape,
  * the close button and a click on the backdrop all call `onClose`, which should unmount it;
- * focus then returns to where it was. Mount it to open it.
+ * focus then returns to where it was. Mount it to open it. A control marked `data-autofocus`
+ * takes focus when it opens.
  *
  * `onClose` is called directly rather than from the dialog's "close" event, which some
  * embedded browsers never deliver. */
@@ -16,6 +17,7 @@ export function Dialog({
   onClose,
   as = "div",
   onSubmit,
+  flush,
   children,
 }: {
   title: ReactNode;
@@ -26,6 +28,8 @@ export function Dialog({
   /** "form" makes the dialog one form, its footer's submit button sending it. */
   as?: "div" | "form";
   onSubmit?: () => void;
+  /** The body has no padding of its own, for content that runs edge to edge. */
+  flush?: boolean;
   children: ReactNode;
 }) {
   const titleId = useId();
@@ -39,6 +43,9 @@ export function Dialog({
     const dialog = box.current;
     if (!dialog) return;
     if (!dialog.open) dialog.showModal();
+    // The browser focuses the first control, the close button; a field marked
+    // data-autofocus, such as a search box, takes focus instead.
+    dialog.querySelector<HTMLElement>("[data-autofocus]")?.focus();
     // Escape asks to cancel; the page closes it by unmounting, so the request stops here.
     const cancel = (event: Event) => {
       event.preventDefault();
@@ -107,7 +114,12 @@ export function Dialog({
             onClick={() => close.current()}
           />
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div
+          className={cx(
+            "min-h-0 flex-1 overflow-y-auto",
+            !flush && "px-5 py-4",
+          )}
+        >
           {children}
         </div>
         {footer && (

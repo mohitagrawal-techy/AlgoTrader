@@ -10,7 +10,24 @@ import {
 } from "./api";
 import { age } from "./format";
 import { MarketTape } from "./tape";
-import { Moon, RefreshCw } from "lucide-react";
+import { CommandPalette, type Command } from "./shell/CommandPalette";
+import { StatusBar } from "./shell/StatusBar";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Command as CommandIcon,
+  FileText,
+  FlaskConical,
+  History,
+  LayoutDashboard,
+  Lightbulb,
+  ListChecks,
+  Menu,
+  Radio,
+  RefreshCw,
+  ShieldAlert,
+  Table2,
+} from "lucide-react";
 import { Alert, Button, ButtonLink, Empty } from "./components/ui";
 import { AssistantProvider } from "./assistant";
 import { BacktestsView } from "./views/Backtests";
@@ -20,7 +37,7 @@ import { LabView } from "./views/Lab";
 import { TestHistoryView } from "./views/TestHistory";
 import { LabBacktestView } from "./views/LabBacktest";
 import { MarketView, readSavedMarket, saveMarket } from "./views/Market";
-import { OverviewView } from "./views/Overview";
+import { CommandCenter } from "./desk/CommandCenter";
 import { PaperView } from "./views/Paper";
 import { RiskView } from "./views/Risk";
 import { StrategyEditor, type EditorRoute } from "./builder/StrategyBuilder";
@@ -33,18 +50,18 @@ const NAV_GROUPS = [
     items: [
       {
         id: "overview",
-        label: "Overview",
-        icon: "M3 3v18h18M7 15l4-5 3 3 5-7",
+        label: "Command center",
+        icon: LayoutDashboard,
       },
       {
         id: "market",
         label: "Options",
-        icon: "M4 6h16M4 12h16M4 18h16M10 4v16",
+        icon: Table2,
       },
       {
         id: "ideas",
         label: "Ideas",
-        icon: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z",
+        icon: Lightbulb,
       },
     ],
   },
@@ -54,19 +71,19 @@ const NAV_GROUPS = [
       {
         id: "lab",
         label: "Strategy lab",
-        icon: "M9 3h6M10 3v6l-5.5 9.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3M7.5 15h9",
+        icon: FlaskConical,
       },
       {
         id: "backtests",
         label: "Backtests",
-        icon: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2",
+        icon: History,
       },
       {
         id: "history",
         label: "Test history",
-        icon: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+        icon: ListChecks,
       },
-      { id: "forward", label: "Forward test", icon: "M5 12h14M13 6l6 6-6 6" },
+      { id: "forward", label: "Forward test", icon: Radio },
     ],
   },
   {
@@ -75,12 +92,12 @@ const NAV_GROUPS = [
       {
         id: "paper",
         label: "Paper trades",
-        icon: "M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h7",
+        icon: FileText,
       },
       {
         id: "risk",
         label: "Risk",
-        icon: "M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6z",
+        icon: ShieldAlert,
       },
     ],
   },
@@ -90,7 +107,7 @@ type TabId = (typeof NAV_GROUPS)[number]["items"][number]["id"];
 const SIDEBAR_KEY = "algoverse-sidebar";
 
 const PAGE_SUBS: Record<string, string> = {
-  overview: "Indices, breadth and option positioning across the market.",
+  overview: "The paper desk as it stands, and the market around it.",
   market: "Chain analytics for one underlying and expiry.",
   ideas: "Trades ranked from the latest option chains.",
   lab: "Build your own strategies, then test and tune them.",
@@ -129,49 +146,6 @@ function readCollapsed(): boolean {
   }
 }
 
-function NavIcon({ path }: { path: string }) {
-  return (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden>
-      <path
-        d={path}
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function readTheme(): string | null {
-  try {
-    return localStorage.getItem("algoverse-theme");
-  } catch {
-    return null;
-  }
-}
-
-function useTheme() {
-  const [theme, setTheme] = useState<string | null>(readTheme);
-  useEffect(() => {
-    if (theme) document.documentElement.dataset.theme = theme;
-    else delete document.documentElement.dataset.theme;
-    try {
-      if (theme) localStorage.setItem("algoverse-theme", theme);
-    } catch {
-      // The toggle still works for this visit when storage is blocked.
-    }
-  }, [theme]);
-  const toggle = () => {
-    const prefersDark = window.matchMedia(
-      "(prefers-color-scheme: dark)",
-    ).matches;
-    const isDark = theme ? theme === "dark" : prefersDark;
-    setTheme(isDark ? "light" : "dark");
-  };
-  return toggle;
-}
-
 interface Data {
   health: Health;
   ideas: IdeasPayload;
@@ -193,7 +167,8 @@ export function App() {
   const shownMarket = data?.market ?? savedMarket;
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
-  const toggleTheme = useTheme();
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -207,9 +182,13 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
+      const started = performance.now();
       const [health, ideas, market, portfolio, backtests, forward] =
         await Promise.all([
-          api.health(),
+          api.health().then((answer) => {
+            setLatencyMs(performance.now() - started);
+            return answer;
+          }),
           api.ideas(),
           api.market(),
           api.portfolio(),
@@ -241,6 +220,17 @@ export function App() {
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const refresh = async () => {
@@ -284,6 +274,42 @@ export function App() {
     (tab === "market" && strikeRoute)
   );
 
+  const go = (hash: string) => () => {
+    window.location.hash = hash;
+  };
+  const commands: Command[] = [
+    ...TABS.map((item) => ({
+      id: `page-${item.id}`,
+      label: item.label,
+      group: "Page",
+      run: go(item.id),
+    })),
+    {
+      id: "new-strategy",
+      label: "New strategy",
+      group: "Action",
+      run: go("lab/new"),
+    },
+    {
+      id: "tune",
+      label: "Tune a strategy",
+      group: "Action",
+      run: go("lab/tune"),
+    },
+    {
+      id: "refresh",
+      label: "Refresh ideas from fresh quotes",
+      group: "Action",
+      run: () => void refresh(),
+    },
+    {
+      id: "sidebar",
+      label: collapsed ? "Expand the sidebar" : "Collapse the sidebar",
+      group: "Action",
+      run: () => setCollapsed((value) => !value),
+    },
+  ];
+
   return (
     <AssistantProvider>
       <div
@@ -307,7 +333,7 @@ export function App() {
                     title={collapsed ? item.label : undefined}
                     onClick={() => setMenuOpen(false)}
                   >
-                    <NavIcon path={item.icon} />
+                    <item.icon aria-hidden size={17} strokeWidth={1.8} />
                     <span className="sidebar-text">{item.label}</span>
                   </a>
                 ))}
@@ -329,7 +355,11 @@ export function App() {
                 aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                 title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               >
-                <NavIcon path={collapsed ? "M9 6l6 6-6 6" : "M15 6l-6 6 6 6"} />
+                {collapsed ? (
+                  <ChevronRight aria-hidden size={16} />
+                ) : (
+                  <ChevronLeft aria-hidden size={16} />
+                )}
               </button>
             </div>
           </div>
@@ -348,43 +378,20 @@ export function App() {
               aria-label="Open menu"
               onClick={() => setMenuOpen(true)}
             >
-              <NavIcon path="M4 6h16M4 12h16M4 18h16" />
+              <Menu aria-hidden size={18} />
             </button>
             <MarketTape />
             <div className="topbar-status">
-              {health && (
-                <>
-                  <span
-                    className="connection"
-                    title={
-                      health.broker_session_valid
-                        ? "Upstox connected"
-                        : "Upstox logged out"
-                    }
-                  >
-                    <span
-                      className={`connection-dot ${
-                        !health.broker_session_valid
-                          ? "off"
-                          : health.market_open
-                            ? "live"
-                            : ""
-                      }`}
-                      aria-hidden
-                    />
-                    <span className="connection-label">
-                      {health.market_open ? "Market open" : "Market closed"}
-                      <span className="muted">
-                        {" "}
-                        · data {age(health.data_as_of, now)}
-                      </span>
-                      {!health.broker_session_valid && (
-                        <span className="muted"> · Upstox logged out</span>
-                      )}
-                    </span>
-                  </span>
-                </>
-              )}
+              <button
+                type="button"
+                className="palette-button"
+                onClick={() => setPaletteOpen(true)}
+                aria-label="Go to a page or action"
+                aria-keyshortcuts="Meta+K Control+K"
+              >
+                <CommandIcon aria-hidden size={13} />
+                <span>K</span>
+              </button>
               <Button
                 icon={RefreshCw}
                 onClick={refresh}
@@ -397,14 +404,6 @@ export function App() {
               >
                 {refreshing ? "Refreshing…" : "Refresh"}
               </Button>
-              <Button
-                variant="secondary"
-                size="icon"
-                icon={Moon}
-                onClick={toggleTheme}
-                aria-label="Switch colour theme"
-                title="Switch colour theme"
-              />
             </div>
           </header>
 
@@ -474,7 +473,13 @@ export function App() {
                 <Empty title="Loading…" />
               )}
             {/* The overview loads its own data and can show this browser's saved copy offline. */}
-            {tab === "overview" && <OverviewView />}
+            {tab === "overview" && (
+              <CommandCenter
+                portfolio={data?.portfolio}
+                forward={data?.forward}
+                market={shownMarket}
+              />
+            )}
             {tab === "history" && <TestHistoryView />}
             {data && tab === "ideas" && <IdeasView ideas={data.ideas.ideas} />}
             {/* Options also falls back to the chains this browser saved, so it works offline. */}
@@ -520,8 +525,19 @@ export function App() {
               <ForwardView overview={data.forward} />
             )}
           </main>
+          <StatusBar
+            health={health}
+            offline={!data && !!loadError}
+            latencyMs={latencyMs}
+          />
         </div>
       </div>
+      {paletteOpen && (
+        <CommandPalette
+          commands={commands}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
     </AssistantProvider>
   );
 }

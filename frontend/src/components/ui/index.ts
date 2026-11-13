@@ -4,6 +4,7 @@ export { BackLink } from "./BackLink";
 export { Button, ButtonLink, cx, type ButtonVariant } from "./Button";
 export { ChartChip } from "./ChartChip";
 export { Dialog } from "./Dialog";
+export { Flash } from "./Flash";
 export { Field, FieldMessage, GroupLabel, Hint } from "./Field";
 export { ChipCheck, Segmented, Switch } from "./choices";
 export {

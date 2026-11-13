@@ -2009,13 +2009,13 @@ export function IndexChart({
                   </span>
                 ))}
               </span>
-            ) : (
+            ) : rules.length + anyRules.length ? (
+              <span className="muted">No entry rule uses this timeframe.</span>
+            ) : draft ? (
               <span className="muted">
-                {rules.length + anyRules.length
-                  ? "No entry rule uses this timeframe."
-                  : "Add entry rules to see where they would have held."}
+                Add entry rules to see where they would have held.
               </span>
-            )}
+            ) : null}
             {(signalInfo.cases ?? []).map((item) =>
               item.rules.length ? (
                 <span key={item.name}>

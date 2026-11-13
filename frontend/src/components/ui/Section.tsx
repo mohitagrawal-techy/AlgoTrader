@@ -50,9 +50,7 @@ export function Section({
             )}
           />
           <span className="min-w-0">
-            <h2 className="text-[15px] font-semibold text-ink [font-stretch:88%]">
-              {title}
-            </h2>
+            <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
             {hint && open && (
               <span className="mt-0.5 block text-[12.5px] leading-snug text-ink-3">
                 {hint}
@@ -91,7 +89,7 @@ export function Badge({
   return (
     <span
       className={cx(
-        "inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[11.5px] font-semibold tabular-nums",
+        "inline-flex h-5 shrink-0 items-center rounded-sm px-2 text-[11.5px] font-semibold tabular-nums",
         BADGE_TONES[tone],
         className,
       )}

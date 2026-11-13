@@ -13,6 +13,8 @@
    `w-100`, the app's own `hidden` or `table`) never turn into Tailwind rules. */
 @source "./builder";
 @source "./components";
+@source "./shell";
+@source "./desk";
 
 /* A small reset for the builder only, standing in for Tailwind's page-wide one. `:where`
    keeps it at zero specificity, so every utility class still overrides it. */

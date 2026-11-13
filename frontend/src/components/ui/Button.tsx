@@ -18,7 +18,8 @@ export type ButtonVariant =
   | "link-danger";
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: "border-ink bg-ink text-page hover:border-ink-2 hover:bg-ink-2",
+  primary:
+    "border-accent bg-accent text-white hover:border-accent-ink/60 hover:brightness-110",
   secondary: "border-line bg-surface text-ink hover:border-axis hover:bg-hover",
   ghost:
     "border-transparent bg-transparent text-ink-2 hover:bg-hover hover:text-ink",
