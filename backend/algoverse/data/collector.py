@@ -80,8 +80,10 @@ def backfill_daily(
     universe: Universe,
     contracts: pd.DataFrame,
     today: date,
+    start: date | None = None,
 ) -> CollectResult:
-    """Refresh daily bars for underlyings and reference indices."""
+    """Refresh daily bars for underlyings and reference indices, from `start` when given
+    (Upstox has index candles from 2000), else for the last decade."""
     keys = dict(universe.reference_indices)
     result = CollectResult()
     for symbol in universe.underlyings:
@@ -89,16 +91,29 @@ def backfill_daily(
             keys[symbol] = underlying_key(contracts, symbol)
         except ValueError as exc:
             result.failures[symbol] = str(exc)
-    start = today - timedelta(days=BACKFILL_DAYS)
+    first = start or today - timedelta(days=BACKFILL_DAYS)
+    spans = []
+    while first <= today:
+        last = min(today, first + timedelta(days=BACKFILL_DAYS - 1))
+        spans.append((first, last))
+        first = last + timedelta(days=1)
     for symbol, key in keys.items():
+        parts = []
         try:
-            candles = market.daily_candles(key, start, today)
+            for span_start, span_end in spans:
+                parts.append(market.daily_candles(key, span_start, span_end))
         except AuthExpiredError:
             raise
         except MarketDataError as exc:
             result.failures[symbol] = str(exc)
             log.warning("Backfill failed for %s: %s", symbol, exc)
             continue
+        parts = [part for part in parts if not part.empty]
+        candles = (
+            pd.concat(parts, ignore_index=True).drop_duplicates("ts", keep="last")
+            if parts
+            else pd.DataFrame()
+        )
         if not candles.empty:
             store.upsert_candles(key, candles)
             result.saved += 1

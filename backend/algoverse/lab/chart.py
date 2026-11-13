@@ -30,10 +30,14 @@ from algoverse.lab.technical import (
 
 IST_SECONDS = 19_800
 MAX_STUDIES = 12
-MAX_CANDLES = 4000
+# Daily candles since 2000 are about 6,700; a year of 5-minute candles is about 19,000.
+MAX_CANDLES = 20_000
 # Sessions shown by default on minute charts, and the most that can be asked for.
 DEFAULT_SESSIONS = {"5m": 10, "15m": 30, "1h": 90}
 MAX_SESSIONS = 400
+# Extra sessions read before the first one shown, so indicators are warmed up: a 400-candle
+# average on hourly candles needs about 60 sessions.
+WARMUP_SESSIONS = 60
 
 
 class Study(BaseModel):
@@ -192,9 +196,24 @@ def _signals(frames: Frames, request: ChartRequest, length: int, keep: slice) ->
     }
 
 
+def _recent_minutes(minutes: pd.DataFrame, sessions: int) -> pd.DataFrame:
+    """The last `sessions` sessions of one-minute candles, plus warm-up for indicators."""
+    if minutes.empty:
+        return minutes
+    stamps = pd.to_datetime(minutes["ts"])
+    if getattr(stamps.dt, "tz", None) is not None:
+        stamps = stamps.dt.tz_convert("Asia/Kolkata")
+    days = stamps.dt.date
+    distinct = days.drop_duplicates().sort_values()
+    first = distinct.iloc[max(0, len(distinct) - sessions - WARMUP_SESSIONS)]
+    return minutes[(days >= first).to_numpy()].reset_index(drop=True)
+
+
 def chart(daily: pd.DataFrame, minutes: pd.DataFrame, request: ChartRequest) -> dict:
-    frames = Frames(daily, minutes)
     intraday = request.timeframe in INTRADAY_MINUTES
+    if intraday:
+        minutes = _recent_minutes(minutes, request.sessions or DEFAULT_SESSIONS[request.timeframe])
+    frames = Frames(daily, minutes)
     frame = frames.frame(request.timeframe, request.candles)
     if frame.empty:
         source = "one-minute" if intraday else "daily"
@@ -221,7 +240,8 @@ def chart(daily: pd.DataFrame, minutes: pd.DataFrame, request: ChartRequest) -> 
         "candles_type": request.candles,
         "source": "Index one-minute candles"
         if intraday
-        else "Nearest-month future, else the index, as the backtests use",
+        else "Index daily candles, the same series live paper trading reads",
+        "first": str(pd.to_datetime(shown["ts"]).iloc[0].date()),
         "time": _times(shown),
         "open": _clean(shown["open"]),
         "high": _clean(shown["high"]),

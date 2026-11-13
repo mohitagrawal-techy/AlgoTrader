@@ -34,6 +34,8 @@ interface Saved {
   candles: CandleType;
   studies: StudyState[];
   signals: boolean;
+  /** Sessions shown on each minute timeframe. */
+  sessions?: Partial<Record<TechTimeframe, number>>;
 }
 
 const STORAGE_KEY = "algoverse.chart.v1";
@@ -46,6 +48,15 @@ const TIMEFRAMES: { value: TechTimeframe; label: string }[] = [
   { value: "1mo", label: "1M" },
 ];
 const MINUTES = new Set<TechTimeframe>(["5m", "15m", "1h"]);
+const RANGES = [
+  { sessions: 5, label: "1W" },
+  { sessions: 10, label: "2W" },
+  { sessions: 21, label: "1M" },
+  { sessions: 63, label: "3M" },
+  { sessions: 125, label: "6M" },
+  { sessions: 250, label: "1Y" },
+];
+const DEFAULT_RANGE: Partial<Record<TechTimeframe, number>> = { "5m": 10, "15m": 21, "1h": 63 };
 // Already drawn by the candles themselves.
 const HIDDEN_FROM_PICKER = new Set(["close", "open", "high", "low"]);
 const PALETTE = ["--series-1", "--series-5", "--overlay-2", "--series-3", "--series-4", "--series-2"];
@@ -290,6 +301,9 @@ interface Props {
 export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule }: Props) {
   const [saved, setSaved] = useState<Saved>(() => readSaved(symbols));
   const { symbol, timeframe, candles, studies, signals } = saved;
+  const sessions = MINUTES.has(timeframe)
+    ? (saved.sessions?.[timeframe] ?? DEFAULT_RANGE[timeframe] ?? 21)
+    : undefined;
   const [data, setData] = useState<ChartData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -322,6 +336,7 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule }: Pro
     symbol,
     timeframe,
     candles,
+    sessions,
     studies: studies.map(({ id, name, params }) => ({ id, name, params })),
     rules: signals ? rules : [],
     anyRules: signals ? anyRules : [],
@@ -337,6 +352,7 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule }: Pro
             symbol: body.symbol,
             timeframe: body.timeframe,
             candles: body.candles,
+            sessions: body.sessions,
             studies: body.studies,
             rules: body.rules,
             any_rules: body.anyRules,
@@ -368,7 +384,8 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule }: Pro
     const chart = createChart(box.current, {
       autoSize: true,
       crosshair: { mode: CrosshairMode.Normal },
-      timeScale: { rightOffset: 4, borderVisible: false },
+      // Low enough that Fit can show 26 years of daily candles at once.
+      timeScale: { rightOffset: 4, borderVisible: false, minBarSpacing: 0.05 },
       rightPriceScale: { borderVisible: false },
       // The wheel scrolls the page, which is a long form. Drag to pan, and zoom with the
       // buttons, a pinch, or by dragging the time axis.
@@ -562,7 +579,7 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule }: Pro
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || !data || data.empty) return;
-    const key = `${data.symbol}/${data.timeframe}`;
+    const key = `${data.symbol}/${data.timeframe}/${data.time.length}`;
     if (lastFit.current === key) return;
     lastFit.current = key;
     const count = data.time.length;
@@ -724,6 +741,24 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule }: Pro
             </button>
           ))}
         </div>
+        {sessions !== undefined && (
+          <label className="chart-range">
+            <span className="visually-hidden">Range</span>
+            <select
+              value={sessions}
+              title="How many sessions to load"
+              onChange={(e) =>
+                update({ sessions: { ...saved.sessions, [timeframe]: Number(e.target.value) } })
+              }
+            >
+              {RANGES.map((r) => (
+                <option key={r.sessions} value={r.sessions}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="chart-group" role="group" aria-label="Candle type">
           {(catalog.candle_types ?? [{ value: "normal", label: "Normal" }]).map((t) => (
             <button
@@ -876,7 +911,12 @@ export function IndexChart({ catalog, symbols, rules, anyRules, onAddRule }: Pro
       </div>
 
       <div className="chart-foot">
-        {data?.source && <span className="muted">{data.source}. Indicators use the same code as backtests.</span>}
+        {data?.source && (
+          <span className="muted">
+            {data.source}
+            {data.first ? `, from ${data.first}` : ""}. Indicators use the same code as backtests.
+          </span>
+        )}
         {signalInfo && (
           <div className="chart-signals">
             {signalInfo.rules.length ? (

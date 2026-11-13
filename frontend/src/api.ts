@@ -803,6 +803,7 @@ export interface ChartData {
   empty?: string;
   timeframe_label?: string;
   source?: string;
+  first?: string;
   time: number[];
   open: (number | null)[];
   high: (number | null)[];
@@ -1114,6 +1115,8 @@ export interface LabOverview {
   technical: TechCatalog;
   ladder: LadderReport | null;
   ladder_ready: boolean;
+  /** Indices the chart can show: tested underlyings, then reference ones such as Sensex. */
+  chart_symbols?: string[];
   autopilot: AutopilotState | null;
   archived: number;
   strategies: LabRow[];

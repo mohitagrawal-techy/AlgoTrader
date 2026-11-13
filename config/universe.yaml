@@ -7,6 +7,7 @@ underlyings:
 # Indices kept for reference only (no option chain is collected).
 reference_indices:
   INDIAVIX: "NSE_INDEX|India VIX"
+  SENSEX: "BSE_INDEX|SENSEX"
 
 # Number of nearest expiries the dashboard analyses and builds ideas from.
 expiries_per_underlying: 3

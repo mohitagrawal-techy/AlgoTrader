@@ -58,6 +58,7 @@ from algoverse.lab.tuner import (
     public,
 )
 from algoverse.risk.config import load_risk_config
+from algoverse.settings import load_universe
 
 log = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -110,7 +111,6 @@ class LabService:
         self._lock = threading.Lock()
         self._job: dict | None = None
         self._stop = threading.Event()
-        self._bars: tuple[tuple, dict[str, pd.DataFrame]] | None = None
 
     # ---- Storage -------------------------------------------------------------------------
 
@@ -207,6 +207,7 @@ class LabService:
                 "defaults": {"rounds": config.lab.rounds, "per_round": config.lab.per_round},
                 "job": self._job,
                 "symbols": config.symbols,
+                "chart_symbols": self._chart_symbols(config),
                 "signals": [{"name": k, "label": v} for k, v in SIGNALS.items()],
                 "technical": technical_catalog(),
                 "ladder": self._latest_ladder(),
@@ -662,28 +663,24 @@ class LabService:
 
     # ---- Chart ----------------------------------------------------------------------------
 
-    def _daily_bars(self, symbol: str) -> pd.DataFrame:
-        """Daily candles as the backtests read them, rebuilt only when history changes."""
-        history = History(self.data_dir)
-        sessions = history.sessions
-        key = (len(sessions), sessions[-1] if sessions else None)
-        if self._bars is None or self._bars[0] != key:
-            self._bars = (key, {})
-        cache = self._bars[1]
-        if symbol not in cache:
-            cache[symbol] = history.bars(symbol)
-        return cache[symbol]
+    def _chart_symbols(self, config) -> list[str]:
+        """Tested underlyings first, then reference indices such as Sensex."""
+        try:
+            extra = list(load_universe(self.config_dir).reference_indices)
+        except (OSError, ValueError):
+            extra = []
+        return list(dict.fromkeys([*config.symbols, *extra]))
 
     def chart(self, request: ChartRequest) -> dict:
         config = load_backtest_config(self.config_dir)
-        if request.symbol not in config.symbols:
-            raise LabError(f"Choose one of {', '.join(config.symbols)}.")
-        daily = self._daily_bars(request.symbol)
-        minutes = (
-            SnapshotStore(self.data_dir).read_candles(request.symbol, MINUTE)
-            if request.timeframe in ("5m", "15m", "1h")
-            else pd.DataFrame()
-        )
+        allowed = self._chart_symbols(config)
+        if request.symbol not in allowed:
+            raise LabError(f"Choose one of {', '.join(allowed)}.")
+        store = SnapshotStore(self.data_dir)
+        intraday = request.timeframe in ("5m", "15m", "1h")
+        # Index candles: daily ones from 2000 and one-minute ones from 2022 once backfilled.
+        daily = pd.DataFrame() if intraday else store.read_candles(request.symbol)
+        minutes = store.read_candles(request.symbol, MINUTE) if intraday else pd.DataFrame()
         return clean(chart(daily, minutes, request))
 
     # ---- Autopilot ------------------------------------------------------------------------

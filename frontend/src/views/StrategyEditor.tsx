@@ -524,7 +524,7 @@ export function StrategyEditor({ route }: { route: EditorRoute }) {
       >
         <IndexChart
           catalog={lab.technical}
-          symbols={lab.symbols}
+          symbols={lab.chart_symbols ?? lab.symbols}
           rules={rules}
           anyRules={anyRules}
           onAddRule={

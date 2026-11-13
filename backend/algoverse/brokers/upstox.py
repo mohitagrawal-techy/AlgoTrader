@@ -178,6 +178,16 @@ class UpstoxMarketData:
         data = self._get(f"/v2/expired-instruments/historical-candle/{key}/day/{end}/{start}")
         return parse_candles(data["candles"])
 
+    def expired_minute_candles(
+        self, expired_key: str, minutes: int, start: date, end: date
+    ) -> pd.DataFrame:
+        """An expired contract's 1, 3, 5, 15 or 30-minute candles. Needs the Plus plan."""
+        key = quote(expired_key, safe="")
+        data = self._get(
+            f"/v2/expired-instruments/historical-candle/{key}/{minutes}minute/{end}/{start}"
+        )
+        return parse_candles(data["candles"])
+
 
 def parse_option_chain(rows: list[dict], ts: datetime) -> pd.DataFrame:
     """Flatten the Upstox chain response to one row per contract."""

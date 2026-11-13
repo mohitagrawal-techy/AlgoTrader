@@ -150,3 +150,21 @@ def test_signal_positions_are_within_the_candles_shown():
     hits = body["signals"]["hits"]
     assert hits and all(0 <= i < len(body["time"]) for i in hits)
     assert len(hits) == body["signals"]["rules"][0]["count"]
+
+
+def test_minute_charts_read_only_recent_sessions_plus_warm_up():
+    from algoverse.lab import chart as chart_module
+
+    mins = minutes(days=12)
+    study = [{"id": "a", "name": "ema", "params": {"period": 20}}]
+    full = chart(make_bars(), mins, request(timeframe="15m", sessions=12, studies=study))
+    old = chart_module.WARMUP_SESSIONS
+    try:
+        chart_module.WARMUP_SESSIONS = 3
+        short = chart(make_bars(), mins, request(timeframe="15m", sessions=2, studies=study))
+    finally:
+        chart_module.WARMUP_SESSIONS = old
+    assert len(short["time"]) == 50 and short["time"] == full["time"][-50:]
+    # 75 candles of warm-up leave a 20-candle EMA within a few millionths of the full value.
+    tail = full["studies"][0]["lines"][0]["values"][-50:]
+    assert short["studies"][0]["lines"][0]["values"] == pytest.approx(tail, rel=1e-5)

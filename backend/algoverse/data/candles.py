@@ -56,6 +56,7 @@ DEFAULT_ALIASES = {
     "MIDCPNIFTY": "NSE_INDEX|NIFTY MID SELECT",
     "NIFTYNXT50": "NSE_INDEX|Nifty Next 50",
     "INDIAVIX": "NSE_INDEX|India VIX",
+    "SENSEX": "BSE_INDEX|SENSEX",
 }
 # Daily ATM implied volatility per underlying, kept as a derived series.
 ATM_IV = "atm_iv"

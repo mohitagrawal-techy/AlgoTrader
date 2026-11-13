@@ -70,10 +70,17 @@ def cmd_collect_once(_: argparse.Namespace) -> None:
     print(f"Saved {result.saved} chains. Failures: {result.failures or 'none'}")
 
 
-def cmd_backfill(_: argparse.Namespace) -> None:
+def cmd_backfill(args: argparse.Namespace) -> None:
     rt = Runtime()
     now = datetime.now(IST)
-    result = backfill_daily(rt.market, rt.store, rt.universe, rt.contracts(now), now.date())
+    result = backfill_daily(
+        rt.market,
+        rt.store,
+        rt.universe,
+        rt.contracts(now),
+        now.date(),
+        getattr(args, "start", None),
+    )
     print(f"Updated {result.saved} series. Failures: {result.failures or 'none'}")
 
 
@@ -290,13 +297,64 @@ def cmd_history_upstox(_: argparse.Namespace) -> None:
         print(f"Incomplete {name}: {reason}. Run the command again to retry.")
 
 
-def cmd_history_fill(_: argparse.Namespace) -> None:
+def _fill_expired(rt: Runtime, market, config, now: datetime, plan_only: bool) -> bool:
+    """Holes filled from expired contracts. False when the account has no Upstox Plus."""
+    from algoverse.backtest.upstox_expired_gaps import fill_expired
+
+    candles = {symbol: rt.store.read_candles(symbol) for symbol in config.symbols}
+    try:
+        result = fill_expired(
+            market,
+            rt.settings.data_dir,
+            config,
+            rt.contracts(now),
+            candles,
+            now.date(),
+            print,
+            dry_run=plan_only,
+        )
+    except PlanRequiredError:
+        print("Upstox Plus is not active, so expired contracts cannot be fetched.")
+        return False
+    missing = ", ".join(f"{s} {n}" for s, n in result.needed.items())
+    print(f"Expiries missing from the history: {missing or 'none'}.")
+    if plan_only:
+        return True
+    if result.written:
+        print(
+            f"Wrote {len(result.written)} missing sessions, "
+            f"{result.written[0]} to {result.written[-1]}."
+        )
+    if result.extended:
+        print(f"Added contracts to {len(result.extended)} sessions that lacked them.")
+    if result.intraday:
+        print(f"Wrote 5-minute option bars for {len(result.intraday)} sessions.")
+    if result.completed:
+        print(f"{len(result.completed)} sessions are now complete and trade normally again.")
+    for day, gaps in sorted(result.incomplete.items()):
+        lost = "; ".join(f"{symbol} {', '.join(e)}" for symbol, e in gaps.items())
+        print(f"{day}: still incomplete ({lost}). Backtests open no new trades there.")
+    for name, reason in result.failed.items():
+        print(f"Failed {name}: {reason}. Run again to retry.")
+    print(f"{result.requests} requests to Upstox.")
+    return True
+
+
+def cmd_history_fill(args: argparse.Namespace) -> None:
     from algoverse.backtest.upstox_gaps import fill_gaps
 
     rt = Runtime()
     now = datetime.now(IST)
     config = load_backtest_config(rt.settings.config_dir)
     market = UpstoxMarketData(rt.tokens, limiter=RateLimiter(IMPORT_LIMITS))
+    try:
+        _fill_expired(rt, market, config, now, args.plan)
+    except AuthExpiredError as exc:
+        raise SystemExit(
+            "Upstox session expired. Log in from the dashboard and run again."
+        ) from exc
+    if args.plan:
+        return
     futures = parse_future_contracts(download_master(), set(config.symbols))
     try:
         result = fill_gaps(
@@ -720,13 +778,19 @@ def main() -> None:
         ("instruments", cmd_instruments, "Download today's contract master"),
         ("collect-once", cmd_collect_once, "Save one round of chain snapshots"),
         ("collect", cmd_collect, "Run the snapshot and backfill schedule"),
-        ("backfill", cmd_backfill, "Refresh daily price history"),
         ("paper-status", cmd_paper_status, "Show paper positions and P&L"),
         ("holidays", cmd_holidays, "Download and show market holidays"),
         ("stream", cmd_stream, "Run the live feed and save every tick"),
         ("stream-status", cmd_stream_status, "Show the live feed and stored ticks"),
     ):
         commands.add_parser(name, help=help_text).set_defaults(handler=handler)
+    backfill = commands.add_parser("backfill", help="Refresh daily price history")
+    backfill.add_argument(
+        "--start",
+        type=date.fromisoformat,
+        help="First day (YYYY-MM-DD). Upstox has index candles from 2000. Default: 10 years",
+    )
+    backfill.set_defaults(handler=cmd_backfill)
     archive_parser = commands.add_parser(
         "archive", help="Upload finished days of recorded data to S3"
     )
@@ -794,10 +858,14 @@ def main() -> None:
     commands.add_parser(
         "history-capture", help="Save today's session after the close"
     ).set_defaults(handler=cmd_history_capture)
-    commands.add_parser(
+    fill = commands.add_parser(
         "history-fill",
-        help="Fill missed recent sessions from Upstox (no Plus plan needed)",
-    ).set_defaults(handler=cmd_history_fill)
+        help="Fill holes in the option history from Upstox (expired contracts need Plus)",
+    )
+    fill.add_argument(
+        "--plan", action="store_true", help="Only count the missing expiries; fetch nothing"
+    )
+    fill.set_defaults(handler=cmd_history_fill)
     commands.add_parser(
         "walk-forward", help="Tune on past data and test on unseen windows"
     ).set_defaults(handler=cmd_walk_forward)

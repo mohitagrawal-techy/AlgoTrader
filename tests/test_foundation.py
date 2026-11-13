@@ -395,3 +395,31 @@ def test_backend_never_references_order_endpoints():
     )
     offenders = [str(path) for path in BACKEND.rglob("*.py") if forbidden.search(path.read_text())]
     assert offenders == []
+
+
+def test_backfill_from_a_start_date_asks_a_decade_at_a_time(tmp_path):
+    spans = []
+
+    class Recording(FakeMarket):
+        def daily_candles(self, key, start, end):
+            spans.append((key, start, end))
+            return pd.DataFrame(
+                {
+                    "ts": [pd.Timestamp(start, tz="Asia/Kolkata")],
+                    "open": 1.0,
+                    "high": 1.0,
+                    "low": 1.0,
+                    "close": 1.0,
+                    "volume": 0.0,
+                    "oi": 0.0,
+                }
+            )
+
+    store = SnapshotStore(tmp_path)
+    result = backfill_daily(Recording(), store, UNIVERSE, contracts(), NOW.date(), date(2000, 1, 1))
+    assert result.saved == 2
+    vix = [(s, e) for key, s, e in spans if key == "V"]
+    assert vix[0][0] == date(2000, 1, 1) and vix[-1][1] == NOW.date()
+    assert all((e - s).days < 3650 for s, e in vix) and len(vix) == 3
+    assert all(b[0] == a[1] + timedelta(days=1) for a, b in zip(vix, vix[1:], strict=False))
+    assert len(store.read_candles("V")) == 3

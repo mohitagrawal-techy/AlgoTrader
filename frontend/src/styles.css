@@ -4617,6 +4617,7 @@ main > .empty {
   border-color: var(--accent);
 }
 
+.index-chart .chart-range select,
 .index-chart .chart-symbol select {
   min-height: 34px;
   padding: 0 28px 0 10px;
