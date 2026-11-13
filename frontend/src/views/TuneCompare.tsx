@@ -2,7 +2,7 @@ import type { ExitUnit, LabSpec, LabSummary, TechCatalog, TechRule, TuneNode } f
 import { LineChart, timeTicks } from "../charts";
 import { EXIT_LABELS, fraction, inr, inrCompact, num, shortDate, signedInr } from "../format";
 import { Pnl, Status } from "../ui";
-import { ruleText } from "./TechRules";
+import { ruleText } from "../builder/logic/ruleText";
 
 /*
  * What one try in the tuner changed, and what that did. The change is spelled out in words,

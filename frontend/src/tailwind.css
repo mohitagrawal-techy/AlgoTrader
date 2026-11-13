@@ -1,0 +1,78 @@
+/*
+ * Tailwind for new components, on the app's own design tokens.
+ * Only its theme and utilities load: the app's base styles stay in charge of bare elements,
+ * so pages that do not use Tailwind look exactly as before. Utilities are left unlayered,
+ * so a utility class beats the app's element rules (such as `button { font: inherit }`).
+ * The default palette is removed: colours come only from the tokens below, which already
+ * switch between light and dark.
+ */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" source(none);
+
+/* Only the new builder is scanned, so class names elsewhere in the app (Bootstrap's
+   `w-100`, the app's own `hidden` or `table`) never turn into Tailwind rules. */
+@source "./builder";
+
+/* A small reset for the builder only, standing in for Tailwind's page-wide one. `:where`
+   keeps it at zero specificity, so every utility class still overrides it. */
+:where(.builder-root) :where(*, ::before, ::after) {
+  border: 0 solid var(--border);
+}
+:where(.builder-root) :where(button) {
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+:where(.builder-root) :where(ul, ol) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+:where(.builder-root) :where(h1, h2, h3, h4, p, figure) {
+  margin: 0;
+}
+:where(.builder-root) :where(hr) {
+  height: 0;
+  border-top-width: 1px;
+}
+
+@theme inline {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-white: #ffffff;
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--border);
+  --color-grid: var(--grid);
+  --color-axis: var(--axis);
+  --color-hover: var(--hover-wash);
+  --color-selected: var(--selected);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-wash: var(--accent-wash);
+  --color-call: var(--series-1);
+  --color-put: var(--series-2);
+  --color-up: var(--pnl-up);
+  --color-down: var(--pnl-down);
+  --color-good: var(--good);
+  --color-warning: var(--warning);
+  --color-warning-wash: var(--warning-wash);
+  --color-critical: var(--critical);
+  --color-critical-wash: var(--critical-wash);
+
+  --font-sans: var(--font);
+  --font-mono: var(--mono);
+
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+
+  --shadow-card: var(--shadow);
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.28);
+}

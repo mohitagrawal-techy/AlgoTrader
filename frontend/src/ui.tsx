@@ -13,7 +13,13 @@ const ICONS: Record<Tone, string> = {
 };
 
 /** Status always pairs its colour with an icon and a text label. */
-export function Status({ tone, children }: { tone: Tone; children: ReactNode }) {
+export function Status({
+  tone,
+  children,
+}: {
+  tone: Tone;
+  children: ReactNode;
+}) {
   return (
     <span className={`status status-${tone}`}>
       <i aria-hidden>{ICONS[tone]}</i>
@@ -81,13 +87,21 @@ export function Panel({
           </div>
         )}
       </header>
-      {target && explaining && <AiExplain target={target} onClose={() => setExplaining(false)} />}
+      {target && explaining && (
+        <AiExplain target={target} onClose={() => setExplaining(false)} />
+      )}
       {children}
     </section>
   );
 }
 
-export function Empty({ title, children }: { title: string; children?: ReactNode }) {
+export function Empty({
+  title,
+  children,
+}: {
+  title: string;
+  children?: ReactNode;
+}) {
   return (
     <div className="empty">
       <strong>{title}</strong>
@@ -96,8 +110,45 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
   );
 }
 
-export function Pnl({ value, children }: { value: number | null; children: ReactNode }) {
-  const direction = value === null || value === 0 ? "" : value > 0 ? "pnl-up" : "pnl-down";
+/** Holds a chart's place while its data loads, at the chart's own height, so nothing jumps. */
+export function ChartSkeleton({
+  height = 280,
+  label,
+}: {
+  height?: number;
+  label: string;
+}) {
+  return (
+    <div
+      className="chart-skeleton"
+      style={{ height }}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="visually-hidden">{label}</span>
+    </div>
+  );
+}
+
+/** A request that failed with nothing saved to show: what failed, and that it retries. */
+export function LoadFailed({ what }: { what: string }) {
+  return (
+    <div className="empty empty-failed" role="alert">
+      <strong>Couldn't load {what}</strong>
+      <p>The server didn't answer. It retries automatically every minute.</p>
+    </div>
+  );
+}
+
+export function Pnl({
+  value,
+  children,
+}: {
+  value: number | null;
+  children: ReactNode;
+}) {
+  const direction =
+    value === null || value === 0 ? "" : value > 0 ? "pnl-up" : "pnl-down";
   return <span className={direction}>{children}</span>;
 }
 
@@ -115,7 +166,10 @@ export function Select<T extends string>({
   return (
     <label className="select">
       <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value as T)}>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as T)}
+      >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
@@ -150,7 +204,9 @@ export function Segmented<T extends string>({
           onClick={() => onChange(option.value)}
         >
           {option.label}
-          {option.count !== undefined && <span className="segmented-count">{option.count}</span>}
+          {option.count !== undefined && (
+            <span className="segmented-count">{option.count}</span>
+          )}
         </button>
       ))}
     </div>
@@ -176,21 +232,40 @@ export function JobStatus({ job }: { job: JobInfo }) {
   }, [running]);
 
   const progress = running ? job.progress : null;
-  const share = progress && progress.total > 0 ? progress.done / progress.total : null;
+  const share =
+    progress && progress.total > 0 ? progress.done / progress.total : null;
   let left: string | null = null;
   if (progress && share !== null && progress.done > 0 && share < 1) {
-    const spent = new Date(progress.updated_at).getTime() - new Date(progress.stage_started_at).getTime();
-    if (spent > 5000) left = `about ${minutesText((spent / progress.done) * (progress.total - progress.done))} left`;
+    const spent =
+      new Date(progress.updated_at).getTime() -
+      new Date(progress.stage_started_at).getTime();
+    if (spent > 5000)
+      left = `about ${minutesText((spent / progress.done) * (progress.total - progress.done))} left`;
   }
-  const elapsed = running && job.started_at ? minutesText(now - new Date(job.started_at).getTime()) : null;
-  const tone: Tone = running ? "neutral" : job.state === "done" ? "good" : "critical";
+  const elapsed =
+    running && job.started_at
+      ? minutesText(now - new Date(job.started_at).getTime())
+      : null;
+  const tone: Tone = running
+    ? "neutral"
+    : job.state === "done"
+      ? "good"
+      : "critical";
 
   return (
-    <div className={`job-status job-${job.state}`} role="status" aria-live="polite">
+    <div
+      className={`job-status job-${job.state}`}
+      role="status"
+      aria-live="polite"
+    >
       <div className="job-line">
-        <Status tone={tone}>{running ? "Working" : job.state === "done" ? "Finished" : "Failed"}</Status>
+        <Status tone={tone}>
+          {running ? "Working" : job.state === "done" ? "Finished" : "Failed"}
+        </Status>
         <span className="job-message">{job.message}</span>
-        {elapsed && <span className="muted job-elapsed">running {elapsed}</span>}
+        {elapsed && (
+          <span className="muted job-elapsed">running {elapsed}</span>
+        )}
       </div>
       {running && (
         <>
@@ -202,14 +277,21 @@ export function JobStatus({ job }: { job: JobInfo }) {
             aria-valuenow={share === null ? undefined : Math.round(share * 100)}
             aria-label="Job progress"
           >
-            <span style={share === null ? undefined : { width: `${Math.max(2, share * 100)}%` }} />
+            <span
+              style={
+                share === null
+                  ? undefined
+                  : { width: `${Math.max(2, share * 100)}%` }
+              }
+            />
           </div>
           <div className="job-meta muted">
             {progress && share !== null ? (
               <>
-                {progress.done.toLocaleString("en-IN")} of {progress.total.toLocaleString("en-IN")}{" "}
-                {progress.unit === "replays" ? "replays" : "sessions replayed"} · {Math.floor(share * 100)}%
-                {left && ` · ${left}`}
+                {progress.done.toLocaleString("en-IN")} of{" "}
+                {progress.total.toLocaleString("en-IN")}{" "}
+                {progress.unit === "replays" ? "replays" : "sessions replayed"}{" "}
+                · {Math.floor(share * 100)}%{left && ` · ${left}`}
               </>
             ) : (
               "Preparing. Progress appears once the replays start."

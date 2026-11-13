@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { ExitUnit, LabLeg, LabSpec, TechCatalog } from "../api";
-import { ruleText } from "./TechRules";
+import { ruleText } from "../builder/logic/ruleText";
 
 /*
  * A picture of one strategy: when it checks, what must be true to enter, what it trades, and

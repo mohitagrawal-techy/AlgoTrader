@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
 import {
   api,
   type ConstituentList,
@@ -24,8 +31,25 @@ import {
 } from "../charts";
 import { ResizableGrid, useGridLayout, type Card } from "../layout";
 import { IndexHoverLayer } from "./IndexHover";
-import { compact, dateTimeIst, fraction, inrCompact, num, shortDate, timeIst } from "../format";
-import { Empty, Panel, Select, Status, Tile, type Tone } from "../ui";
+import {
+  compact,
+  dateTimeIst,
+  fraction,
+  inrCompact,
+  num,
+  shortDate,
+  timeIst,
+} from "../format";
+import {
+  ChartSkeleton,
+  Empty,
+  LoadFailed,
+  Panel,
+  Select,
+  Status,
+  Tile,
+  type Tone,
+} from "../ui";
 import { savedStore } from "../saved";
 
 const POLL_MS = 30000;
@@ -46,7 +70,9 @@ function clockLabel(x: number): string {
 
 function sessionLabel(session: string | null | undefined): string {
   if (!session) return "";
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const today = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kolkata",
+  });
   return session === today ? "today" : shortDate(session);
 }
 
@@ -59,11 +85,20 @@ const writeSaved = saved.write;
  * Fetches on a timer and keeps the latest copy in local storage. A payload marked `live`
  * refreshes every few seconds, anything else once a minute. Hidden tabs do not fetch.
  */
-function useSavedPoll<T>(key: string, fetcher: () => Promise<T>, enabled = true): T | null {
-  const [value, setValue] = useState<T | null>(() => (enabled ? readSaved<T>(key) : null));
+/** The latest data for `key`, saved across reloads, and whether the latest fetch failed. */
+function useSavedPoll<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  enabled = true,
+): [T | null, boolean] {
+  const [value, setValue] = useState<T | null>(() =>
+    enabled ? readSaved<T>(key) : null,
+  );
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     if (!enabled) return;
     setValue(readSaved<T>(key));
+    setFailed(false);
     let active = true;
     let timer: number | undefined;
     const run = async () => {
@@ -73,10 +108,12 @@ function useSavedPoll<T>(key: string, fetcher: () => Promise<T>, enabled = true)
           const body = await fetcher();
           if (!active) return;
           setValue(body);
+          setFailed(false);
           writeSaved(key, body);
           if ((body as { live?: boolean } | null)?.live) next = LIVE_POLL_MS;
         } catch {
           // Keep showing the last data. The next attempt follows on the normal schedule.
+          if (active) setFailed(true);
         }
       } else {
         next = LIVE_POLL_MS;
@@ -91,15 +128,20 @@ function useSavedPoll<T>(key: string, fetcher: () => Promise<T>, enabled = true)
     // The fetcher changes with `key`, so `key` alone decides when to reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, key]);
-  return enabled ? value : null;
+  return [enabled ? value : null, enabled && failed];
 }
 
-function updatedLabel(payload: { live?: boolean; updated_at?: string | null } | null): string {
+function updatedLabel(
+  payload: { live?: boolean; updated_at?: string | null } | null,
+): string {
   if (!payload?.live || !payload.updated_at) return "";
-  return ` Live, updated ${new Date(payload.updated_at).toLocaleTimeString("en-IN", {
-    hour12: false,
-    timeZone: "Asia/Kolkata",
-  })}.`;
+  return ` Live, updated ${new Date(payload.updated_at).toLocaleTimeString(
+    "en-IN",
+    {
+      hour12: false,
+      timeZone: "Asia/Kolkata",
+    },
+  )}.`;
 }
 
 const COMPARE_COLORS = [
@@ -133,10 +175,15 @@ function periodValue(row: IndexRow, period: Period): number | null {
   return period === "1D" ? row.change_pct : (row.returns[period] ?? null);
 }
 
-function statusFor(status: OverviewPayload["status"]): { tone: Tone; label: string } {
+function statusFor(status: OverviewPayload["status"]): {
+  tone: Tone;
+  label: string;
+} {
   if (status === "live") return { tone: "good", label: "Live" };
-  if (status === "closed") return { tone: "neutral", label: "Market closed, last session" };
-  if (status === "session_expired") return { tone: "warning", label: "Login needed, showing last data" };
+  if (status === "closed")
+    return { tone: "neutral", label: "Market closed, last session" };
+  if (status === "session_expired")
+    return { tone: "warning", label: "Login needed, showing last data" };
   return { tone: "warning", label: "Upstox unavailable, showing last data" };
 }
 
@@ -150,23 +197,43 @@ function IndexTile({ row }: { row: IndexRow }) {
         <span className="muted">{num(row.change, 2)}</span>
       </div>
       {row.range_position !== null && (
-        <div className="day-range" title={`Day range ${num(row.low, 2)} to ${num(row.high, 2)}`}>
-          <span style={{ left: `${Math.max(0, Math.min(100, row.range_position))}%` }} />
+        <div
+          className="day-range"
+          title={`Day range ${num(row.low, 2)} to ${num(row.high, 2)}`}
+        >
+          <span
+            style={{
+              left: `${Math.max(0, Math.min(100, row.range_position))}%`,
+            }}
+          />
         </div>
       )}
     </div>
   );
 }
 
-function SectorBars({ sectors, period }: { sectors: IndexRow[]; period: Period }) {
+function SectorBars({
+  sectors,
+  period,
+}: {
+  sectors: IndexRow[];
+  period: Period;
+}) {
   const rows = sectors
     .map((row) => ({ row, value: periodValue(row, period) }))
-    .filter((item): item is { row: IndexRow; value: number } => item.value !== null)
+    .filter(
+      (item): item is { row: IndexRow; value: number } => item.value !== null,
+    )
     .sort((a, b) => b.value - a.value);
-  if (!rows.length) return <Empty title="This period's history is still loading" />;
+  if (!rows.length)
+    return <Empty title="No sector history for this period yet" />;
   const scale = Math.max(...rows.map((item) => Math.abs(item.value)), 0.5);
   return (
-    <div className="sector-bars" role="img" aria-label={`Sector returns over ${period}, sorted`}>
+    <div
+      className="sector-bars"
+      role="img"
+      aria-label={`Sector returns over ${period}, sorted`}
+    >
       {rows.map(({ row, value }) => {
         const width = (Math.abs(value) / scale) * 50;
         return (
@@ -175,7 +242,11 @@ function SectorBars({ sectors, period }: { sectors: IndexRow[]; period: Period }
             <span className="sector-track">
               <i
                 className={value >= 0 ? "bar-up" : "bar-down"}
-                style={value >= 0 ? { left: "50%", width: `${width}%` } : { right: "50%", width: `${width}%` }}
+                style={
+                  value >= 0
+                    ? { left: "50%", width: `${width}%` }
+                    : { right: "50%", width: `${width}%` }
+                }
               />
             </span>
             <span className="sector-value">{signedPct(value)}</span>
@@ -210,19 +281,31 @@ function HeatScale() {
   );
 }
 
-function SectorHeatmap({ sectors, benchmark }: { sectors: IndexRow[]; benchmark?: IndexRow }) {
+function SectorHeatmap({
+  sectors,
+  benchmark,
+}: {
+  sectors: IndexRow[];
+  benchmark?: IndexRow;
+}) {
   const [sortBy, setSortBy] = useState<Period>("1D");
   const [hover, setHover] = useState<HeatHover | null>(null);
   const frame = useRef<HTMLDivElement>(null);
   const rows = useMemo(
     () =>
       [...sectors].sort(
-        (a, b) => (periodValue(b, sortBy) ?? -Infinity) - (periodValue(a, sortBy) ?? -Infinity),
+        (a, b) =>
+          (periodValue(b, sortBy) ?? -Infinity) -
+          (periodValue(a, sortBy) ?? -Infinity),
       ),
     [sectors, sortBy],
   );
-  if (!rows.some((row) => PERIODS.some((period) => periodValue(row, period) !== null))) {
-    return <Empty title="Sector history is still loading" />;
+  if (
+    !rows.some((row) =>
+      PERIODS.some((period) => periodValue(row, period) !== null),
+    )
+  ) {
+    return <Empty title="No sector history yet" />;
   }
   const width = frame.current?.clientWidth ?? 0;
   const relative =
@@ -246,7 +329,13 @@ function SectorHeatmap({ sectors, benchmark }: { sectors: IndexRow[]; benchmark?
           onPointerMove={(event) => {
             const bounds = frame.current?.getBoundingClientRect();
             if (!bounds) return;
-            setHover({ row, period, value, x: event.clientX - bounds.left, y: event.clientY - bounds.top });
+            setHover({
+              row,
+              period,
+              value,
+              x: event.clientX - bounds.left,
+              y: event.clientY - bounds.top,
+            });
           }}
         >
           {signedPct(value, 1)}
@@ -255,17 +344,29 @@ function SectorHeatmap({ sectors, benchmark }: { sectors: IndexRow[]; benchmark?
     });
   return (
     <>
-      <div className="sector-heatmap" ref={frame} onPointerLeave={() => setHover(null)}>
+      <div
+        className="sector-heatmap"
+        ref={frame}
+        onPointerLeave={() => setHover(null)}
+      >
         <table className="heatmap">
-          <caption className="visually-hidden">Sector returns by period</caption>
+          <caption className="visually-hidden">
+            Sector returns by period
+          </caption>
           <thead>
             <tr>
               <th scope="col">Sector</th>
               {PERIODS.map((period) => (
-                <th key={period} scope="col" aria-sort={period === sortBy ? "descending" : "none"}>
+                <th
+                  key={period}
+                  scope="col"
+                  aria-sort={period === sortBy ? "descending" : "none"}
+                >
                   <button
                     type="button"
-                    className={period === sortBy ? "heatmap-sort active" : "heatmap-sort"}
+                    className={
+                      period === sortBy ? "heatmap-sort active" : "heatmap-sort"
+                    }
                     title={`Sort by ${period} return`}
                     onClick={() => setSortBy(period)}
                   >
@@ -299,8 +400,13 @@ function SectorHeatmap({ sectors, benchmark }: { sectors: IndexRow[]; benchmark?
           <div
             className="chart-tooltip"
             style={{
-              ...(hover.x > width * 0.62 ? { right: width - hover.x + 12 } : { left: hover.x + 12 }),
-              top: Math.min(hover.y + 12, (frame.current?.clientHeight ?? 0) - 84),
+              ...(hover.x > width * 0.62
+                ? { right: width - hover.x + 12 }
+                : { left: hover.x + 12 }),
+              top: Math.min(
+                hover.y + 12,
+                (frame.current?.clientHeight ?? 0) - 84,
+              ),
             }}
           >
             <strong>{hover.row.label}</strong>
@@ -318,8 +424,12 @@ function SectorHeatmap({ sectors, benchmark }: { sectors: IndexRow[]; benchmark?
         )}
       </div>
       <p className="panel-note">
-        Each column has its own scale, because a 30% year and a 2% day are both strong moves. The
-        darkest shade means {PERIODS.map((period) => `±${HEAT_SCALE[period] * 2}% for ${period}`).join(", ")}.
+        Each column has its own scale, because a 30% year and a 2% day are both
+        strong moves. The darkest shade means{" "}
+        {PERIODS.map(
+          (period) => `±${HEAT_SCALE[period] * 2}% for ${period}`,
+        ).join(", ")}
+        .
       </p>
     </>
   );
@@ -328,9 +438,21 @@ function SectorHeatmap({ sectors, benchmark }: { sectors: IndexRow[]; benchmark?
 function BreadthPanel({ data }: { data: OverviewPayload }) {
   const breadth = data.breadth;
   return (
-    <Panel title="Market breadth" ai={breadth ? { component: "breadth", title: "Market breadth" } : undefined} aside={breadth ? <span className="muted">{breadth.stocks} stocks traded</span> : undefined}>
+    <Panel
+      title="Market breadth"
+      ai={
+        breadth ? { component: "breadth", title: "Market breadth" } : undefined
+      }
+      aside={
+        breadth ? (
+          <span className="muted">{breadth.stocks} stocks traded</span>
+        ) : undefined
+      }
+    >
       {!breadth ? (
-        <Empty title="Needs the industry list">Upload it below to see breadth.</Empty>
+        <Empty title="Needs the industry list">
+          Upload it below to see breadth.
+        </Empty>
       ) : (
         <div className="breadth">
           <div className="breadth-numbers">
@@ -347,7 +469,11 @@ function BreadthPanel({ data }: { data: OverviewPayload }) {
               <span>Unchanged</span>
             </div>
           </div>
-          <div className="segments" role="img" aria-label={`${breadth.advancing} advancing, ${breadth.declining} declining`}>
+          <div
+            className="segments"
+            role="img"
+            aria-label={`${breadth.advancing} advancing, ${breadth.declining} declining`}
+          >
             <i className="bar-up" style={{ flexGrow: breadth.advancing }} />
             <i className="bar-down" style={{ flexGrow: breadth.declining }} />
           </div>
@@ -379,9 +505,23 @@ function BreadthPanel({ data }: { data: OverviewPayload }) {
 
 function OptionsPanel({ data }: { data: OverviewPayload }) {
   return (
-    <Panel title="Options positioning" ai={data.options.length ? { component: "options", title: "Options positioning" } : undefined} aside={<a className="muted" href="#market">Open chains</a>}>
+    <Panel
+      title="Options positioning"
+      ai={
+        data.options.length
+          ? { component: "options", title: "Options positioning" }
+          : undefined
+      }
+      aside={
+        <a className="muted" href="#market">
+          Open chains
+        </a>
+      }
+    >
       {data.options.length === 0 ? (
-        <Empty title="No option snapshot yet">Press Refresh, or leave the collector running.</Empty>
+        <Empty title="No option snapshot yet">
+          Press Refresh, or leave the collector running.
+        </Empty>
       ) : (
         <div className="table-wrap">
           <table className="table">
@@ -400,7 +540,9 @@ function OptionsPanel({ data }: { data: OverviewPayload }) {
                 <tr key={row.symbol}>
                   <td>
                     <div className="primary">{row.symbol}</div>
-                    <div className="secondary">{row.expiry ? shortDate(row.expiry) : "–"}</div>
+                    <div className="secondary">
+                      {row.expiry ? shortDate(row.expiry) : "–"}
+                    </div>
                   </td>
                   <td className="right">{fraction(row.atm_iv)}</td>
                   <td className="right">{num(row.iv_rank, 0)}</td>
@@ -421,16 +563,33 @@ function HeatCell({ value, period }: { value: number | null; period: string }) {
   if (value === null) return <td className="right heat-cell">–</td>;
   return (
     <td className="right heat-cell">
-      <span className={`heat-${heatClass(value / HEAT_SCALE[period])}`}>{signedPct(value)}</span>
+      <span className={`heat-${heatClass(value / HEAT_SCALE[period])}`}>
+        {signedPct(value)}
+      </span>
     </td>
   );
 }
 
-function PriceChart({ names, range }: { names: { value: string; label: string }[]; range: Range }) {
+function PriceChart({
+  names,
+  range,
+}: {
+  names: { value: string; label: string }[];
+  range: Range;
+}) {
   const [name, setName] = useState("Nifty 50");
-  const history = useSavedPoll<OverviewHistory>(`history-${name}`, () => api.overviewHistory(name));
+  const [history, historyFailed] = useSavedPoll<OverviewHistory>(
+    `history-${name}`,
+    () => api.overviewHistory(name),
+  );
   const isIntraday = range === INTRADAY;
-  const intraday = useSavedPoll(`intraday-${name}`, () => api.overviewIntraday(name), isIntraday);
+  const [intraday, intradayFailed] = useSavedPoll(
+    `intraday-${name}`,
+    () => api.overviewIntraday(name),
+    isIntraday,
+  );
+  const source = isIntraday ? intraday : history;
+  const sourceFailed = isIntraday ? intradayFailed : historyFailed;
   const candles = isIntraday
     ? intraday?.name === name
       ? intraday.candles
@@ -440,8 +599,16 @@ function PriceChart({ names, range }: { names: { value: string; label: string }[
       : [];
   return (
     <Panel
-      title={isIntraday && intraday?.session ? `Price chart, ${sessionLabel(intraday.session)}` : "Price chart"}
-      ai={{ component: "price_chart", title: `${history?.label ?? "Index"} price chart, ${range}`, params: { name, range } }}
+      title={
+        isIntraday && intraday?.session
+          ? `Price chart, ${sessionLabel(intraday.session)}`
+          : "Price chart"
+      }
+      ai={{
+        component: "price_chart",
+        title: `${history?.label ?? "Index"} price chart, ${range}`,
+        params: { name, range },
+      }}
       aside={
         <span className="chart-controls">
           <Legend
@@ -452,13 +619,32 @@ function PriceChart({ names, range }: { names: { value: string; label: string }[
               { name: "EMA 50", color: "var(--overlay-2)" },
             ]}
           />
-          <Select label="Index" value={name} onChange={setName} options={names} />
+          <Select
+            label="Index"
+            value={name}
+            onChange={setName}
+            options={names}
+          />
         </span>
       }
     >
-      {candles.length < 2 ? (
-        <Empty title={isIntraday ? "Today's candles are still loading" : "Price history is still loading"}>
-          {isIntraday && intraday?.status === "session_expired" ? "Log in to Upstox to load them." : undefined}
+      {candles.length < 2 && source === null && sourceFailed ? (
+        <LoadFailed
+          what={isIntraday ? "today's candles" : "the price history"}
+        />
+      ) : candles.length < 2 && source === null ? (
+        <ChartSkeleton label="Loading the price chart" />
+      ) : candles.length < 2 ? (
+        <Empty
+          title={
+            isIntraday
+              ? "No candles for today yet"
+              : "No price history for this index yet"
+          }
+        >
+          {isIntraday && intraday?.status === "session_expired"
+            ? "Log in to Upstox to load them."
+            : undefined}
         </Empty>
       ) : (
         <Candles
@@ -475,7 +661,9 @@ function PriceChart({ names, range }: { names: { value: string; label: string }[
       {isIntraday && candles.length >= 2 && (
         <p className="panel-note">
           Five-minute candles. The moving averages count candles, not days
-          {intraday?.previous_close ? `. Previous close ${num(intraday.previous_close, 2)}.` : "."}
+          {intraday?.previous_close
+            ? `. Previous close ${num(intraday.previous_close, 2)}.`
+            : "."}
           {updatedLabel(intraday)}
         </p>
       )}
@@ -503,11 +691,14 @@ function signedCount(value: number | null): string {
 }
 
 function monthLabel(iso: string): string {
-  return new Date(`${iso.slice(0, 10)}T12:00:00+05:30`).toLocaleDateString("en-IN", {
-    month: "short",
-    year: "2-digit",
-    timeZone: "Asia/Kolkata",
-  });
+  return new Date(`${iso.slice(0, 10)}T12:00:00+05:30`).toLocaleDateString(
+    "en-IN",
+    {
+      month: "short",
+      year: "2-digit",
+      timeZone: "Asia/Kolkata",
+    },
+  );
 }
 
 function institutionsNote(data: OverviewInstitutions): string {
@@ -521,7 +712,11 @@ function InstitutionFlows({ data }: { data: OverviewInstitutions | null }) {
   return (
     <Panel
       title="FII and DII cash flows"
-      ai={data?.daily.length ? { component: "institutions", title: "FII and DII activity" } : undefined}
+      ai={
+        data?.daily.length
+          ? { component: "institutions", title: "FII and DII activity" }
+          : undefined
+      }
       aside={
         <span className="chart-controls">
           <Legend
@@ -544,7 +739,9 @@ function InstitutionFlows({ data }: { data: OverviewInstitutions | null }) {
     >
       {!data || data.daily.length === 0 ? (
         <Empty title="FII and DII data is not available yet">
-          {data?.status === "session_expired" ? "Log in to Upstox to load it." : "It will appear here once Upstox returns it."}
+          {data?.status === "session_expired"
+            ? "Log in to Upstox to load it."
+            : "It will appear here once Upstox returns it."}
         </Empty>
       ) : (
         <>
@@ -559,10 +756,18 @@ function InstitutionFlows({ data }: { data: OverviewInstitutions | null }) {
               value={<NetValue value={data.dii_net} />}
               hint={<>5 sessions {croreText(data.dii_recent)}</>}
             />
-            <Tile label="Combined net" value={<NetValue value={data.combined_net} />} hint={institutionsNote(data)} />
+            <Tile
+              label="Combined net"
+              value={<NetValue value={data.combined_net} />}
+              hint={institutionsNote(data)}
+            />
           </div>
           <DivergingColumns
-            data={rows.map((row) => ({ key: row.date, a: row.fii_net, b: row.dii_net }))}
+            data={rows.map((row) => ({
+              key: row.date,
+              a: row.fii_net,
+              b: row.dii_net,
+            }))}
             names={["FII", "DII"]}
             colors={[FII_COLOR, DII_COLOR]}
             label={`${view} net buying by foreign and domestic institutions in the cash market, in rupees crore`}
@@ -580,9 +785,14 @@ function positioning(row: OverviewInstitutions["segments"][number]) {
   if (row.call_net !== null && row.put_net !== null) {
     return (
       <>
-        Calls <span className={changeTone(row.call_net)}>{signedCount(row.call_net)}</span>
+        Calls{" "}
+        <span className={changeTone(row.call_net)}>
+          {signedCount(row.call_net)}
+        </span>
         {", puts "}
-        <span className={changeTone(row.put_net)}>{signedCount(row.put_net)}</span>
+        <span className={changeTone(row.put_net)}>
+          {signedCount(row.put_net)}
+        </span>
       </>
     );
   }
@@ -593,8 +803,16 @@ function InstitutionSegments({ data }: { data: OverviewInstitutions | null }) {
   return (
     <Panel
       title="FII and DII by segment"
-      ai={data?.segments.length ? { component: "institutions", title: "FII and DII by segment" } : undefined}
-      aside={data?.as_of ? <span className="muted">{institutionsNote(data)}</span> : undefined}
+      ai={
+        data?.segments.length
+          ? { component: "institutions", title: "FII and DII by segment" }
+          : undefined
+      }
+      aside={
+        data?.as_of ? (
+          <span className="muted">{institutionsNote(data)}</span>
+        ) : undefined
+      }
     >
       {!data || data.segments.length === 0 ? (
         <Empty title="FII and DII data is not available yet" />
@@ -619,10 +837,14 @@ function InstitutionSegments({ data }: { data: OverviewInstitutions | null }) {
                     <td className="right">{num(row.buy, 0)}</td>
                     <td className="right">{num(row.sell, 0)}</td>
                     <td className="right">
-                      <span className={changeTone(row.net)}>{`${row.net > 0 ? "+" : ""}${num(row.net, 0)}`}</span>
+                      <span
+                        className={changeTone(row.net)}
+                      >{`${row.net > 0 ? "+" : ""}${num(row.net, 0)}`}</span>
                     </td>
                     <td className="right">
-                      <span className={changeTone(row.oi_change)}>{signedCount(row.oi_change)}</span>
+                      <span className={changeTone(row.oi_change)}>
+                        {signedCount(row.oi_change)}
+                      </span>
                     </td>
                     <td className="secondary">{positioning(row)}</td>
                   </tr>
@@ -631,8 +853,9 @@ function InstitutionSegments({ data }: { data: OverviewInstitutions | null }) {
             </table>
           </div>
           <p className="panel-note">
-            Buy, sell and net are in ₹ crore. OI change and positions are in contracts. Option values
-            are notional, so contract counts are the better guide there.
+            Buy, sell and net are in ₹ crore. OI change and positions are in
+            contracts. Option values are notional, so contract counts are the
+            better guide there.
           </p>
         </>
       )}
@@ -643,18 +866,41 @@ function InstitutionSegments({ data }: { data: OverviewInstitutions | null }) {
 function intradayPoints(item: IntradaySeries, relative: boolean) {
   return item.closes.map((close, i) => ({
     x: Date.parse(item.times[i]),
-    y: relative && item.previous_close ? (close / item.previous_close - 1) * 100 : close,
+    y:
+      relative && item.previous_close
+        ? (close / item.previous_close - 1) * 100
+        : close,
   }));
+}
+
+/** What a chart shows without enough data: a skeleton, a failure, or that there is none. */
+function ChartState({
+  loaded,
+  failed,
+  what,
+  none,
+  label,
+}: {
+  loaded: boolean;
+  failed: boolean;
+  what: string;
+  none: string;
+  label: string;
+}) {
+  if (loaded) return <Empty title={none} />;
+  return failed ? <LoadFailed what={what} /> : <ChartSkeleton label={label} />;
 }
 
 function CompareChart({
   data,
   intraday,
   range,
+  failed,
 }: {
   data: OverviewComparison | null;
   intraday: OverviewIntradayComparison | null;
   range: Range;
+  failed: boolean;
 }) {
   const isIntraday = range === INTRADAY;
   const count = RANGES[range];
@@ -689,10 +935,22 @@ function CompareChart({
     <Panel
       title={title}
       ai={{ component: "comparison", title, params: { range } }}
-      aside={<Legend items={series.map(({ name, color }) => ({ name, color }))} />}
+      aside={
+        <Legend items={series.map(({ name, color }) => ({ name, color }))} />
+      }
     >
       {series.length === 0 || series[0].points.length < 2 ? (
-        <Empty title={isIntraday ? "Today's moves are still loading" : "Index history is still loading"} />
+        <ChartState
+          loaded={(isIntraday ? intraday : data) !== null}
+          failed={failed}
+          what={isIntraday ? "today's moves" : "the index history"}
+          none={
+            isIntraday
+              ? "No moves for today yet"
+              : "No index history for this range yet"
+          }
+          label="Loading the index comparison"
+        />
       ) : (
         <LineChart
           series={series}
@@ -711,7 +969,8 @@ function CompareChart({
       )}
       {isIntraday && series.length > 0 && (
         <p className="panel-note">
-          Change from each index's previous close, in five-minute steps.{updatedLabel(intraday)}
+          Change from each index's previous close, in five-minute steps.
+          {updatedLabel(intraday)}
         </p>
       )}
     </Panel>
@@ -722,17 +981,27 @@ function VixChart({
   data,
   intraday,
   range,
+  failed,
 }: {
   data: OverviewComparison | null;
   intraday: OverviewIntradayComparison | null;
   range: Range;
+  failed: boolean;
 }) {
   const isIntraday = range === INTRADAY;
   const count = RANGES[range];
   const series = useMemo(() => {
     if (isIntraday) {
       const vix = intraday?.volatility;
-      return vix ? [{ name: "India VIX", color: "var(--series-1)", points: intradayPoints(vix, false) }] : [];
+      return vix
+        ? [
+            {
+              name: "India VIX",
+              color: "var(--series-1)",
+              points: intradayPoints(vix, false),
+            },
+          ]
+        : [];
     }
     if (!data) return [];
     const dates = data.volatility.dates.slice(-count);
@@ -746,18 +1015,37 @@ function VixChart({
     ];
   }, [data, intraday, count, isIntraday]);
   const previous = intraday?.volatility?.previous_close;
-  const title = isIntraday ? `India VIX, ${sessionLabel(intraday?.volatility?.session) || "latest session"}` : "India VIX";
+  const title = isIntraday
+    ? `India VIX, ${sessionLabel(intraday?.volatility?.session) || "latest session"}`
+    : "India VIX";
   return (
-    <Panel title={title} ai={{ component: "vix", title: `India VIX over ${range}`, params: { range } }}>
+    <Panel
+      title={title}
+      ai={{
+        component: "vix",
+        title: `India VIX over ${range}`,
+        params: { range },
+      }}
+    >
       {series.length === 0 || series[0].points.length < 2 ? (
-        <Empty title="VIX history is still loading" />
+        <ChartState
+          loaded={(isIntraday ? intraday : data) !== null}
+          failed={failed}
+          what="the VIX history"
+          none="No VIX history for this range yet"
+          label="Loading India VIX"
+        />
       ) : (
         <LineChart
           series={series}
           height={280}
           minSpan={isIntraday ? 0.5 : 2}
           tickX={timeTicks}
-          label={isIntraday ? "India VIX through the session" : `India VIX over ${range}`}
+          label={
+            isIntraday
+              ? "India VIX through the session"
+              : `India VIX over ${range}`
+          }
           formatX={isIntraday ? clockLabel : dayLabel}
           formatY={(y) => y.toFixed(isIntraday ? 1 : 0)}
           formatTipY={(y) => y.toFixed(2)}
@@ -775,19 +1063,34 @@ function VixChart({
 
 function IndustryBars({ data }: { data: OverviewPayload }) {
   const rows = data.industries.slice(0, 24);
-  const scale = Math.max(...rows.map((row) => Math.abs(row.average_change)), 0.5);
+  const scale = Math.max(
+    ...rows.map((row) => Math.abs(row.average_change)),
+    0.5,
+  );
   return (
-    <div className="sector-bars" role="img" aria-label="Average change today by industry">
+    <div
+      className="sector-bars"
+      role="img"
+      aria-label="Average change today by industry"
+    >
       {rows.map((row) => {
         const value = row.average_change;
         const width = (Math.abs(value) / scale) * 50;
         return (
-          <div className="sector-bar" key={row.industry} title={`${row.industry}: ${signedPct(value)}`}>
+          <div
+            className="sector-bar"
+            key={row.industry}
+            title={`${row.industry}: ${signedPct(value)}`}
+          >
             <span className="sector-name">{row.industry}</span>
             <span className="sector-track">
               <i
                 className={value >= 0 ? "bar-up" : "bar-down"}
-                style={value >= 0 ? { left: "50%", width: `${width}%` } : { right: "50%", width: `${width}%` }}
+                style={
+                  value >= 0
+                    ? { left: "50%", width: `${width}%` }
+                    : { right: "50%", width: `${width}%` }
+                }
               />
             </span>
             <span className="sector-value">{signedPct(value)}</span>
@@ -827,12 +1130,23 @@ function SectorTable({ sectors }: { sectors: IndexRow[] }) {
                 <Change value={row.vs_nifty} />
               </td>
               {(["1W", "1M", "3M", "1Y"] as const).map((period) => (
-                <HeatCell value={row.returns[period] ?? null} period={period} key={period} />
+                <HeatCell
+                  value={row.returns[period] ?? null}
+                  period={period}
+                  key={period}
+                />
               ))}
               <td>
                 {row.range_position !== null && (
-                  <div className="day-range table-range" title={`${num(row.low, 2)} to ${num(row.high, 2)}`}>
-                    <span style={{ left: `${Math.max(0, Math.min(100, row.range_position))}%` }} />
+                  <div
+                    className="day-range table-range"
+                    title={`${num(row.low, 2)} to ${num(row.high, 2)}`}
+                  >
+                    <span
+                      style={{
+                        left: `${Math.max(0, Math.min(100, row.range_position))}%`,
+                      }}
+                    />
                   </div>
                 )}
               </td>
@@ -871,7 +1185,10 @@ function IndustryTable({ data }: { data: OverviewPayload }) {
                 <div className="mini-breadth">
                   <span className="segments thin">
                     <i className="bar-up" style={{ flexGrow: row.advancing }} />
-                    <i className="bar-down" style={{ flexGrow: row.declining }} />
+                    <i
+                      className="bar-down"
+                      style={{ flexGrow: row.declining }}
+                    />
                   </span>
                   <small>
                     {row.advancing} / {row.declining}
@@ -893,7 +1210,17 @@ function IndustryTable({ data }: { data: OverviewPayload }) {
   );
 }
 
-function MoverTable({ title, rows, list, showValue }: { title: string; rows: MoverRow[]; list: string; showValue?: boolean }) {
+function MoverTable({
+  title,
+  rows,
+  list,
+  showValue,
+}: {
+  title: string;
+  rows: MoverRow[];
+  list: string;
+  showValue?: boolean;
+}) {
   return (
     <Panel title={title} ai={{ component: "movers", title, params: { list } }}>
       <div className="table-wrap">
@@ -966,13 +1293,21 @@ function SectorUpload({
   };
   return (
     <span className="upload">
-      <input ref={input} type="file" accept=".csv,text/csv" onChange={upload} hidden />
+      <input
+        ref={input}
+        type="file"
+        accept=".csv,text/csv"
+        onChange={upload}
+        hidden
+      />
       <button
         className={replace ? "button ghost" : "button"}
         disabled={busy}
         onClick={() => input.current?.click()}
       >
-        {busy ? "Uploading…" : (label ?? (replace ? "Replace list" : "Upload industry list"))}
+        {busy
+          ? "Uploading…"
+          : (label ?? (replace ? "Replace list" : "Upload industry list"))}
       </button>
       {message && <span className="muted">{message}</span>}
     </span>
@@ -994,12 +1329,17 @@ function IndexLists() {
   return (
     <Panel
       title="Index constituents"
-      aside={<span className="muted">{added.length} of {lists.length} lists added</span>}
+      aside={
+        <span className="muted">
+          {added.length} of {lists.length} lists added
+        </span>
+      }
     >
       <div className="index-lists">
         <p className="secondary">
-          Upstox doesn't publish which stocks are in an index. Download an index's constituents CSV
-          from niftyindices.com and add it here, and its stocks appear when you hover over it.
+          Upstox doesn't publish which stocks are in an index. Download an
+          index's constituents CSV from niftyindices.com and add it here, and
+          its stocks appear when you hover over it.
         </p>
         <div className="filters">
           <Select
@@ -1008,7 +1348,9 @@ function IndexLists() {
             onChange={setName}
             options={lists.map((item) => ({
               value: item.name,
-              label: item.stocks ? `${item.label} (${item.stocks})` : item.label,
+              label: item.stocks
+                ? `${item.label} (${item.stocks})`
+                : item.label,
             }))}
           />
           <SectorUpload
@@ -1038,7 +1380,9 @@ function HeatLegend() {
 }
 
 export function OverviewView() {
-  const [data, setData] = useState<OverviewPayload | null>(() => readSaved("snapshot"));
+  const [data, setData] = useState<OverviewPayload | null>(() =>
+    readSaved("snapshot"),
+  );
   const [failed, setFailed] = useState(false);
   const [period, setPeriod] = useState<Period>("1D");
   const [range, setRangeState] = useState<Range>(() => {
@@ -1049,10 +1393,21 @@ export function OverviewView() {
     setRangeState(next);
     writeSaved("range", next);
   };
-  const intradayMoves = useSavedPoll("intraday-moves", api.overviewIntradayComparison, range === INTRADAY);
-  const comparison = useSavedPoll<OverviewComparison>("comparison", api.overviewComparison);
-  const { layout, setLayout, save, reset, customised } = useGridLayout(LAYOUT_KEY);
-  const [institutions, setInstitutions] = useState<OverviewInstitutions | null>(null);
+  const [intradayMoves, movesFailed] = useSavedPoll(
+    "intraday-moves",
+    api.overviewIntradayComparison,
+    range === INTRADAY,
+  );
+  const [comparison, comparisonFailed] = useSavedPoll<OverviewComparison>(
+    "comparison",
+    api.overviewComparison,
+  );
+  const chartsFailed = range === INTRADAY ? movesFailed : comparisonFailed;
+  const { layout, setLayout, save, reset, customised } =
+    useGridLayout(LAYOUT_KEY);
+  const [institutions, setInstitutions] = useState<OverviewInstitutions | null>(
+    null,
+  );
   const [arranging, setArranging] = useState(false);
 
   const load = useCallback(async () => {
@@ -1074,7 +1429,6 @@ export function OverviewView() {
     return () => window.clearInterval(timer);
   }, [load]);
 
-
   useEffect(() => {
     let active = true;
     const load = () =>
@@ -1093,21 +1447,36 @@ export function OverviewView() {
   }, []);
 
   if (!data) {
-    return failed ? <Empty title="Could not load the market overview" /> : <Empty title="Loading the market…" />;
+    return failed ? (
+      <Empty title="Could not load the market overview" />
+    ) : (
+      <Empty title="Loading the market…" />
+    );
   }
   if (!data.indices.length) {
-    return <Empty title="No market data yet">Log in to Upstox to load the market overview.</Empty>;
+    return (
+      <Empty title="No market data yet">
+        Log in to Upstox to load the market overview.
+      </Empty>
+    );
   }
   const status = statusFor(data.status);
-  const tiles = data.volatility ? [...data.indices, data.volatility] : data.indices;
-  const sectorsUp = data.sectors.filter((row) => (row.change_pct ?? 0) > 0).length;
+  const tiles = data.volatility
+    ? [...data.indices, data.volatility]
+    : data.indices;
+  const sectorsUp = data.sectors.filter(
+    (row) => (row.change_pct ?? 0) > 0,
+  ).length;
   const cards: Card[] = [
     {
       id: "indices",
       title: "Indices",
       span: 12,
       node: (
-        <Panel title="Indices" ai={{ component: "indices", title: "Main indices and India VIX" }}>
+        <Panel
+          title="Indices"
+          ai={{ component: "indices", title: "Main indices and India VIX" }}
+        >
           <div className="tiles index-strip">
             {tiles.map((row) => (
               <IndexTile row={row} key={row.name} />
@@ -1123,21 +1492,55 @@ export function OverviewView() {
       node: (
         <PriceChart
           range={range}
-          names={[...data.indices, ...data.sectors.slice().sort((a, b) => a.label.localeCompare(b.label))]
-            .filter((row, index, all) => all.findIndex((item) => item.name === row.name) === index)
+          names={[
+            ...data.indices,
+            ...data.sectors
+              .slice()
+              .sort((a, b) => a.label.localeCompare(b.label)),
+          ]
+            .filter(
+              (row, index, all) =>
+                all.findIndex((item) => item.name === row.name) === index,
+            )
             .map((row) => ({ value: row.name, label: row.label }))}
         />
       ),
     },
-    { id: "vix", title: "India VIX", span: 4, node: <VixChart data={comparison} intraday={intradayMoves} range={range} /> },
+    {
+      id: "vix",
+      title: "India VIX",
+      span: 4,
+      node: (
+        <VixChart
+          data={comparison}
+          intraday={intradayMoves}
+          range={range}
+          failed={chartsFailed}
+        />
+      ),
+    },
     {
       id: "compare",
       title: "Index comparison",
       span: 8,
-      node: <CompareChart data={comparison} intraday={intradayMoves} range={range} />,
+      node: (
+        <CompareChart
+          data={comparison}
+          intraday={intradayMoves}
+          range={range}
+          failed={chartsFailed}
+        />
+      ),
     },
     ...(data.has_sector_list
-      ? [{ id: "breadth", title: "Market breadth", span: 4, node: <BreadthPanel data={data} /> }]
+      ? [
+          {
+            id: "breadth",
+            title: "Market breadth",
+            span: 4,
+            node: <BreadthPanel data={data} />,
+          },
+        ]
       : []),
     {
       id: "options",
@@ -1164,7 +1567,11 @@ export function OverviewView() {
       node: (
         <Panel
           title={`Sector performance, ${sectorsUp} of ${data.sectors.length} up today`}
-          ai={{ component: "sector_performance", title: `Sector performance over ${period}`, params: { period } }}
+          ai={{
+            component: "sector_performance",
+            title: `Sector performance over ${period}`,
+            params: { period },
+          }}
           aside={
             <Select
               label="Period"
@@ -1202,7 +1609,11 @@ export function OverviewView() {
       node: (
         <Panel
           title="Market map"
-          ai={data.heatmap.length ? { component: "market_map", title: "Market map" } : undefined}
+          ai={
+            data.heatmap.length
+              ? { component: "market_map", title: "Market map" }
+              : undefined
+          }
           aside={
             data.has_sector_list ? (
               <span className="map-aside">
@@ -1215,19 +1626,29 @@ export function OverviewView() {
           {data.has_sector_list ? (
             data.heatmap.length ? (
               <>
-                <Treemap groups={data.heatmap} height={560} label="Most-traded stocks grouped by industry, sized by value traded, coloured by today's change" />
-                <p className="panel-note">Most-traded stocks by industry. Size is value traded, colour is today's change.</p>
+                <Treemap
+                  groups={data.heatmap}
+                  height={560}
+                  label="Most-traded stocks grouped by industry, sized by value traded, coloured by today's change"
+                />
+                <p className="panel-note">
+                  Most-traded stocks by industry. Size is value traded, colour
+                  is today's change.
+                </p>
               </>
             ) : (
               <Empty title="No traded stocks in this snapshot" />
             )
           ) : (
             <div className="sector-empty">
-              <strong>Add the Nifty 500 industry list to see every stock</strong>
+              <strong>
+                Add the Nifty 500 industry list to see every stock
+              </strong>
               <p>
-                Upstox doesn't say which industry a stock belongs to. Download the Nifty 500 constituents
-                CSV from niftyindices.com and upload it once. Breadth, the market map, industries and top
-                movers then appear here.
+                Upstox doesn't say which industry a stock belongs to. Download
+                the Nifty 500 constituents CSV from niftyindices.com and upload
+                it once. Breadth, the market map, industries and top movers then
+                appear here.
               </p>
               <SectorUpload onDone={load} />
             </div>
@@ -1242,7 +1663,16 @@ export function OverviewView() {
             title: "How stocks moved today",
             span: 6,
             node: (
-              <Panel title="How stocks moved today" ai={{ component: "distribution", title: "How stocks moved today" }} aside={<span className="muted">Number of stocks by change</span>}>
+              <Panel
+                title="How stocks moved today"
+                ai={{
+                  component: "distribution",
+                  title: "How stocks moved today",
+                }}
+                aside={
+                  <span className="muted">Number of stocks by change</span>
+                }
+              >
                 <Histogram
                   label="Number of stocks in each band of today's change"
                   bars={data.distribution.map((bar, index) => ({
@@ -1258,20 +1688,38 @@ export function OverviewView() {
             title: "Industry performance today",
             span: 6,
             node: (
-              <Panel title="Industry performance today" ai={{ component: "industries", title: "Industry performance today" }} aside={<span className="muted">Equal-weight average</span>}>
+              <Panel
+                title="Industry performance today"
+                ai={{
+                  component: "industries",
+                  title: "Industry performance today",
+                }}
+                aside={<span className="muted">Equal-weight average</span>}
+              >
                 <IndustryBars data={data} />
               </Panel>
             ),
           },
         ]
       : []),
-    { id: "index-lists", title: "Index constituents", span: 12, node: <IndexLists /> },
+    {
+      id: "index-lists",
+      title: "Index constituents",
+      span: 12,
+      node: <IndexLists />,
+    },
     {
       id: "sectors",
       title: "Sectors",
       span: 12,
       node: (
-        <Panel title="Sectors" ai={{ component: "sector_table", title: "Sector table" }} aside={<span className="muted">Colour scale widens with the period</span>}>
+        <Panel
+          title="Sectors"
+          ai={{ component: "sector_table", title: "Sector table" }}
+          aside={
+            <span className="muted">Colour scale widens with the period</span>
+          }
+        >
           <SectorTable sectors={data.sectors} />
         </Panel>
       ),
@@ -1283,14 +1731,51 @@ export function OverviewView() {
             title: "Industries",
             span: 12,
             node: (
-              <Panel title="Industries" ai={{ component: "industries", title: "Industries table" }}>
+              <Panel
+                title="Industries"
+                ai={{ component: "industries", title: "Industries table" }}
+              >
                 <IndustryTable data={data} />
               </Panel>
             ),
           },
-          { id: "gainers", title: "Top gainers", span: 4, node: <MoverTable title="Top gainers" rows={data.movers.gainers} list="gainers" /> },
-          { id: "losers", title: "Top losers", span: 4, node: <MoverTable title="Top losers" rows={data.movers.losers} list="losers" /> },
-          { id: "active", title: "Most active", span: 4, node: <MoverTable title="Most active" rows={data.movers.active} list="active" showValue /> },
+          {
+            id: "gainers",
+            title: "Top gainers",
+            span: 4,
+            node: (
+              <MoverTable
+                title="Top gainers"
+                rows={data.movers.gainers}
+                list="gainers"
+              />
+            ),
+          },
+          {
+            id: "losers",
+            title: "Top losers",
+            span: 4,
+            node: (
+              <MoverTable
+                title="Top losers"
+                rows={data.movers.losers}
+                list="losers"
+              />
+            ),
+          },
+          {
+            id: "active",
+            title: "Most active",
+            span: 4,
+            node: (
+              <MoverTable
+                title="Most active"
+                rows={data.movers.active}
+                list="active"
+                showValue
+              />
+            ),
+          },
         ]
       : []),
   ];
@@ -1298,20 +1783,28 @@ export function OverviewView() {
     <IndexHoverLayer>
       <div className="filters overview-head">
         {failed ? (
-          <Status tone="warning">Server unreachable, showing data saved in this browser</Status>
+          <Status tone="warning">
+            Server unreachable, showing data saved in this browser
+          </Status>
         ) : (
           <Status tone={status.tone}>{status.label}</Status>
         )}
         <span className="muted">
-          {data.last_trade_at ? `Last trade ${dateTimeIst(data.last_trade_at)}` : ""}
+          {data.last_trade_at
+            ? `Last trade ${dateTimeIst(data.last_trade_at)}`
+            : ""}
           {data.fetched_at ? `, fetched ${timeIst(data.fetched_at)}` : ""}
         </span>
         <span className="overview-tools">
           {arranging ? (
-            <span className="muted layout-hint">Drag a panel onto another to swap them</span>
+            <span className="muted layout-hint">
+              Drag a panel onto another to swap them
+            </span>
           ) : (
             !customised && (
-              <span className="muted layout-hint">Drag a panel's edge or corner to resize it</span>
+              <span className="muted layout-hint">
+                Drag a panel's edge or corner to resize it
+              </span>
             )
           )}
           {customised && (
@@ -1331,7 +1824,10 @@ export function OverviewView() {
             label="Chart range"
             value={range}
             onChange={setRange}
-            options={(Object.keys(RANGES) as Range[]).map((value) => ({ value, label: value }))}
+            options={(Object.keys(RANGES) as Range[]).map((value) => ({
+              value,
+              label: value,
+            }))}
           />
         </span>
       </div>

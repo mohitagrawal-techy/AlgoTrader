@@ -517,7 +517,9 @@ class OverviewService:
         if stored.empty:
             return merge_live_bar(pd.DataFrame(columns=columns), None)
         frame = stored.assign(date=pd.to_datetime(stored["ts"]).dt.date)[columns]
-        return merge_live_bar(frame.sort_values("date", ignore_index=True), live_rows.get(name))
+        # Backfills can store a session twice under different times; keep its latest bar.
+        frame = frame.sort_values("date", kind="stable").drop_duplicates("date", keep="last")
+        return merge_live_bar(frame.reset_index(drop=True), live_rows.get(name))
 
     def _live_rows(self, now: datetime) -> dict[str, dict]:
         data = self.snapshot(now)

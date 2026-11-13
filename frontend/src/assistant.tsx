@@ -22,9 +22,12 @@ interface AssistantApi {
   followUp: (title: string, explanation: string) => void;
 }
 
-const AssistantContext = createContext<AssistantApi>({ followUp: () => undefined });
+const AssistantContext = createContext<AssistantApi>({
+  followUp: () => undefined,
+});
 const STORAGE_KEY = "algoverse-chat";
-const NOTICE = "AI summary from a local model. It can be wrong, so check figures against the page. Not advice.";
+const NOTICE =
+  "AI summary from a local model. It can be wrong, so check figures against the page. Not advice.";
 const SUGGESTIONS = [
   "How is the market doing right now?",
   "Which sectors are strongest over the past month?",
@@ -63,7 +66,15 @@ function AiText({ text }: { text: string }) {
   return <div className="ai-text">{blocks}</div>;
 }
 
-export function AiButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+export function AiButton({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
   return (
     <button
       type="button"
@@ -78,7 +89,13 @@ export function AiButton({ active, onClick, label }: { active: boolean; onClick:
   );
 }
 
-export function AiExplain({ target, onClose }: { target: AiTarget; onClose: () => void }) {
+export function AiExplain({
+  target,
+  onClose,
+}: {
+  target: AiTarget;
+  onClose: () => void;
+}) {
   const { followUp } = useContext(AssistantContext);
   const [text, setText] = useState("");
   const [model, setModel] = useState("");
@@ -92,10 +109,19 @@ export function AiExplain({ target, onClose }: { target: AiTarget; onClose: () =
     setError(null);
     setBusy(true);
     api
-      .explain(target, setModel, (piece) => setText((current) => current + piece), controller.signal)
+      .explain(
+        target,
+        setModel,
+        (piece) => setText((current) => current + piece),
+        controller.signal,
+      )
       .catch((reason) => {
         if (!controller.signal.aborted) {
-          setError(reason instanceof Error ? reason.message : "The explanation failed.");
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "The explanation failed.",
+          );
         }
       })
       .finally(() => {
@@ -114,7 +140,10 @@ export function AiExplain({ target, onClose }: { target: AiTarget; onClose: () =
         <p className="ai-waiting">Reading the data…</p>
       )}
       <footer>
-        <span>{NOTICE}{model ? ` ${model}.` : ""}</span>
+        <span>
+          {NOTICE}
+          {model ? ` ${model}.` : ""}
+        </span>
         <span className="ai-actions">
           {!busy && !error && (
             <button type="button" onClick={() => followUp(target.title, text)}>
@@ -122,7 +151,10 @@ export function AiExplain({ target, onClose }: { target: AiTarget; onClose: () =
             </button>
           )}
           {!busy && (
-            <button type="button" onClick={() => setAttempt((value) => value + 1)}>
+            <button
+              type="button"
+              onClick={() => setAttempt((value) => value + 1)}
+            >
               Regenerate
             </button>
           )}
@@ -176,7 +208,10 @@ function ChatDrawer({
   const send = async (text: string) => {
     const question = text.trim();
     if (!question || busy) return;
-    const history: ChatMessage[] = [...messages, { role: "user", content: question }];
+    const history: ChatMessage[] = [
+      ...messages,
+      { role: "user", content: question },
+    ];
     setMessages([...history, { role: "assistant", content: "" }]);
     setInput("");
     setError(null);
@@ -198,14 +233,18 @@ function ChatDrawer({
       );
     } catch (reason) {
       if (!active.signal.aborted) {
-        setError(reason instanceof Error ? reason.message : "The assistant failed.");
+        setError(
+          reason instanceof Error ? reason.message : "The assistant failed.",
+        );
         setMessages(history);
       }
     } finally {
       setBusy(false);
       setMessages((current) => {
         const last = current[current.length - 1];
-        return last?.role === "assistant" && !last.content ? current.slice(0, -1) : current;
+        return last?.role === "assistant" && !last.content
+          ? current.slice(0, -1)
+          : current;
       });
     }
   };
@@ -226,7 +265,9 @@ function ChatDrawer({
       <header>
         <div>
           <strong>Market assistant</strong>
-          <small>{model || "Local AI model"}, using this page's live figures</small>
+          <small>
+            {model || "Local AI model"}, using this page's live figures
+          </small>
         </div>
         <span className="ai-actions">
           {messages.length > 0 && !busy && (
@@ -242,9 +283,16 @@ function ChatDrawer({
       <div className="chat-log" ref={log} aria-live="polite">
         {messages.length === 0 && (
           <div className="chat-start">
-            <p>Ask about indices, sectors, volatility, breadth or options positioning.</p>
+            <p>
+              Ask about indices, sectors, volatility, breadth or options
+              positioning.
+            </p>
             {SUGGESTIONS.map((suggestion) => (
-              <button type="button" key={suggestion} onClick={() => void send(suggestion)}>
+              <button
+                type="button"
+                key={suggestion}
+                onClick={() => void send(suggestion)}
+              >
                 {suggestion}
               </button>
             ))}
@@ -277,7 +325,11 @@ function ChatDrawer({
           aria-label="Your question"
         />
         {busy ? (
-          <button type="button" className="button ghost" onClick={() => controller.current?.abort()}>
+          <button
+            type="button"
+            className="button ghost"
+            onClick={() => controller.current?.abort()}
+          >
             Stop
           </button>
         ) : (
@@ -334,8 +386,14 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
           onClose={() => setOpen(false)}
         />
       ) : (
-        <button type="button" className="chat-launcher" onClick={() => setOpen(true)}>
-          <span aria-hidden>✦</span> Ask AI
+        <button
+          type="button"
+          className="chat-launcher"
+          aria-label="Ask AI"
+          onClick={() => setOpen(true)}
+        >
+          <span aria-hidden>✦</span>
+          <span className="chat-launcher-text">Ask AI</span>
         </button>
       )}
     </AssistantContext.Provider>

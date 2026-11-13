@@ -367,3 +367,21 @@ def test_comparison_aligns_dates_and_leaves_out_nifty_500(tmp_path):
     assert labels == ["Nifty 50", "Next 50", "Bank Nifty", "Midcap 100", "Smallcap 100"]
     assert all(len(item["closes"]) == len(result["dates"]) for item in result["series"])
     assert result["volatility"]["closes"]
+
+
+class TwiceStoredStore(HistoryStore):
+    """A backfill stored one session twice, at two different times."""
+
+    def read_candles(self, name):
+        frame = super().read_candles(name)
+        again = frame.iloc[[5]].assign(ts=frame["ts"].iloc[5] + pd.Timedelta(hours=15))
+        return pd.concat([frame, again], ignore_index=True)
+
+
+def test_a_session_stored_twice_is_charted_once(tmp_path):
+    calendar = SimpleNamespace(is_open=lambda now: True)
+    built = OverviewService(tmp_path, CONFIG_DIR, FakeMarket(), TwiceStoredStore(), calendar)
+    result = built.comparison(NOW)
+    assert len(result["dates"]) == len(set(result["dates"]))
+    dates = [row["date"] for row in built.history("Nifty 50", NOW)["candles"]]
+    assert len(dates) == len(set(dates))

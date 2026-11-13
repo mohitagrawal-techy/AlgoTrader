@@ -33,7 +33,7 @@ import {
 import { ReplayControls, ReplayPanel } from "./ReplayPanel";
 import { indexAt, timeline, wallText } from "./replay";
 import { IndicatorTip } from "./IndicatorTip";
-import { byType, pickText } from "./TechRules";
+import { byType, pickText } from "../builder/logic/picks";
 
 type Indicator = TechCatalog["indicators"][number];
 

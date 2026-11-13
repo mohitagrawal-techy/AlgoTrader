@@ -1,0 +1,133 @@
+import type { ReactNode } from "react";
+import { cx } from "./Button";
+
+const PILL = cx(
+  "inline-flex h-8 cursor-pointer select-none items-center justify-center px-3 text-[13px] font-semibold",
+  "text-ink-2 hover:bg-hover hover:text-ink peer-checked:bg-ink peer-checked:text-page",
+  "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
+);
+
+/** One choice from a few, as joined buttons. Real radio inputs underneath, so the arrow
+ * keys move between them and a screen reader announces the group. */
+export function Segmented<T extends string>({
+  name,
+  label,
+  value,
+  options,
+  onChange,
+  className,
+}: {
+  name: string;
+  label: string;
+  value: T;
+  options: readonly { value: T; label: string }[];
+  onChange: (value: T) => void;
+  className?: string;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className={cx(
+        "inline-flex overflow-hidden rounded-md border border-line bg-surface",
+        className,
+      )}
+    >
+      {options.map((option) => (
+        <label
+          key={option.value}
+          className="flex flex-1 border-line [&+&]:border-l"
+        >
+          <input
+            type="radio"
+            className="peer sr-only"
+            name={name}
+            checked={value === option.value}
+            onChange={() => onChange(option.value)}
+          />
+          <span className={cx(PILL, "w-full")}>{option.label}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+/** A choice that is on or off, shown as a pill, such as a symbol to trade on. */
+export function ChipCheck({
+  checked,
+  onChange,
+  children,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <label className="inline-flex">
+      <input
+        type="checkbox"
+        className="peer sr-only"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span
+        className={cx(
+          PILL,
+          "rounded-full border border-line peer-checked:border-ink",
+        )}
+      >
+        {children}
+      </span>
+    </label>
+  );
+}
+
+/** An on/off switch with its label beside it. */
+export function Switch({
+  id,
+  checked,
+  disabled,
+  describedBy,
+  onChange,
+  children,
+}: {
+  id: string;
+  checked: boolean;
+  disabled?: boolean;
+  describedBy?: string;
+  onChange: (checked: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <label
+      htmlFor={id}
+      className={cx(
+        "inline-flex items-center gap-2.5",
+        disabled ? "cursor-not-allowed" : "cursor-pointer",
+      )}
+    >
+      <input
+        id={id}
+        type="checkbox"
+        role="switch"
+        className="peer sr-only"
+        checked={checked}
+        disabled={disabled}
+        aria-describedby={describedBy}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span
+        aria-hidden
+        className={cx(
+          "relative h-5 w-9 shrink-0 rounded-full border border-axis bg-surface-2 transition-colors",
+          "after:absolute after:top-0.5 after:left-0.5 after:size-3.5 after:rounded-full after:bg-ink-3",
+          "after:transition-transform peer-checked:border-ink peer-checked:bg-ink",
+          "peer-checked:after:translate-x-4 peer-checked:after:bg-page",
+          "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
+          "peer-disabled:opacity-50",
+        )}
+      />
+      <span className="text-[13.5px] font-semibold text-ink">{children}</span>
+    </label>
+  );
+}

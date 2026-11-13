@@ -28,6 +28,7 @@
   --hover-wash: rgba(18, 22, 28, 0.045);
   --selected: rgba(18, 22, 28, 0.07);
   --accent: #b86e00;
+  --accent-ink: #945800;
   --accent-wash: rgba(232, 150, 30, 0.14);
   --series-1: #2a6fd0;
   --series-2: #e06326;
@@ -88,6 +89,7 @@
     --hover-wash: rgba(232, 235, 240, 0.05);
     --selected: rgba(232, 235, 240, 0.08);
     --accent: #f2aa3c;
+    --accent-ink: #f2aa3c;
     --accent-wash: rgba(242, 170, 60, 0.13);
     --series-1: #4b8ff0;
     --series-2: #ef7a3f;
@@ -148,6 +150,7 @@
   --hover-wash: rgba(232, 235, 240, 0.05);
   --selected: rgba(232, 235, 240, 0.08);
   --accent: #f2aa3c;
+  --accent-ink: #f2aa3c;
   --accent-wash: rgba(242, 170, 60, 0.13);
   --series-1: #4b8ff0;
   --series-2: #ef7a3f;
@@ -1562,83 +1565,6 @@ main {
   outline-offset: -2px;
 }
 
-.strategy-page.bs-scope {
-  --bs-body-font-family: inherit;
-  --bs-body-font-size: 0.8125rem;
-  --bs-body-bg: transparent;
-  --bs-body-color: var(--ink);
-  --bs-card-bg: var(--surface);
-  --bs-border-color: var(--grid);
-  --bs-secondary-color: var(--ink-2);
-  --bs-primary: var(--series-1);
-  --bs-link-color-rgb: 42, 120, 214;
-  background: transparent;
-  color: var(--ink);
-  font-family: inherit;
-}
-
-.strategy-page .card {
-  --bs-card-bg: var(--surface);
-  --bs-card-cap-bg: transparent;
-  --bs-card-border-color: var(--border);
-}
-
-.strategy-page .list-group {
-  --bs-list-group-bg: transparent;
-  --bs-list-group-border-color: var(--border);
-}
-
-.strategy-page .form-control,
-.strategy-page .form-select,
-.strategy-page .input-group-text {
-  font-size: 0.8125rem;
-}
-
-.strategy-page .btn {
-  --bs-btn-font-size: 0.8125rem;
-}
-
-.strategy-page .card-header .h6 {
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.strategy-page .btn-primary {
-  --bs-btn-bg: var(--series-1);
-  --bs-btn-border-color: var(--series-1);
-  --bs-btn-hover-bg: var(--series-1);
-  --bs-btn-hover-border-color: var(--series-1);
-  --bs-btn-active-bg: var(--series-1);
-  --bs-btn-disabled-bg: var(--series-1);
-  --bs-btn-disabled-border-color: var(--series-1);
-}
-
-.strategy-page .btn-outline-primary {
-  --bs-btn-color: var(--series-1);
-  --bs-btn-border-color: var(--series-1);
-  --bs-btn-hover-bg: var(--series-1);
-  --bs-btn-hover-border-color: var(--series-1);
-  --bs-btn-active-bg: var(--series-1);
-  --bs-btn-active-border-color: var(--series-1);
-  --bs-btn-disabled-color: var(--series-1);
-  --bs-btn-disabled-border-color: var(--series-1);
-}
-
-.strategy-page .text-bg-primary {
-  background-color: var(--series-1) !important;
-}
-
-.strategy-page .d-contents {
-  display: contents;
-}
-
-@media (min-width: 1200px) {
-  .bs-scope.strategy-page .strategy-summary {
-    position: sticky;
-    top: 68px;
-  }
-}
-
 .ladder {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -3051,33 +2977,6 @@ main {
 }
 
 /* Strategy editor: technical rules. */
-.tech-compare {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
-}
-
-.tech-compare .tech-op {
-  width: auto;
-}
-
-.tech-params {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.tech-param {
-  width: 96px;
-}
-
-@media (max-width: 720px) {
-  .tech-compare {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
 
 .run-profiles {
   flex-wrap: wrap;
@@ -3456,203 +3355,6 @@ main > .empty {
 
 /* ---- The strategy editor (Bootstrap, scoped) matched to the app -------------------- */
 
-.strategy-page.bs-scope {
-  --bs-body-font-family: var(--font);
-  --bs-body-font-size: 13.5px;
-  --bs-body-color: var(--ink);
-  --bs-secondary-color: var(--ink-3);
-  --bs-tertiary-color: var(--ink-3);
-  --bs-emphasis-color: var(--ink);
-  --bs-border-color: var(--border);
-  --bs-border-radius: var(--r-md);
-  --bs-border-radius-sm: var(--r-sm);
-  --bs-border-radius-lg: var(--r-lg);
-  --bs-primary: var(--ink);
-  --bs-primary-rgb: 128, 137, 153;
-  --bs-link-color: var(--ink);
-  --bs-link-hover-color: var(--ink);
-  --bs-link-color-rgb: 128, 137, 153;
-  --bs-focus-ring-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  --bs-form-invalid-color: var(--pnl-down);
-  --bs-form-invalid-border-color: var(--pnl-down);
-  --bs-danger-rgb: 208, 59, 59;
-  font-family: var(--font);
-}
-
-.strategy-page .card {
-  --bs-card-bg: var(--surface);
-  --bs-card-border-color: var(--border);
-  --bs-card-border-radius: var(--r-lg);
-  --bs-card-inner-border-radius: calc(var(--r-lg) - 1px);
-  --bs-card-cap-padding-y: 12px;
-  --bs-card-cap-padding-x: 16px;
-  --bs-card-spacer-x: 16px;
-  box-shadow: var(--shadow);
-}
-
-.strategy-page .card-header {
-  border-bottom-color: var(--border);
-}
-
-.strategy-page .card-header .h6,
-.strategy-page .card-header h2,
-.strategy-page .card-header h3 {
-  font-size: 15px;
-  font-weight: 650;
-  font-stretch: 88%;
-}
-
-.strategy-page .form-label {
-  margin-bottom: 5px;
-  color: var(--ink-2);
-  font-size: 12.5px;
-  font-weight: 550;
-}
-
-.strategy-page .form-control,
-.strategy-page .form-select {
-  min-height: 34px;
-  border-color: var(--border);
-  border-radius: var(--r-md);
-  background-color: var(--surface);
-  color: var(--ink);
-  font-size: 13.5px;
-}
-
-.strategy-page .form-control-sm,
-.strategy-page .form-select-sm {
-  min-height: 30px;
-  font-size: 13px;
-}
-
-.strategy-page .form-control:hover,
-.strategy-page .form-select:hover {
-  border-color: var(--axis);
-}
-
-.strategy-page .form-control:focus,
-.strategy-page .form-select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-wash);
-}
-
-.strategy-page .form-control::placeholder {
-  color: var(--ink-3);
-}
-
-.strategy-page .input-group-text {
-  border-color: var(--border);
-  background: var(--surface-2);
-  color: var(--ink-3);
-}
-
-.strategy-page .form-text {
-  color: var(--ink-3);
-  font-size: 12px;
-}
-
-.strategy-page .form-check-input {
-  border-color: var(--axis);
-  background-color: var(--surface);
-}
-
-.strategy-page .form-check-input:checked {
-  border-color: var(--ink);
-  background-color: var(--ink);
-}
-
-.strategy-page .form-check-input:focus {
-  box-shadow: 0 0 0 3px var(--accent-wash);
-}
-
-.strategy-page .btn {
-  --bs-btn-font-size: 13px;
-  --bs-btn-font-weight: 600;
-  --bs-btn-border-radius: var(--r-md);
-  --bs-btn-focus-box-shadow: 0 0 0 3px var(--accent-wash);
-}
-
-.strategy-page .btn-primary {
-  --bs-btn-color: var(--page);
-  --bs-btn-bg: var(--ink);
-  --bs-btn-border-color: var(--ink);
-  --bs-btn-hover-color: var(--page);
-  --bs-btn-hover-bg: color-mix(in srgb, var(--ink) 86%, var(--page));
-  --bs-btn-hover-border-color: var(--ink);
-  --bs-btn-active-color: var(--page);
-  --bs-btn-active-bg: var(--ink);
-  --bs-btn-active-border-color: var(--ink);
-  --bs-btn-disabled-color: var(--ink-3);
-  --bs-btn-disabled-bg: var(--surface-2);
-  --bs-btn-disabled-border-color: var(--border);
-}
-
-.strategy-page .btn-outline-primary,
-.strategy-page .btn-outline-secondary {
-  --bs-btn-color: var(--ink);
-  --bs-btn-bg: var(--surface);
-  --bs-btn-border-color: var(--border);
-  --bs-btn-hover-color: var(--ink);
-  --bs-btn-hover-bg: var(--surface-2);
-  --bs-btn-hover-border-color: var(--axis);
-  --bs-btn-active-color: var(--page);
-  --bs-btn-active-bg: var(--ink);
-  --bs-btn-active-border-color: var(--ink);
-  --bs-btn-disabled-color: var(--ink-3);
-  --bs-btn-disabled-border-color: var(--border);
-  font-weight: 500;
-}
-
-.strategy-page .btn-check:checked + .btn {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--page);
-}
-
-.strategy-page .btn-link {
-  --bs-btn-color: var(--ink-2);
-  --bs-btn-hover-color: var(--ink);
-  text-underline-offset: 3px;
-}
-
-.strategy-page .btn-link.text-danger {
-  color: var(--pnl-down) !important;
-}
-
-.strategy-page .badge.text-bg-secondary {
-  background: var(--surface-2) !important;
-  color: var(--ink-2) !important;
-  font-weight: 600;
-}
-
-.strategy-page .text-bg-primary {
-  background: var(--accent-wash) !important;
-  color: var(--ink) !important;
-}
-
-.strategy-page .alert-danger {
-  --bs-alert-bg: var(--critical-wash);
-  --bs-alert-border-color: color-mix(in srgb, var(--critical) 40%, transparent);
-  --bs-alert-color: var(--ink);
-}
-
-.strategy-page .list-group {
-  --bs-list-group-bg: transparent;
-  --bs-list-group-color: var(--ink);
-  --bs-list-group-border-color: var(--border);
-}
-
-.strategy-page .breadcrumb {
-  --bs-breadcrumb-divider-color: var(--ink-3);
-  --bs-breadcrumb-item-active-color: var(--ink-3);
-  font-size: 13px;
-}
-
-.strategy-page .tech-rule {
-  border-color: var(--border) !important;
-  background: var(--surface-2);
-}
-
 /* ---- Small screens ----------------------------------------------------------------- */
 
 @media (max-width: 900px) {
@@ -3954,20 +3656,6 @@ main > .empty {
   letter-spacing: 0;
 }
 
-.strategy-page .quick-rules {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-
-.strategy-page .quick-rules .btn {
-  --bs-btn-padding-y: 2px;
-  --bs-btn-padding-x: 9px;
-  border-radius: 999px;
-  font-size: 12.5px;
-}
-
 /* ---- Strategy map: steps on a rail, then an exit map ------------------------------- */
 
 .sv {
@@ -4234,13 +3922,6 @@ main > .empty {
   color: var(--ink-2);
   font-weight: 600;
   cursor: pointer;
-}
-
-@media (min-width: 1200px) {
-  .bs-scope.strategy-page .strategy-summary {
-    max-height: calc(100vh - var(--bar-h) - 32px);
-    overflow-y: auto;
-  }
 }
 
 /* ---- Long-running jobs ------------------------------------------------------------- */
@@ -4909,7 +4590,7 @@ main > .empty {
 }
 
 .index-chart .chart-signal-mark {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .index-chart .chart-signal-rule {
@@ -4957,7 +4638,7 @@ main > .empty {
 
 .index-chart .replay-badge {
   font: 600 12px/1 var(--font);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .index-chart .replay-play {
@@ -5067,7 +4748,7 @@ main > .empty {
   padding: 1px 5px;
   border-radius: var(--r-sm);
   background: var(--accent-wash);
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: 11px;
 }
 
@@ -5161,46 +4842,6 @@ body.chart-full-open {
 }
 
 /* Strategy map preview in the builder: a large dialog over the page. */
-.map-preview {
-  width: min(1100px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
-}
-
-.map-preview::backdrop {
-  background: rgba(8, 10, 14, 0.55);
-}
-
-.map-preview-box {
-  display: flex;
-  flex-direction: column;
-  max-height: calc(100vh - 48px);
-}
-
-.map-preview-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--border);
-}
-
-.map-preview-body {
-  padding: 16px 18px 20px;
-  overflow: auto;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .map-preview[open] {
-    animation: map-preview-in 140ms ease-out;
-  }
-}
 
 @keyframes map-preview-in {
   from {
@@ -5211,19 +4852,6 @@ body.chart-full-open {
 
 /* In the preview the map has room for its steps and its diagram side by side, each at the
    size it was drawn for. */
-@media (min-width: 900px) {
-  .map-preview .sv {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
-    gap: 24px;
-    align-items: start;
-  }
-}
-
-.map-preview .sv-map {
-  max-width: 460px;
-  margin: 0;
-}
 
 .sv-case {
   margin-top: 10px;
@@ -5232,415 +4860,22 @@ body.chart-full-open {
 }
 
 /* Builder summary: a right sidebar that folds into a tab on the window's edge. */
-.bs-scope.strategy-page .summary-rail {
-  position: fixed;
-  right: 0;
-  top: 50%;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 6px;
-  border: 1px solid var(--border);
-  border-right: 0;
-  border-radius: var(--r-md) 0 0 var(--r-md);
-  background: var(--surface);
-  color: var(--ink-2);
-  font: 500 13px/1 var(--font);
-  cursor: pointer;
-  transform: translateY(-50%);
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.12);
-}
-
-.bs-scope.strategy-page .summary-rail:hover {
-  color: var(--ink);
-  background: var(--surface-2);
-}
-
-.bs-scope.strategy-page .summary-rail:focus-visible,
-.bs-scope.strategy-page .summary-fold:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.bs-scope.strategy-page .summary-rail-label {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  letter-spacing: 0.02em;
-}
-
-.bs-scope.strategy-page .summary-fold {
-  line-height: 1;
-  padding: 2px 8px;
-}
 
 /* Keep the form clear of the edge tab. */
-@media (min-width: 1200px) {
-  .bs-scope.strategy-page .summary-folded {
-    padding-right: 44px;
-  }
-}
 
 /* Builder sections fold to their header. */
-.bs-scope.strategy-page .builder-section-toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.bs-scope.strategy-page .builder-section-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-  border-radius: var(--r-sm);
-}
-
-.bs-scope.strategy-page .builder-chevron {
-  display: inline-block;
-  margin-top: 1px;
-  color: var(--ink-3);
-  transform: rotate(90deg);
-  transition: transform 120ms ease;
-}
-
-.bs-scope.strategy-page .builder-section.is-folded .builder-chevron {
-  transform: none;
-}
-
-.bs-scope.strategy-page .builder-section.is-folded .card-header {
-  border-bottom: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .bs-scope.strategy-page .builder-chevron {
-    transition: none;
-  }
-}
 
 /* Features: one card per optional behaviour, its settings shown while it is on. */
-.bs-scope.strategy-page .feature-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
-  gap: 0.75rem;
-}
-.bs-scope.strategy-page .feature {
-  border: 1px solid var(--bs-border-color);
-  border-radius: var(--bs-border-radius);
-  padding: 0.6rem 0.75rem;
-}
-.bs-scope.strategy-page .feature.is-on {
-  border-color: var(--bs-primary-border-subtle);
-  background: var(--bs-primary-bg-subtle);
-}
-.bs-scope.strategy-page .feature.is-disabled {
-  opacity: 0.7;
-}
 
 /* Case tabs: the cases sit on one bar, the open one joined to its panel below. */
-.bs-scope.strategy-page .case-bar {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 0.5rem;
-  border-bottom: 1px solid var(--bs-border-color);
-}
-.bs-scope.strategy-page .case-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  margin-bottom: -1px;
-}
-.bs-scope.strategy-page .case-tab {
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: var(--bs-border-radius) var(--bs-border-radius) 0 0;
-  background: none;
-  color: var(--bs-secondary-color);
-  padding: 0.45rem 0.9rem;
-  font-weight: 500;
-  max-width: 14rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.bs-scope.strategy-page .case-tab:hover {
-  color: var(--bs-body-color);
-}
-.bs-scope.strategy-page .case-tab.is-active {
-  color: var(--bs-primary);
-  background: var(--bs-body-bg);
-  border-color: var(--bs-border-color);
-  border-bottom: 2px solid var(--bs-primary);
-}
-.bs-scope.strategy-page .case-tab.has-problem::after {
-  content: "";
-  display: inline-block;
-  width: 0.45rem;
-  height: 0.45rem;
-  margin-left: 0.4rem;
-  border-radius: 50%;
-  background: var(--bs-danger);
-  vertical-align: middle;
-}
-.bs-scope.strategy-page .case-tab:focus-visible {
-  outline: 2px solid var(--bs-primary);
-  outline-offset: 2px;
-}
-.bs-scope.strategy-page .case-bar > .d-flex {
-  padding-bottom: 0.4rem;
-}
-.bs-scope.strategy-page .case-panel {
-  padding-top: 0.75rem;
-}
-.bs-scope.strategy-page .case-block {
-  border: 1px solid var(--bs-border-color);
-  border-left-width: 3px;
-  border-radius: var(--bs-border-radius);
-  padding: 0.6rem 0.75rem;
-  margin-bottom: 0.75rem;
-}
-.bs-scope.strategy-page .case-entry {
-  border-left-color: var(--bs-success);
-}
-.bs-scope.strategy-page .case-exit {
-  border-left-color: var(--bs-danger);
-}
-.bs-scope.strategy-page .case-block-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.25rem 0.75rem;
-  margin-bottom: 0.5rem;
-}
 
 /* Legs: one row per leg; its fields wrap onto a second line when space runs short. */
-.bs-scope.strategy-page .leg-rows {
-  display: grid;
-  gap: 0.5rem;
-}
-.bs-scope.strategy-page .leg-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.5rem 0.6rem;
-  padding: 0.5rem 0.6rem;
-  border: 1px solid var(--bs-border-color);
-  border-radius: var(--bs-border-radius);
-  background: var(--bs-tertiary-bg);
-}
-.bs-scope.strategy-page .leg-row.has-problem {
-  border-color: var(--bs-danger);
-}
-.bs-scope.strategy-page .leg-badge {
-  align-self: center;
-}
-.bs-scope.strategy-page .leg-label {
-  display: block;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--bs-secondary-color);
-  margin-bottom: 0.15rem;
-}
-.bs-scope.strategy-page .leg-cell-action {
-  width: 5.25rem;
-}
-.bs-scope.strategy-page .leg-cell-type {
-  width: 4.5rem;
-}
-.bs-scope.strategy-page .leg-cell-expiry {
-  width: 9.5rem;
-}
-.bs-scope.strategy-page .leg-cell-strike {
-  width: 14rem;
-}
-.bs-scope.strategy-page .leg-cell-strike .form-select {
-  flex: 0 0 8.5rem;
-}
-.bs-scope.strategy-page .leg-cell-lots {
-  width: 4.25rem;
-}
-.bs-scope.strategy-page .leg-cell-lots .form-control {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.875rem;
-}
-.bs-scope.strategy-page .leg-cell-level {
-  width: 9rem;
-}
-.bs-scope.strategy-page .leg-level {
-  flex-wrap: nowrap;
-}
-.bs-scope.strategy-page .leg-level .form-select {
-  flex: 0 0 4rem;
-}
-.bs-scope.strategy-page .leg-remove {
-  margin-left: auto;
-  align-self: center;
-}
-.bs-scope.strategy-page .leg-action.is-buy {
-  color: var(--bs-success-text-emphasis);
-  font-weight: 600;
-}
-.bs-scope.strategy-page .leg-action.is-sell {
-  color: var(--bs-danger-text-emphasis);
-  font-weight: 600;
-}
 
 /* Strategy indicators: one line each, settings as chips, edited in place. */
-.bs-scope.strategy-page .indicator-row {
-  border: 1px solid var(--bs-border-color);
-  border-radius: var(--bs-border-radius);
-  padding: 0.5rem 0.75rem;
-}
-.bs-scope.strategy-page .indicator-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
-}
-.bs-scope.strategy-page .indicator-name {
-  min-width: 9rem;
-}
-.bs-scope.strategy-page .indicator-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  flex: 1 1 auto;
-}
-.bs-scope.strategy-page .indicator-chip {
-  font-size: 0.8rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: var(--bs-border-radius-sm);
-  background: var(--bs-secondary-bg);
-  color: var(--bs-secondary-color);
-}
-.bs-scope.strategy-page .indicator-chip b {
-  color: var(--bs-body-color);
-  font-weight: 600;
-}
-.bs-scope.strategy-page .indicator-chip.is-used {
-  background: var(--bs-success-bg-subtle);
-  color: var(--bs-success-text-emphasis);
-}
-.bs-scope.strategy-page .indicator-actions {
-  display: flex;
-  gap: 0.4rem;
-  margin-left: auto;
-}
-.bs-scope.strategy-page .indicator-edit {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
-  align-items: flex-end;
-  margin-top: 0.5rem;
-  padding-top: 0.5rem;
-  border-top: 1px dashed var(--bs-border-color);
-}
-.bs-scope.strategy-page .indicator-param {
-  width: 7rem;
-}
 
 /* The strategy's chart preview: wider than the map, so candles have room. */
-.map-preview.chart-preview {
-  width: min(1500px, calc(100vw - 32px));
-}
-.map-preview.chart-preview .map-preview-body {
-  padding: 12px 14px 16px;
-}
 
 /* Indicator form: a searchable list beside the chosen indicator's settings. */
-.map-preview.indicator-form {
-  width: min(820px, calc(100vw - 32px));
-}
-.indicator-form-body {
-  display: grid;
-  grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
-  min-height: 0;
-  flex: 1 1 auto;
-}
-.indicator-form-body.is-editing {
-  grid-template-columns: minmax(0, 1fr);
-}
-.indicator-form-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  border-right: 1px solid var(--border);
-  min-height: 0;
-}
-.indicator-form-options {
-  overflow: auto;
-  max-height: min(52vh, 440px);
-}
-.indicator-form-group {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--ink-3);
-  padding: 8px 8px 4px;
-}
-.indicator-form-option {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: none;
-  color: var(--ink);
-  text-align: left;
-  font-size: 0.9rem;
-}
-.indicator-form-option:hover {
-  background: var(--hover-wash);
-}
-.indicator-form-option.is-chosen {
-  background: var(--accent-wash);
-  color: var(--accent);
-  font-weight: 600;
-}
-.indicator-form-option small {
-  color: var(--ink-3);
-  font-weight: 400;
-}
-.indicator-form-option:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-.indicator-form-settings {
-  padding: 16px 18px;
-  overflow: auto;
-}
-.indicator-form-foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 18px;
-  border-top: 1px solid var(--border);
-}
-@media (max-width: 640px) {
-  .indicator-form-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .indicator-form-list {
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .indicator-form-options {
-    max-height: 30vh;
-  }
-}
 
 .chart-other-picks {
   display: inline-flex;
@@ -5651,15 +4886,6 @@ body.chart-full-open {
 }
 
 /* The strategy's indicators, under a heading for each type. */
-.bs-scope.strategy-page .indicator-type + .indicator-type {
-  margin-top: 0.85rem;
-}
-.bs-scope.strategy-page .indicator-type-title {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--bs-secondary-color);
-  margin: 0 0 0.4rem;
-}
 
 /* An indicator's description and formula, shown on hover or focus. */
 .indicator-tip-anchor {
@@ -5713,23 +4939,7 @@ body.chart-full-open {
   flex: 1 1 auto;
 }
 
-.map-preview.delete-indicator {
-  width: min(560px, calc(100vw - 32px));
-}
-.delete-indicator-rules {
-  margin: 0 0 12px;
-  padding-left: 18px;
-  display: grid;
-  gap: 6px;
-  font-size: 0.9rem;
-}
-
 /* A feature's info button and its worked example. */
-.bs-scope.strategy-page .feature-head {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
 .feature-help-button {
   display: inline-grid;
   place-items: center;
@@ -5831,4 +5041,105 @@ body.chart-full-open {
   background: var(--surface-2);
   color: var(--ink);
   font-weight: 600;
+}
+
+/* A chart's place while its data loads: a faint baseline and a slow sweep. */
+.chart-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(var(--grid), var(--grid)) 0 25% / 100% 1px no-repeat,
+    linear-gradient(var(--grid), var(--grid)) 0 50% / 100% 1px no-repeat,
+    linear-gradient(var(--grid), var(--grid)) 0 75% / 100% 1px no-repeat,
+    var(--surface-2);
+}
+.chart-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--hover-wash), transparent);
+  transform: translateX(-100%);
+  animation: skeleton-sweep 1.6s ease-in-out infinite;
+}
+@keyframes skeleton-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chart-skeleton::after {
+    animation: none;
+  }
+}
+.empty-failed strong {
+  color: var(--ink);
+}
+
+/* Room under every page, so its last row can scroll clear of the Ask AI button. */
+main {
+  padding-bottom: 84px;
+}
+.chat-launcher:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+@media (max-width: 640px) {
+  .chat-launcher {
+    right: 16px;
+    bottom: 16px;
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    justify-content: center;
+    font-size: 18px;
+  }
+  .chat-launcher-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  main {
+    padding-bottom: 80px;
+  }
+}
+
+/* The builder's toolbar: one line of buttons; on a phone it scrolls sideways instead of
+   squeezing each button onto two lines. */
+
+/* On a phone the index strip scrolls; its fading edge shows there is more. */
+@media (max-width: 640px) {
+  .tape {
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+    padding-right: 24px;
+  }
+}
+@media (max-width: 640px) {
+  .connection-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/* In the builder's map dialog the map has room for its steps and its diagram side by side,
+   each at the size it was drawn for. */
+.strategy-map-dialog .sv-map {
+  max-width: 460px;
+  margin: 0;
+}
+@media (min-width: 900px) {
+  .strategy-map-dialog .sv {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+    gap: 24px;
+    align-items: start;
+  }
 }
