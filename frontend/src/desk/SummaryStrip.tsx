@@ -2,19 +2,34 @@ import type { ForwardOverview, Portfolio } from "../api";
 import { inr, signedInr } from "../format";
 import { Flash, Pnl } from "../components/ui";
 
-function Cell({
+/** One figure in a ruled strip, with an optional quiet line under it. */
+export function Cell({
   label,
+  hint,
   children,
 }: {
   label: string;
+  hint?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="min-w-0 bg-surface px-3 py-2">
       <div className="text-[11.5px] text-ink-2">{label}</div>
-      <div className="mt-0.5 font-mono text-[17px] font-medium tracking-tight text-ink tabular-nums">
+      <div className="mt-0.5 truncate font-mono text-[17px] font-medium tracking-tight text-ink tabular-nums">
         {children}
       </div>
+      {hint && (
+        <div className="mt-0.5 truncate text-[11px] text-ink-3">{hint}</div>
+      )}
+    </div>
+  );
+}
+
+/** Figures side by side, divided by 1px rules. */
+export function Strip({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3 xl:grid-cols-6">
+      {children}
     </div>
   );
 }
@@ -39,7 +54,7 @@ export function SummaryStrip({
       </Flash>
     );
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3 xl:grid-cols-6">
+    <Strip>
       <Cell label="Paper capital">{money(portfolio?.capital)}</Cell>
       <Cell label="Today">{money(portfolio?.day_pnl, true)}</Cell>
       <Cell label="Open P&L">{money(portfolio?.unrealized, true)}</Cell>
@@ -48,6 +63,6 @@ export function SummaryStrip({
         {portfolio ? portfolio.live.length : "–"}
       </Cell>
       <Cell label="Strategies running">{active ?? "–"}</Cell>
-    </div>
+    </Strip>
   );
 }

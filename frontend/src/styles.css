@@ -546,8 +546,7 @@ main {
   letter-spacing: -0.005em;
 }
 
-.panel > .chart,
-.panel > .limits {
+.panel > .chart {
   margin: 0 14px 12px;
 }
 
@@ -2268,35 +2267,6 @@ main {
   font-size: 12px;
 }
 
-.limits {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px 32px;
-  padding: 4px 0 6px;
-}
-
-.limit {
-  display: grid;
-  gap: 6px;
-}
-
-.limit-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.limit-values {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.limit-values small {
-  color: var(--ink-3);
-  font-size: 12px;
-  font-weight: 400;
-}
-
 .activity {
   list-style: none;
   margin: 0;
@@ -2502,8 +2472,7 @@ main {
 
   .grid-2,
   .grid-wide-left,
-  .brief-columns,
-  .limits {
+  .brief-columns {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -4947,8 +4916,7 @@ main {
   letter-spacing: 0;
 }
 
-.panel > .chart,
-.panel > .limits {
+.panel > .chart {
   margin: 12px;
 }
 

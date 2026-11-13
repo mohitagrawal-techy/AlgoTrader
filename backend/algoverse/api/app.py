@@ -33,6 +33,7 @@ from algoverse.market.index_details import save_constituents
 from algoverse.market.sectors import SectorListError, parse_sector_csv, save_sector_list
 from algoverse.market.strike import strike_history
 from algoverse.market.underlying import underlying_view
+from algoverse.risk.monitor import exposure_by_symbol, portfolio_stress
 from algoverse.runtime import Runtime
 from algoverse.settings import REPO_ROOT, Settings, get_settings
 
@@ -234,6 +235,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             p.unrealized_pnl - p.entry_costs for p in ledger.positions((OPEN, EXITING))
         )
         closed = ledger.positions((CLOSED,))
+        live = ledger.positions(LIVE_STATUSES)
         return clean(
             {
                 "capital": risk.capital,
@@ -244,7 +246,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "auto_trade": risk.paper.auto_trade,
                 "min_score": risk.paper.min_score,
                 "limits": _limits(state, risk),
-                "live": [_position_payload(p) for p in ledger.positions(LIVE_STATUSES)],
+                "live": [_position_payload(p) for p in live],
+                "by_symbol": exposure_by_symbol(live, risk),
+                "stress": portfolio_stress(live, risk, runtime.deps.scoring.risk_free_rate, now),
                 "closed": [_position_payload(p) for p in closed[-CLOSED_LIMIT:][::-1]],
                 "closed_total": len(closed),
                 "wins": sum((p.realized_pnl or 0.0) > 0 for p in closed),

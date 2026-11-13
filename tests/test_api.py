@@ -93,6 +93,12 @@ def test_portfolio_shows_live_position_and_limits(settings):
     assert len(portfolio["equity"]) == 2
     assert portfolio["closed_total"] == 0 and portfolio["unfilled_total"] == 0
     assert portfolio["activity"]
+    symbols = {row["symbol"] for row in portfolio["by_symbol"]}
+    assert symbols == {position["symbol"] for position in portfolio["live"]}
+    stress = portfolio["stress"]
+    assert len(stress["pnl"]) == len(stress["spot_moves_pct"])
+    assert all(len(row) == len(stress["iv_shifts_pct"]) for row in stress["pnl"])
+    assert stress["limit"] > 0
 
 
 def test_refresh_requires_dashboard_header(settings):

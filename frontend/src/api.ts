@@ -324,6 +324,27 @@ export interface Limit {
   unit: "money" | "count";
 }
 
+/** Planned risk, net Greeks and open P&L for one underlying. Gamma is signed. */
+export interface SymbolExposure {
+  symbol: string;
+  positions: number;
+  planned_risk: number;
+  limit: number;
+  delta_notional: number;
+  vega: number;
+  gamma_1pct: number;
+  open_pnl: number;
+}
+
+/** Instant P&L of the open book: rows follow `spot_moves_pct`, columns `iv_shifts_pct`. */
+export interface StressGrid {
+  spot_moves_pct: number[];
+  iv_shifts_pct: number[];
+  pnl: number[][];
+  limit: number;
+  approximated_legs: number;
+}
+
 export interface Portfolio {
   capital: number;
   realized: number;
@@ -334,6 +355,8 @@ export interface Portfolio {
   min_score: number;
   limits: Limit[];
   live: Position[];
+  by_symbol: SymbolExposure[];
+  stress: StressGrid;
   closed: Position[];
   closed_total: number;
   wins: number;
