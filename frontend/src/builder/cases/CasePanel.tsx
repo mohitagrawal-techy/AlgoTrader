@@ -16,7 +16,7 @@ import {
 } from "../../components/ui";
 import { LegsEditor } from "./LegsEditor";
 
-/** The open case: its name and view (after Case 1), entry signal, legs and exit signal. */
+/** The open case: its name and view (after Case 1), entry signal, exit signal and legs. */
 export function CasePanel({ b }: { b: ReadyBuilder }) {
   const { cases: c, visible, intraday, lab } = b;
   const catalog = lab.technical;
@@ -126,24 +126,6 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
       </Block>
 
       <Block
-        title="Legs"
-        hint="The options this case buys or sells when its signal holds."
-        aside={
-          <Badge>
-            {c.legs.length} of {MAX_LEGS}
-          </Badge>
-        }
-      >
-        <LegsEditor
-          key={`legs-${c.active}`}
-          legs={c.legs}
-          prefix={`${prefix}leg`}
-          problems={visible}
-          onChange={c.setLegs}
-        />
-      </Block>
-
-      <Block
         title="Exit signal"
         tone="exit"
         hint="Optional. Closes this case's trade early when any of these holds, checked at each decision. The target, stop and time exits under Exits and stops apply as well."
@@ -182,6 +164,24 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
             onChange={c.setExitRules}
           />
         )}
+      </Block>
+
+      <Block
+        title="Legs"
+        hint="The options this case buys or sells when its signal holds."
+        aside={
+          <Badge>
+            {c.legs.length} of {MAX_LEGS}
+          </Badge>
+        }
+      >
+        <LegsEditor
+          key={`legs-${c.active}`}
+          legs={c.legs}
+          prefix={`${prefix}leg`}
+          problems={visible}
+          onChange={c.setLegs}
+        />
       </Block>
     </div>
   );

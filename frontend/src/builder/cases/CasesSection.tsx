@@ -20,7 +20,7 @@ export function CasesSection({ b, step }: { b: ReadyBuilder; step?: number }) {
     <Section
       title="Cases"
       step={step}
-      hint="Each case is one way into a trade: an entry signal, the legs it trades and an optional exit signal. At each check, the first case whose signal holds trades."
+      hint="Each case is one way into a trade: an entry signal, an optional exit signal and the legs it trades. At each check, the first case whose signal holds trades."
       aside={
         <Badge>
           {c.count} of {MAX_CASES + 1}
