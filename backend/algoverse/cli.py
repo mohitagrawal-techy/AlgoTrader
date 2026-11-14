@@ -58,9 +58,9 @@ def cmd_serve(_: argparse.Namespace) -> None:
     uvicorn.run(create_app(), host=get_settings().host, port=8000)
 
 
-def cmd_instruments(_: argparse.Namespace) -> None:
+def cmd_instruments(_: argparse.Namespace, out=print) -> None:
     count = Runtime().refresh_contracts(datetime.now(IST))
-    print(f"Stored {count} option contracts.")
+    out(f"Stored {count} option contracts.")
 
 
 def cmd_collect_once(_: argparse.Namespace) -> None:
@@ -70,7 +70,7 @@ def cmd_collect_once(_: argparse.Namespace) -> None:
     print(f"Saved {result.saved} chains. Failures: {result.failures or 'none'}")
 
 
-def cmd_backfill(args: argparse.Namespace) -> None:
+def cmd_backfill(args: argparse.Namespace, out=print) -> None:
     rt = Runtime()
     now = datetime.now(IST)
     result = backfill_daily(
@@ -81,7 +81,7 @@ def cmd_backfill(args: argparse.Namespace) -> None:
         now.date(),
         getattr(args, "start", None),
     )
-    print(f"Updated {result.saved} series. Failures: {result.failures or 'none'}")
+    out(f"Updated {result.saved} series. Failures: {result.failures or 'none'}")
 
 
 def _describe_legs(idea) -> str:
@@ -237,7 +237,7 @@ def _backfill_minutes(rt: Runtime, start: date, progress=print, include_today: b
     )
 
 
-def cmd_backfill_minutes(args: argparse.Namespace) -> None:
+def cmd_backfill_minutes(args: argparse.Namespace, out=print) -> None:
     from algoverse.backtest.dataview import History
 
     rt = Runtime()
@@ -248,13 +248,13 @@ def cmd_backfill_minutes(args: argparse.Namespace) -> None:
         first = sessions[0] if sessions else datetime.now(IST).date()
         # Indicators on minute candles need some history before the first tested session.
         start = first - timedelta(days=60)
-    print(f"Fetching one-minute candles from {start}.")
-    keys, result = _backfill_minutes(rt, start)
+    out(f"Fetching one-minute candles from {start}.")
+    keys, result = _backfill_minutes(rt, start, progress=out)
     for name in keys:
         fetched, kept = result.fetched.get(name, 0), result.kept.get(name, 0)
-        print(f"{name}: fetched {fetched} months, {kept} already complete.")
+        out(f"{name}: fetched {fetched} months, {kept} already complete.")
     for label, reason in result.failed.items():
-        print(f"Failed {label}: {reason}")
+        out(f"Failed {label}: {reason}")
 
 
 def _capture(rt: Runtime, now: datetime):
@@ -265,15 +265,15 @@ def _capture(rt: Runtime, now: datetime):
     )
 
 
-def cmd_history_capture(_: argparse.Namespace) -> None:
+def cmd_history_capture(_: argparse.Namespace, out=print) -> None:
     try:
         path = _capture(Runtime(), datetime.now(IST))
     except CaptureRefused as exc:
         raise SystemExit(f"Nothing saved: {exc}") from exc
-    print(f"Saved {path.name}.")
+    out(f"Saved {path.name}.")
 
 
-def cmd_history_upstox(_: argparse.Namespace) -> None:
+def cmd_history_upstox(_: argparse.Namespace, out=print) -> None:
     rt = Runtime()
     now = datetime.now(IST)
     config = load_backtest_config(rt.settings.config_dir)
@@ -281,23 +281,23 @@ def cmd_history_upstox(_: argparse.Namespace) -> None:
     futures = parse_future_contracts(download_master(), set(config.symbols))
     try:
         result = import_expired(
-            market, rt.settings.data_dir, config, rt.contracts(now), futures, now.date(), print
+            market, rt.settings.data_dir, config, rt.contracts(now), futures, now.date(), out
         )
     except PlanRequiredError as exc:
         raise SystemExit(
             "Upstox refused: expired contract data needs the Upstox Plus plan on this account. "
             "Nothing was saved. The collector still adds one session after each close."
         ) from exc
-    print(f"Fetched {result.contracts} contracts. Wrote {len(result.written)} sessions.")
+    out(f"Fetched {result.contracts} contracts. Wrote {len(result.written)} sessions.")
     if result.written:
-        print(f"Sessions {result.written[0]} to {result.written[-1]}.")
+        out(f"Sessions {result.written[0]} to {result.written[-1]}.")
     if result.kept_existing:
-        print(f"Kept {len(result.kept_existing)} sessions already imported from NSE files.")
+        out(f"Kept {len(result.kept_existing)} sessions already imported from NSE files.")
     for name, reason in result.failed.items():
-        print(f"Incomplete {name}: {reason}. Run the command again to retry.")
+        out(f"Incomplete {name}: {reason}. Run the command again to retry.")
 
 
-def _fill_expired(rt: Runtime, market, config, now: datetime, plan_only: bool) -> bool:
+def _fill_expired(rt: Runtime, market, config, now: datetime, plan_only: bool, out=print) -> bool:
     """Holes filled from expired contracts. False when the account has no Upstox Plus."""
     from algoverse.backtest.upstox_expired_gaps import fill_expired
 
@@ -310,37 +310,37 @@ def _fill_expired(rt: Runtime, market, config, now: datetime, plan_only: bool) -
             rt.contracts(now),
             candles,
             now.date(),
-            print,
+            out,
             dry_run=plan_only,
         )
     except PlanRequiredError:
-        print("Upstox Plus is not active, so expired contracts cannot be fetched.")
+        out("Upstox Plus is not active, so expired contracts cannot be fetched.")
         return False
     missing = ", ".join(f"{s} {n}" for s, n in result.needed.items())
-    print(f"Expiries missing from the history: {missing or 'none'}.")
+    out(f"Expiries missing from the history: {missing or 'none'}.")
     if plan_only:
         return True
     if result.written:
-        print(
+        out(
             f"Wrote {len(result.written)} missing sessions, "
             f"{result.written[0]} to {result.written[-1]}."
         )
     if result.extended:
-        print(f"Added contracts to {len(result.extended)} sessions that lacked them.")
+        out(f"Added contracts to {len(result.extended)} sessions that lacked them.")
     if result.intraday:
-        print(f"Wrote 5-minute option bars for {len(result.intraday)} sessions.")
+        out(f"Wrote 5-minute option bars for {len(result.intraday)} sessions.")
     if result.completed:
-        print(f"{len(result.completed)} sessions are now complete and trade normally again.")
+        out(f"{len(result.completed)} sessions are now complete and trade normally again.")
     for day, gaps in sorted(result.incomplete.items()):
         lost = "; ".join(f"{symbol} {', '.join(e)}" for symbol, e in gaps.items())
-        print(f"{day}: still incomplete ({lost}). Backtests open no new trades there.")
+        out(f"{day}: still incomplete ({lost}). Backtests open no new trades there.")
     for name, reason in result.failed.items():
-        print(f"Failed {name}: {reason}. Run again to retry.")
-    print(f"{result.requests} requests to Upstox.")
+        out(f"Failed {name}: {reason}. Run again to retry.")
+    out(f"{result.requests} requests to Upstox.")
     return True
 
 
-def cmd_history_fill(args: argparse.Namespace) -> None:
+def cmd_history_fill(args: argparse.Namespace, out=print) -> None:
     from algoverse.backtest.upstox_gaps import fill_gaps
 
     rt = Runtime()
@@ -348,7 +348,7 @@ def cmd_history_fill(args: argparse.Namespace) -> None:
     config = load_backtest_config(rt.settings.config_dir)
     market = UpstoxMarketData(rt.tokens, limiter=RateLimiter(IMPORT_LIMITS))
     try:
-        _fill_expired(rt, market, config, now, args.plan)
+        _fill_expired(rt, market, config, now, args.plan, out=out)
     except AuthExpiredError as exc:
         raise SystemExit(
             "Upstox session expired. Log in from the dashboard and run again."
@@ -358,39 +358,39 @@ def cmd_history_fill(args: argparse.Namespace) -> None:
     futures = parse_future_contracts(download_master(), set(config.symbols))
     try:
         result = fill_gaps(
-            market, rt.settings.data_dir, config, rt.contracts(now), futures, now.date(), print
+            market, rt.settings.data_dir, config, rt.contracts(now), futures, now.date(), out
         )
     except AuthExpiredError as exc:
         raise SystemExit(
             "Upstox session expired. Log in from the dashboard and run again."
         ) from exc
     if not result.days and not result.intraday and not result.failed:
-        print("No missing sessions in the last quarter.")
+        out("No missing sessions in the last quarter.")
         return
     for name, reason in result.failed.items():
-        print(f"Failed {name}: {reason}. Nothing was written; run again to retry.")
+        out(f"Failed {name}: {reason}. Nothing was written; run again to retry.")
     if result.written:
-        print(f"Wrote {len(result.written)} sessions, {result.written[0]} to {result.written[-1]}.")
+        out(f"Wrote {len(result.written)} sessions, {result.written[0]} to {result.written[-1]}.")
     if result.kept_existing:
-        print(f"Kept {len(result.kept_existing)} sessions already imported from other sources.")
+        out(f"Kept {len(result.kept_existing)} sessions already imported from other sources.")
     if result.intraday:
-        print(f"Wrote 5-minute option bars for {len(result.intraday)} sessions.")
+        out(f"Wrote 5-minute option bars for {len(result.intraday)} sessions.")
     for day, gaps in sorted(result.incomplete.items()):
         lost = "; ".join(f"{symbol} {', '.join(e)}" for symbol, e in gaps.items())
-        print(f"{day}: expired contracts unavailable ({lost}). Backtests open no new trades there.")
+        out(f"{day}: expired contracts unavailable ({lost}). Backtests open no new trades there.")
 
 
-def cmd_holidays(_: argparse.Namespace) -> None:
+def cmd_holidays(_: argparse.Namespace, out=print) -> None:
     settings = get_settings()
     now = datetime.now(IST)
     save_holidays(settings.data_dir, fetch_holidays())
     closed, sessions = load_holidays(settings.data_dir)
-    print("Upcoming days F&O is closed:")
+    out("Upcoming days F&O is closed:")
     for day in sorted(d for d in closed if d >= now.date()):
-        print(f"  {day} {day:%a}")
-    print("Upcoming listed sessions (these do trade):")
+        out(f"  {day} {day:%a}")
+    out("Upcoming listed sessions (these do trade):")
     for day, (start, end) in sorted(d for d in sessions.items() if d[0] >= now.date()):
-        print(f"  {day} {day:%a} {start:%H:%M} to {end:%H:%M}")
+        out(f"  {day} {day:%a} {start:%H:%M} to {end:%H:%M}")
 
 
 def cmd_stream(_: argparse.Namespace) -> None:

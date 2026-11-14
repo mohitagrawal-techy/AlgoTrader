@@ -29,6 +29,7 @@ import {
   Table2,
   Microscope,
   CalendarDays,
+  Database,
 } from "lucide-react";
 import { Alert, Button, ButtonLink, Empty } from "./components/ui";
 import { AssistantProvider } from "./assistant";
@@ -47,6 +48,7 @@ import { readStrikeRoute, StrikePage } from "./views/StrikeChart";
 import { TunerView } from "./views/Tuner";
 import { ResearchPage } from "./components/research/ResearchPage";
 import { CalendarPage } from "./components/calendar/CalendarPage";
+import { DataPage } from "./components/data/DataPage";
 
 const NAV_GROUPS = [
   {
@@ -71,6 +73,11 @@ const NAV_GROUPS = [
         id: "calendar",
         label: "Calendar",
         icon: CalendarDays,
+      },
+      {
+        id: "data",
+        label: "Data",
+        icon: Database,
       },
     ],
   },
@@ -126,6 +133,7 @@ const PAGE_SUBS: Record<string, string> = {
   ideas: "Trades ranked from the latest option chains.",
   calendar:
     "Events, holidays and expiries, and how far the event list has been checked.",
+  data: "What market data is stored, and loaders that fetch more from Upstox.",
   lab: "Build your own strategies, then test and tune them.",
   research:
     "How the indices behave: time of day, volatility, correlations, gaps, pairs and an ML signal.",
@@ -489,6 +497,7 @@ export function App() {
               tab !== "history" &&
               tab !== "research" &&
               tab !== "calendar" &&
+              tab !== "data" &&
               !(tab === "market" && (shownMarket || strikeRoute)) && (
                 <Empty title="Loading…" />
               )}
@@ -503,6 +512,7 @@ export function App() {
             {tab === "history" && <TestHistoryView />}
             {tab === "research" && <ResearchPage />}
             {tab === "calendar" && <CalendarPage />}
+            {tab === "data" && <DataPage />}
             {data && tab === "ideas" && <IdeasView ideas={data.ideas.ideas} />}
             {/* Options also falls back to the chains this browser saved, so it works offline. */}
             {tab === "market" && strikeRoute && (

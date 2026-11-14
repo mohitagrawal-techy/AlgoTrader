@@ -1,3 +1,4 @@
+import { Pencil } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type LabBacktestPage, type LabTrade } from "../api";
 import {
@@ -25,6 +26,7 @@ import {
   Table,
   Tiles,
   BackLink,
+  ButtonLink,
 } from "../components/ui";
 import { IndexChart } from "./IndexChart";
 import {
@@ -396,6 +398,12 @@ export function LabBacktestView({ id }: { id: string }) {
           </div>
           <span className="muted">Enter {data.entry_text}</span>
         </div>
+        <ButtonLink
+          icon={Pencil}
+          href={`#lab/${spec.source === "template" ? "copy" : "edit"}/${encodeURIComponent(spec.id as string)}`}
+        >
+          {spec.source === "template" ? "Copy and edit" : "Edit"}
+        </ButtonLink>
       </div>
 
       {!result ? (

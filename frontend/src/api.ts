@@ -1385,6 +1385,42 @@ export interface ResearchPayload {
   ml: MlStudy | null;
 }
 
+export interface Coverage {
+  name: string;
+  first: string | null;
+  last: string | null;
+  sessions: number;
+}
+
+export interface DataAction {
+  key: string;
+  label: string;
+  description: string;
+  takes_start: boolean;
+  plan_only: boolean;
+}
+
+export interface DataJob extends JobInfo {
+  label: string;
+  log: string[];
+}
+
+export interface DataPayload {
+  inventory: {
+    daily: Coverage[];
+    minutes: Coverage[];
+    options_daily: Omit<Coverage, "name">;
+    options_intraday: Coverage[];
+    contracts_on: string | null;
+    chain_days: number;
+    chains_last: string | null;
+    holidays_updated: string | null;
+    actions: DataAction[];
+  };
+  job: DataJob | null;
+  session_valid: boolean;
+}
+
 export type CalendarKind = "owner" | "config" | "ai" | "holiday" | "special" | "expiry";
 
 export interface CalendarItem {
@@ -1739,6 +1775,10 @@ export const api = {
     sendJson<ReplayData>("/api/lab/replay", "POST", body),
   labAutopilot: (body: AutopilotSettings) => sendJson<unknown>("/api/lab/autopilot", "POST", body),
   labAutopilotStop: () => sendJson<unknown>("/api/lab/autopilot/stop", "POST"),
+  data: () => getJson<DataPayload>("/api/data"),
+  dataJob: () => getJson<{ job: DataJob | null }>("/api/data/job"),
+  dataStart: (action: string, start: string | null) =>
+    sendJson<DataJob>("/api/data/jobs", "POST", { action, start }),
   calendar: (start: string, end: string) =>
     getJson<CalendarPayload>(`/api/calendar?${new URLSearchParams({ start, end })}`),
   calendarAdd: (event: NewCalendarEvent) =>

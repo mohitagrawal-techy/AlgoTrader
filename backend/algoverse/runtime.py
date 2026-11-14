@@ -18,6 +18,7 @@ from algoverse.brokers.upstox import UpstoxMarketData
 from algoverse.data.calendar import BrokerCalendar
 from algoverse.data.candles import migrate_flat_layout, resolve_name
 from algoverse.data.instruments import download_master, parse_option_contracts
+from algoverse.data.loader import DataJobs
 from algoverse.data.options import compact_chains, migrate_old_layout
 from algoverse.data.store import SnapshotStore
 from algoverse.evaluation.config import EventCalendar, load_scoring_config
@@ -110,6 +111,15 @@ class Runtime:
     def lab(self) -> LabService:
         return LabService(
             self.settings.data_dir, self.settings.config_dir, self.settings.ai_enabled
+        )
+
+    @cached_property
+    def data_jobs(self) -> DataJobs:
+        return DataJobs(
+            self.settings.data_dir,
+            self.settings.config_dir,
+            list(self.universe.underlyings),
+            dict(self.universe.reference_indices),
         )
 
     @cached_property

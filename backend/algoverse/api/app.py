@@ -149,6 +149,11 @@ class LabTuneRequest(BaseModel):
     use_ai: bool = True
 
 
+class DataJobRequest(BaseModel):
+    action: str = Field(min_length=1, max_length=40)
+    start: date | None = None
+
+
 class ReviewedRequest(BaseModel):
     through: date | None = None
 
@@ -576,6 +581,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _require_dashboard(x_algoverse_client)
         saved = _lab(lambda: runtime.lab.save_tuned(session_id, body.node_id, datetime.now(IST)))
         return {"id": saved}
+
+    @app.get("/api/data")
+    def data_inventory() -> dict:
+        """What is stored, how far back it goes, and the loaders that can add to it."""
+        return {
+            "inventory": runtime.data_jobs.inventory(),
+            "job": runtime.data_jobs.job,
+            "session_valid": store.current() is not None,
+        }
+
+    @app.get("/api/data/job")
+    def data_job() -> dict:
+        return {"job": runtime.data_jobs.job}
+
+    @app.post("/api/data/jobs")
+    def data_start(
+        body: DataJobRequest, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        _require_dashboard(x_algoverse_client)
+        try:
+            return runtime.data_jobs.start(body.action, body.start, store.current() is not None)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     def _calendar(action):
         try:

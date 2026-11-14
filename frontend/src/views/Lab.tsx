@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Pencil } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   type AutopilotCycle,
   type AutopilotSettings,
   type LabOverview,
   type LabRow,
+  type LabSpec,
   type LabSummary,
   type TechCatalog,
 } from "../api";
@@ -46,6 +48,12 @@ const VERDICTS: Record<string, { tone: Tone; label: string }> = {
   failed: { tone: "critical", label: "Lost on unseen data" },
   too_few_trades: { tone: "neutral", label: "Too few trades" },
 };
+/** Where a strategy is edited. A template is copied first, so the template stays as it is. */
+function editHref(spec: LabSpec): string {
+  const action = spec.source === "template" ? "copy" : "edit";
+  return `#lab/${action}/${encodeURIComponent(spec.id as string)}`;
+}
+
 const SOURCES: Record<string, string> = {
   template: "Template",
   user: "Yours",
@@ -671,6 +679,16 @@ export function LabView({
 }) {
   const [data, setData] = useState<LabOverview | null>(null);
   const [selected, setSelected] = useState<string | null>(initialSelected);
+  const detailRef = useRef<HTMLElement>(null);
+  // On narrow screens the details sit below the whole list, so bring them into view.
+  const pick = (id: string) => {
+    setSelected(id);
+    window.requestAnimationFrame(() => {
+      const panel = detailRef.current;
+      if (panel && panel.getBoundingClientRect().top > window.innerHeight * 0.6)
+        panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
   const [source, setSource] = useState("all");
   const [guidance, setGuidance] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -796,18 +814,47 @@ export function LabView({
                       className={
                         row.spec.id === current?.spec.id ? "selected" : ""
                       }
-                      onClick={() => setSelected(row.spec.id as string)}
+                      onClick={() => pick(row.spec.id as string)}
                       tabIndex={0}
                       onKeyDown={(event) =>
-                        event.key === "Enter" &&
-                        setSelected(row.spec.id as string)
+                        event.key === "Enter" && pick(row.spec.id as string)
                       }
                     >
                       <td
                         className="name-cell"
                         title={`${row.spec.name}: ${row.legs_text}`}
                       >
-                        <div className="primary">{row.spec.name}</div>
+                        <div
+                          className="primary"
+                          style={{ display: "flex", alignItems: "center", gap: 6 }}
+                        >
+                          <span
+                            style={{
+                              minWidth: 0,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {row.spec.name}
+                          </span>
+                          <ButtonLink
+                            variant="ghost"
+                            size="icon"
+                            icon={Pencil}
+                            href={editHref(row.spec)}
+                            aria-label={
+                              row.spec.source === "template"
+                                ? `Copy and edit ${row.spec.name}`
+                                : `Edit ${row.spec.name}`
+                            }
+                            title={
+                              row.spec.source === "template"
+                                ? "Copy and edit (templates stay as they are)"
+                                : "Edit"
+                            }
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                        </div>
                         <div className="secondary">
                           {SOURCES[row.spec.source ?? "user"]} ·{" "}
                           {LEVELS[row.level]} · {row.legs_text}
@@ -884,7 +931,7 @@ export function LabView({
             proof.
           </p>
         </Panel>
-        <aside className="panel detail-panel">
+        <aside className="panel detail-panel" ref={detailRef}>
           {current && (
             <Detail
               row={current}
@@ -896,9 +943,7 @@ export function LabView({
                 act(() => api.labBacktest([current.spec.id as string]))
               }
               onEdit={() => {
-                const action =
-                  current.spec.source === "template" ? "copy" : "edit";
-                window.location.hash = `lab/${action}/${current.spec.id}`;
+                window.location.hash = editHref(current.spec);
               }}
               onDelete={() =>
                 act(() => api.labDelete(current.spec.id as string))
