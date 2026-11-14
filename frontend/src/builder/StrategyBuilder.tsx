@@ -5,6 +5,7 @@ import {
   BuilderProblem,
   BuilderSkeleton,
 } from "./BuilderStates";
+import { BuilderSteps } from "./BuilderSteps";
 import { BuilderToolbar } from "./BuilderToolbar";
 import { CasesSection } from "./cases/CasesSection";
 import type { EditorRoute } from "./hooks/useLab";
@@ -18,7 +19,6 @@ import { BasicsSection, StartFromSection } from "./sections/BasicsSection";
 import { BudgetSection } from "./sections/BudgetSection";
 import { EnterWhenSection } from "./sections/EnterWhenSection";
 import { ExitWhenSection } from "./sections/ExitWhenSection";
-import { FeaturesSection } from "./sections/FeaturesSection";
 import { IndicatorsSection } from "./sections/IndicatorsSection";
 import { SummaryPanel } from "./summary/SummaryPanel";
 import { cx, FoldContext } from "../components/ui";
@@ -94,14 +94,16 @@ function BuilderForm({
           )}
         >
           <div className="flex min-w-0 flex-col gap-3">
+            <BuilderSteps />
             {route.mode === "new" && <StartFromSection b={b} />}
-            <BasicsSection b={b} />
-            <BudgetSection b={b} />
-            <IndicatorsSection b={b} />
-            <FeaturesSection b={b} />
-            <CasesSection b={b} />
-            <EnterWhenSection b={b} />
-            <ExitWhenSection b={b} />
+            {/* In the order a strategy is defined: what and when, what the rules read,
+                the signals and legs, the filters on entry, the exits, then sizing. */}
+            <BasicsSection b={b} step={1} />
+            <IndicatorsSection b={b} step={2} />
+            <CasesSection b={b} step={3} />
+            <EnterWhenSection b={b} step={4} />
+            <ExitWhenSection b={b} step={5} />
+            <BudgetSection b={b} step={6} />
           </div>
           {summaryOpen ? (
             <SummaryPanel

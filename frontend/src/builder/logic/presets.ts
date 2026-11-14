@@ -1,4 +1,5 @@
 import type {
+  CompareOp,
   CandleType,
   TechOperand,
   TechRule,
@@ -21,7 +22,7 @@ const close = ind("close");
 
 function compare(
   left: TechOperand,
-  op: "above" | "below" | "crosses_above" | "crosses_below",
+  op: CompareOp,
   right: TechOperand,
   timeframe: TechTimeframe = "1d",
   candles?: CandleType,

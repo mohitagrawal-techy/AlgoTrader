@@ -69,17 +69,20 @@ def _rules_help() -> str:
     )
     return f"""
 
-entry.rules (optional, up to 8, all must hold) read the underlying's candles. Timeframe "1d", \
+entry.rules (optional, up to 8) read the underlying's candles. Each rule after the first may \
+set "join": "and" (default) or "or" to the rule before; "and" binds first, so A and B or C \
+holds when A and B hold, or when C does. Timeframe "1d", \
 "1w" or "1mo". Two kinds:
 - {{"type": "compare", "timeframe", "left", "op", "right"}} with op above, below, \
-crosses_above or crosses_below. An operand is {{"kind": "value", "value": number}} or \
+at_or_above, at_or_below, equals (to 2 decimals), crosses_above or crosses_below. \
+An operand is {{"kind": "value", "value": number}} or \
 {{"kind": "indicator", "name", "params": {{...}}, "field" (only when listed), \
 "bars_ago" (0 = latest)}}. \
 The left operand must be an indicator. Indicators: {indicators}.
 - {{"type": "pattern", "timeframe", "pattern", "within" (1-20 candles), "present" (true/false)}}. \
 Patterns: {", ".join(PATTERNS)}.
 Any rule may add "candles": "heikin_ashi" to read Heikin-Ashi candles instead of normal ones.
-entry.any_rules (optional, up to 8) take the same rules; at least one of them must hold.
+entry.any_rules: leave empty; use "join": "or" between entry.rules instead.
 Daily candles include the decision day, and the trade enters at the next open."""
 
 

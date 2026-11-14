@@ -6,12 +6,11 @@ const SUMMARY_KEY = "algoverse.builder.summary";
 export const SECTION_TITLES = [
   "Start from",
   "Basics",
-  "Budget",
   "Indicators",
-  "Features",
   "Cases",
-  "Enter when",
-  "Exit when",
+  "Entry filters",
+  "Exits and stops",
+  "Sizing and risk",
 ];
 
 function read<T>(

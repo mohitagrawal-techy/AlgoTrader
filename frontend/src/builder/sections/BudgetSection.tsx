@@ -11,12 +11,13 @@ import {
 const rupees = (value: number) =>
   `₹${Math.round(value).toLocaleString("en-IN")}`;
 
-export function BudgetSection({ b }: { b: ReadyBuilder }) {
+export function BudgetSection({ b, step }: { b: ReadyBuilder; step?: number }) {
   const { budget, edit, visible } = b;
   const spend = (budget.sizing ?? "budget") === "budget";
   return (
     <Section
-      title="Budget"
+      title="Sizing and risk"
+      step={step}
       hint="Each strategy is tested as its own account. Lots are sized so one trade never risks more than its share, and returns and drawdowns are judged against this capital."
     >
       <div className="mb-4 flex flex-col gap-1.5">

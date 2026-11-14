@@ -17,18 +17,24 @@ export function Section({
   title,
   hint,
   aside,
+  step,
   children,
 }: {
   title: string;
   hint?: string;
   aside?: ReactNode;
+  /** Its place in a form filled in order, shown before the title. */
+  step?: number;
   children: ReactNode;
 }) {
   const { folded, toggle } = useContext(FoldContext);
   const open = !folded.has(title);
-  const bodyId = `section-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const bodyId = sectionId(title);
   return (
-    <section className="rounded-lg border border-line bg-surface shadow-card">
+    <section
+      id={`${bodyId}-card`}
+      className="scroll-mt-24 rounded-lg border border-line bg-surface shadow-card"
+    >
       <div
         className={cx(
           "flex items-center justify-between gap-3 px-4 py-3",
@@ -49,8 +55,21 @@ export function Section({
               open && "rotate-90",
             )}
           />
+          {step !== undefined && (
+            <span
+              aria-hidden
+              className="mt-px grid size-5 shrink-0 place-items-center rounded-full bg-accent-wash text-[11.5px] font-semibold text-ink tabular-nums"
+            >
+              {step}
+            </span>
+          )}
           <span className="min-w-0">
-            <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
+            <h2 className="text-[15px] font-semibold text-ink">
+              {step !== undefined && (
+                <span className="sr-only">Step {step}: </span>
+              )}
+              {title}
+            </h2>
             {hint && open && (
               <span className="mt-0.5 block text-[12.5px] leading-snug text-ink-3">
                 {hint}
@@ -65,6 +84,11 @@ export function Section({
       </div>
     </section>
   );
+}
+
+/** The id of a section's body; its card is this plus "-card". */
+export function sectionId(title: string): string {
+  return `section-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 }
 
 const BADGE_TONES = {

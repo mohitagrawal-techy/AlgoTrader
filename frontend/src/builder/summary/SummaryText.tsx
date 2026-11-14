@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { LabSpec, TechCatalog, TechRule } from "../../api";
-import { ruleText } from "../logic/ruleText";
+import { joinWord, ruleText } from "../logic/ruleText";
 import { amountText, DECISIONS, hhmm } from "../logic/spec";
 
 function Line({ label, children }: { label: string; children: ReactNode }) {
@@ -15,10 +15,13 @@ function Rules({
   catalog,
   rules,
   lead = "",
+  joins = false,
 }: {
   catalog: TechCatalog;
   rules: TechRule[];
   lead?: string;
+  /** Lead each rule after the first with how it joins the one before: And or Or. */
+  joins?: boolean;
 }) {
   if (!rules.length) return null;
   return (
@@ -26,6 +29,9 @@ function Rules({
       {rules.map((rule, index) => (
         <li key={index}>
           {lead}
+          {joins && index > 0 && (
+            <b className="font-semibold">{joinWord(rules, index)} </b>
+          )}
           {ruleText(catalog, rule)}
         </li>
       ))}
@@ -80,7 +86,7 @@ export function SummaryText({
           ? `, ${conditions.length} market condition${conditions.length > 1 ? "s" : ""}`
           : ""}
       </Line>
-      <Rules catalog={catalog} rules={entry.rules ?? []} />
+      <Rules catalog={catalog} rules={entry.rules ?? []} joins />
       {(entry.any_rules ?? []).length > 0 && (
         <div>
           <span className="text-ink-3">And any of</span>

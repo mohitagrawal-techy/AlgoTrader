@@ -234,3 +234,53 @@ def test_backtest_obeys_candle_rules(lab_dirs):  # noqa: F811
         decided = days[days.index(opened) - 1]
         before = days[days.index(decided) - 1]
         assert closes[decided] > closes[before]
+
+
+@pytest.mark.parametrize(
+    ("op", "left", "held"),
+    [
+        ("at_or_above", 100.0, True),
+        ("at_or_above", 99.99, False),
+        ("above", 100.0, False),
+        ("at_or_below", 100.0, True),
+        ("below", 100.0, False),
+        ("equals", 100.0, True),
+        # To the paisa: float noise beyond two decimals does not decide it.
+        ("equals", 100.0000001, True),
+        ("equals", 100.01, False),
+    ],
+)
+def test_level_operators_against_a_number(op, left, held):
+    rule = CompareRule(left=ind("close"), op=op, right=num(100.0))
+    assert holds(rule, candles([90.0] * 5 + [left])) is held
+
+
+def test_equal_reads_as_equal_to():
+    assert rule_text(CompareRule(left=ind("close"), op="equals", right=num(5))).endswith(
+        "close equal to 5"
+    )
+
+
+def test_and_binds_before_or():
+    from algoverse.lab.technical import rule_groups, rules_failures, rules_text
+
+    above = CompareRule(left=ind("close"), op="above", right=num(100))
+    below = CompareRule(left=ind("close"), op="below", right=num(50))
+    always = CompareRule(left=ind("close"), op="above", right=num(0))
+    frames = Frames(candles([90.0] * 5 + [120.0]))
+    # close 120: "above 100 and below 50" fails, "or above 0" holds.
+    rules = [
+        above,
+        below.model_copy(update={"join": "and"}),
+        always.model_copy(update={"join": "or"}),
+    ]
+    assert [len(group) for group in rule_groups(rules)] == [2, 1]
+    assert rules_failures(rules, frames) == []
+    assert rules_failures(rules[:2], frames) == ["entry rule: daily close below 50 does not hold"]
+    assert (
+        rules_text(rules)
+        == "(daily close above 100 and daily close below 50) or daily close above 0"
+    )
+    # A first rule's "or" is ignored: there is nothing before it.
+    alone = [below.model_copy(update={"join": "or"})]
+    assert rules_failures(alone, frames) == ["entry rule: daily close below 50 does not hold"]

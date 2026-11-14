@@ -69,6 +69,8 @@ export function mirrorRule(rule: TechRule): TechRule {
   const flip: Record<string, string> = {
     above: "below",
     below: "above",
+    at_or_above: "at_or_below",
+    at_or_below: "at_or_above",
     crosses_above: "crosses_below",
     crosses_below: "crosses_above",
   };
@@ -84,7 +86,7 @@ export function mirrorRule(rule: TechRule): TechRule {
       : operand;
   return {
     ...rule,
-    op: flip[rule.op] as typeof rule.op,
+    op: (flip[rule.op] ?? rule.op) as typeof rule.op,
     left: side(rule.left),
     right: side(rule.right),
   };

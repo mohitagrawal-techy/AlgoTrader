@@ -8,7 +8,7 @@ import { CasePanel } from "./CasePanel";
 import { CaseTabs } from "./CaseTabs";
 
 /** Each case is a way into the strategy, with its own rules and legs, on tabs. */
-export function CasesSection({ b }: { b: ReadyBuilder }) {
+export function CasesSection({ b, step }: { b: ReadyBuilder; step?: number }) {
   const c = b.cases;
   const withProblems = new Set(
     Object.entries(b.visible)
@@ -19,7 +19,8 @@ export function CasesSection({ b }: { b: ReadyBuilder }) {
   return (
     <Section
       title="Cases"
-      hint="Each case is a way into the strategy, with its own entry rules, exit rules and legs. The first case whose rules hold trades."
+      step={step}
+      hint="Each case is one way into a trade: an entry signal, the legs it trades and an optional exit signal. At each check, the first case whose signal holds trades."
       aside={
         <Badge>
           {c.count} of {MAX_CASES + 1}

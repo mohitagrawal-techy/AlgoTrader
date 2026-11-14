@@ -23,11 +23,67 @@ export const PRICE_NAMES = [
   "prev_low",
 ];
 
+/** Candle patterns are picked under Indicators too, listed as their own type. */
+export const PATTERN_GROUP = "Candle patterns";
+
+export function patternOf(
+  catalog: TechCatalog,
+  name: string | null | undefined,
+) {
+  return catalog.patterns.find((item) => item.name === name);
+}
+
+function patternIndicator(pattern: TechCatalog["patterns"][number]): Indicator {
+  return {
+    name: pattern.name,
+    label: pattern.label,
+    unit: "",
+    description: pattern.description,
+    // How far back it looks is set here, on the pattern, not in each rule.
+    params: [
+      {
+        name: "within",
+        label: "Within the last N candles",
+        default: 1,
+        min: 1,
+        max: 20,
+        whole: true,
+      },
+    ],
+    fields: [],
+    group: PATTERN_GROUP,
+  };
+}
+
+/** An indicator, or a candle pattern described as one, by name. */
 export function indicatorOf(
   catalog: TechCatalog,
   name: string | null | undefined,
 ): Indicator | undefined {
-  return catalog.indicators.find((item) => item.name === name);
+  const found = catalog.indicators.find((item) => item.name === name);
+  if (found) return found;
+  const pattern = patternOf(catalog, name);
+  return pattern && patternIndicator(pattern);
+}
+
+/** Everything the Indicators section offers: the indicators, then the candle patterns. */
+export function pickables(catalog: TechCatalog): Indicator[] {
+  return [...catalog.indicators, ...catalog.patterns.map(patternIndicator)];
+}
+
+/** The pick a pattern rule reads: the pattern and how far back, on the rule's candles. */
+export function patternPick(rule: {
+  pattern: string;
+  within: number;
+  timeframe: TechTimeframe;
+  candles?: CandleType;
+}): IndicatorPick {
+  return {
+    name: rule.pattern,
+    params: { within: rule.within },
+    timeframe: rule.timeframe,
+    candles: rule.candles ?? "normal",
+  };
 }
 
 /** Items grouped by indicator type, the types and their members in the catalog's order.
@@ -37,7 +93,10 @@ export function byType<T>(
   items: T[],
   nameOf: (item: T) => string,
 ): { title: string; items: T[] }[] {
-  const groups = catalog.indicator_groups ?? [];
+  const groups = [
+    ...(catalog.indicator_groups ?? []),
+    { name: PATTERN_GROUP, indicators: catalog.patterns.map((p) => p.name) },
+  ];
   const place = new Map<string, [number, number]>();
   groups.forEach((group, g) =>
     group.indicators.forEach((name, i) => place.set(name, [g, i])),
@@ -120,6 +179,13 @@ export function pickStandardText(
 ): string {
   const indicator = indicatorOf(catalog, pick.name);
   if (!indicator) return pick.name;
+  const frameText = `${FRAME_SHORT[pick.timeframe ?? "1d"] ?? pick.timeframe}${pick.candles === "heikin_ashi" ? " Heikin-Ashi" : ""}`;
+  if (patternOf(catalog, pick.name)) {
+    const within = pick.params?.within ?? 1;
+    return within > 1
+      ? `${indicator.label}, last ${within} candles, ${frameText}`
+      : `${indicator.label}, ${frameText}`;
+  }
   const params = indicator.params
     .map((p) => pick.params?.[p.name] ?? p.default)
     .join(", ");

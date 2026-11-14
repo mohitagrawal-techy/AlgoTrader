@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { ExitUnit, LabLeg, LabSpec, TechCatalog } from "../api";
-import { ruleText } from "../builder/logic/ruleText";
+import { joinWord, ruleText } from "../builder/logic/ruleText";
 
 /*
  * A picture of one strategy: when it checks, what must be true to enter, what it trades, and
@@ -238,7 +238,10 @@ export function StrategyVisual({
           {rules.length > 0 && (
             <ul className="sv-rules">
               {rules.map((rule, i) => (
-                <li key={i}>{text(rule)}</li>
+                <li key={i}>
+                  {i > 0 && <b>{joinWord(rules, i)} </b>}
+                  {text(rule)}
+                </li>
               ))}
             </ul>
           )}
@@ -282,8 +285,11 @@ export function StrategyVisual({
               </p>
               {(item.rules ?? []).length > 0 ? (
                 <ul className="sv-rules">
-                  {(item.rules ?? []).map((rule, i) => (
-                    <li key={i}>{text(rule)}</li>
+                  {(item.rules ?? []).map((rule, i, list) => (
+                    <li key={i}>
+                      {i > 0 && <b>{joinWord(list, i)} </b>}
+                      {text(rule)}
+                    </li>
                   ))}
                 </ul>
               ) : (

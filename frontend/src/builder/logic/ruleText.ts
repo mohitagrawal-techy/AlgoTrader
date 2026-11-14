@@ -48,6 +48,29 @@ export function ruleText(catalog: TechCatalog, rule: TechRule): string {
   return `${frame[0].toUpperCase()}${frame.slice(1)}: ${left} ${op} ${operandText(catalog, rule.right)}`;
 }
 
+/** The word joining rule `index` to the one before it in an entry list: "And", "Or", or
+ * nothing for the first rule. */
+export function joinWord(rules: TechRule[], index: number): string {
+  if (index === 0) return "";
+  return rules[index].join === "or" ? "Or" : "And";
+}
+
+/** Entry rules as one sentence, "and" binding before "or": "(A and B) or C". */
+export function rulesText(catalog: TechCatalog, rules: TechRule[]): string {
+  const groups: TechRule[][] = [];
+  rules.forEach((rule, index) => {
+    if (index === 0 || rule.join === "or") groups.push([]);
+    groups[groups.length - 1].push(rule);
+  });
+  const texts = groups.map((group) =>
+    group.map((rule) => ruleText(catalog, rule)).join(" and "),
+  );
+  if (groups.length < 2) return texts[0] ?? "";
+  return texts
+    .map((text, i) => (groups[i].length > 1 ? `(${text})` : text))
+    .join(" or ");
+}
+
 /** Problems keyed by field id, matching the editor's other checks. */
 export function ruleProblems(
   catalog: TechCatalog,

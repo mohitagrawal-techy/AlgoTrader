@@ -43,10 +43,14 @@ export function StartFromSection({ b }: { b: ReadyBuilder }) {
   );
 }
 
-export function BasicsSection({ b }: { b: ReadyBuilder }) {
+export function BasicsSection({ b, step }: { b: ReadyBuilder; step?: number }) {
   const { spec, edit, visible, intraday, lab } = b;
   return (
-    <Section title="Basics">
+    <Section
+      title="Basics"
+      step={step}
+      hint="What it trades, its market view, and how often it checks for a trade."
+    >
       <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
         <Field
           id="name"

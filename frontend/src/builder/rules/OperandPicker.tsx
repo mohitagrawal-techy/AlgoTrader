@@ -11,21 +11,23 @@ import {
   freshIndicator,
   indicatorOf,
   operandPick,
+  patternOf,
   pickedOperand,
   pickKey,
   pickText,
   PRICE_NAMES,
 } from "../logic/picks";
 import { operandText } from "../logic/ruleText";
-import { FieldMessage, Hint, NumberInput, Select } from "../../components/ui";
+import { FieldMessage, NumberInput, Select } from "../../components/ui";
 
 const OTHER = "__other";
 const NUMBER = "__number";
 
-/** One side of a comparison: a price, one of the strategy's indicators, or a number, with
- * the line it reads and how many candles back. */
+/** One side of a condition, as one box: a price, one of the strategy's indicators (each
+ * line its own choice), a picked candle pattern, or a number typed beside it. */
 export function OperandPicker({
   id,
+  label,
   catalog,
   operand,
   allowNumber,
@@ -33,8 +35,11 @@ export function OperandPicker({
   picked,
   frame,
   onChange,
+  onPattern,
 }: {
   id: string;
+  /** What this side is, for screen readers; the column heading shows it. */
+  label: string;
   catalog: TechCatalog;
   operand: TechOperand;
   allowNumber: boolean;
@@ -44,6 +49,8 @@ export function OperandPicker({
   frame: { timeframe: TechTimeframe; candles?: CandleType };
   /** A picked indicator comes with its candles, which the rule then reads on. */
   onChange: (operand: TechOperand, pick?: IndicatorPick) => void;
+  /** Offers the picked candle patterns too; choosing one makes the rule a pattern rule. */
+  onPattern?: (pick: IndicatorPick) => void;
 }) {
   const indicator =
     operand.kind === "indicator"
@@ -53,6 +60,10 @@ export function OperandPicker({
     ([key]) => key === id || key.startsWith(`${id}-`),
   )?.[1];
   const isPrice = PRICE_NAMES.includes(operand.name ?? "");
+  // Patterns are offered only where the rule can become a pattern rule.
+  const listed = picked
+    .map((pick, index) => ({ pick, index }))
+    .filter(({ pick }) => onPattern || !patternOf(catalog, pick.name));
   const pickIndex =
     operand.kind === "indicator" && !isPrice
       ? picked.findIndex(
@@ -83,149 +94,103 @@ export function OperandPicker({
     else if (value.startsWith("pick:")) {
       const [, index, field] = value.split(":");
       const pick = picked[Number(index)];
+      if (patternOf(catalog, pick.name)) {
+        onPattern?.(pick);
+        return;
+      }
       const chosen = pickedOperand(catalog, pick);
       onChange(field ? { ...chosen, field } : chosen, pick);
     } else onChange(freshIndicator(catalog, value));
   };
+  const ago = operand.kind === "indicator" ? (operand.bars_ago ?? 0) : 0;
 
   return (
-    <div className="flex min-w-0 flex-1 basis-56 flex-col gap-1.5">
-      <Select
-        id={`${id}-name`}
-        small
-        aria-label="Value to compare"
-        // Long choices are cut off in the box; the tooltip shows the whole of it.
-        title={
-          operand.kind === "indicator"
-            ? operandText(catalog, { ...operand, bars_ago: 0 })
-            : undefined
-        }
-        value={choice}
-        onChange={(e) => choose(e.target.value)}
-      >
-        {allowNumber && <option value={NUMBER}>A number</option>}
-        <optgroup label="Price">
-          {catalog.indicators
-            .filter((item) => PRICE_NAMES.includes(item.name))
-            .map((item) => (
-              <option
-                key={item.name}
-                value={item.name}
-                title={indicatorTitle(item)}
-              >
-                {item.label}
-              </option>
-            ))}
-        </optgroup>
-        {picked.length ? (
-          byType(
-            catalog,
-            picked.map((pick, index) => ({ pick, index })),
-            (entry) => entry.pick.name,
-          ).map((group) => (
-            <optgroup key={group.title} label={group.title}>
-              {group.items.flatMap(({ pick, index }) => {
-                const found = indicatorOf(catalog, pick.name);
-                const lines = found?.fields.length
-                  ? found.fields
-                  : [{ value: "", label: "" }];
-                return lines.map((line) => (
-                  <option
-                    key={`${index}-${line.value}`}
-                    value={pickChoice(index, line.value || null)}
-                    title={indicatorTitle(found)}
-                  >
-                    {pickText(catalog, pick)}
-                    {line.label ? `: ${line.label}` : ""}
-                  </option>
-                ));
-              })}
-            </optgroup>
-          ))
-        ) : (
-          <optgroup label="No indicators picked yet" />
-        )}
-        {choice === OTHER && (
-          <option value={OTHER}>
-            {operandText(catalog, { ...operand, bars_ago: 0 })} (not in
-            Indicators)
-          </option>
-        )}
-      </Select>
-      <div className="flex flex-wrap gap-2">
-        {operand.kind === "value" ? (
-          <Small label="Number" id={id}>
-            <NumberInput
-              id={id}
-              small
-              step={0.5}
-              value={operand.value ?? null}
-              invalid={!!problems[id]}
-              onChange={(value) => onChange({ ...operand, value })}
-            />
-          </Small>
-        ) : (
-          <>
-            {/* Picked indicators list each line above; this is for one not in Indicators. */}
-            {choice === OTHER && indicator && indicator.fields.length > 0 && (
-              <Small label="Line" id={`${id}-field`}>
-                <Select
-                  id={`${id}-field`}
-                  small
-                  className="w-auto max-w-64"
-                  value={operand.field ?? ""}
-                  onChange={(event) =>
-                    onChange({ ...operand, field: event.target.value })
-                  }
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex gap-2">
+        <Select
+          id={`${id}-name`}
+          className="min-w-0 flex-1"
+          aria-label={label}
+          aria-invalid={!!message || undefined}
+          // Long choices are cut off in the box; the tooltip shows the whole of it.
+          title={
+            operand.kind === "indicator"
+              ? operandText(catalog, { ...operand, bars_ago: 0 })
+              : undefined
+          }
+          value={choice}
+          onChange={(e) => choose(e.target.value)}
+        >
+          {allowNumber && <option value={NUMBER}>A number</option>}
+          <optgroup label="Price">
+            {catalog.indicators
+              .filter((item) => PRICE_NAMES.includes(item.name))
+              .map((item) => (
+                <option
+                  key={item.name}
+                  value={item.name}
+                  title={indicatorTitle(item)}
                 >
-                  {indicator.fields.map((field) => (
-                    <option key={field.value} value={field.value}>
-                      {field.label}
+                  {item.label}
+                </option>
+              ))}
+          </optgroup>
+          {listed.length ? (
+            byType(catalog, listed, (entry) => entry.pick.name).map((group) => (
+              <optgroup key={group.title} label={group.title}>
+                {group.items.flatMap(({ pick, index }) => {
+                  const found = indicatorOf(catalog, pick.name);
+                  const lines = found?.fields.length
+                    ? found.fields
+                    : [{ value: "", label: "" }];
+                  return lines.map((line) => (
+                    <option
+                      key={`${index}-${line.value}`}
+                      value={pickChoice(index, line.value || null)}
+                      title={indicatorTitle(found)}
+                    >
+                      {pickText(catalog, pick)}
+                      {line.label ? `: ${line.label}` : ""}
                     </option>
-                  ))}
-                </Select>
-              </Small>
-            )}
-            <Small label="Candles ago" id={`${id}-ago`}>
-              <NumberInput
-                id={`${id}-ago`}
-                small
-                value={operand.bars_ago ?? 0}
-                invalid={!!problems[`${id}-ago`]}
-                onChange={(value) =>
-                  onChange({ ...operand, bars_ago: value ?? 0 })
-                }
-              />
-            </Small>
-          </>
+                  ));
+                })}
+              </optgroup>
+            ))
+          ) : (
+            <optgroup label="No indicators picked yet" />
+          )}
+          {choice === OTHER && (
+            <option value={OTHER}>
+              {operandText(catalog, { ...operand, bars_ago: 0 })} (not in
+              Indicators)
+            </option>
+          )}
+        </Select>
+        {operand.kind === "value" && (
+          <NumberInput
+            id={id}
+            className="w-28 shrink-0"
+            label={`${label}: number`}
+            step={0.5}
+            value={operand.value ?? null}
+            invalid={!!problems[id]}
+            onChange={(value) => onChange({ ...operand, value })}
+          />
         )}
       </div>
-      {!isPrice &&
-        operand.kind === "indicator" &&
-        indicator &&
-        indicator.params.length > 0 && (
-          <Hint>Settings come from the Indicators section.</Hint>
-        )}
+      {ago > 0 && (
+        <p className="text-[12px] text-ink-3">
+          {ago} candle{ago === 1 ? "" : "s"} ago.{" "}
+          <button
+            type="button"
+            className="cursor-pointer text-accent-ink underline"
+            onClick={() => onChange({ ...operand, bars_ago: 0 })}
+          >
+            Use the latest candle
+          </button>
+        </p>
+      )}
       <FieldMessage id={`${id}-name`} problem={message} />
-    </div>
-  );
-}
-
-function Small({
-  label,
-  id,
-  children,
-}: {
-  label: string;
-  id: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-w-28 flex-col gap-1">
-      <label htmlFor={id} className="text-[11.5px] font-semibold text-ink-3">
-        {label}
-      </label>
-      {children}
     </div>
   );
 }

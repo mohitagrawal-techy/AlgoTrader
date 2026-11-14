@@ -19,6 +19,7 @@ from algoverse.evaluation.config import Weight
 from algoverse.evaluation.context import MarketContext
 from algoverse.lab.technical import (
     INDICATORS,
+    PATTERNS,
     CandleType,
     Frames,
     TechRule,
@@ -28,6 +29,8 @@ from algoverse.lab.technical import (
     rule_failure,
     rule_reading,
     rule_text,
+    rules_failures,
+    rules_text,
 )
 from algoverse.research.ml import probability as ml_probability
 from algoverse.risk.config import ExitRule
@@ -286,9 +289,9 @@ def budget_key(budget: Budget | dict) -> dict:
 
 
 class IndicatorPick(BaseModel):
-    """An indicator chosen for the strategy: its settings, the candles it is read on, and a
-    name of the user's choosing. Rules in every case pick from these, and a rule reads them on
-    their candles. It only shapes the editor: trades follow the rules alone."""
+    """An indicator or candle pattern chosen for the strategy: its settings, the candles it is
+    read on, and a name of the user's choosing. Rules in every case pick from these, and a rule
+    reads them on their candles. It only shapes the editor: trades follow the rules alone."""
 
     name: str
     params: dict[str, float] = Field(default_factory=dict)
@@ -298,7 +301,7 @@ class IndicatorPick(BaseModel):
 
     @model_validator(mode="after")
     def _known(self) -> IndicatorPick:
-        if self.name not in INDICATORS:
+        if self.name not in INDICATORS and self.name not in PATTERNS:
             raise ValueError(f"unknown indicator {self.name}")
         return self
 
@@ -393,6 +396,8 @@ def signature(spec: StrategySpec) -> str:
         for rule in case["rules"] + case["any_rules"] + (case.get("exit_rules") or []):
             if rule.get("candles") == "normal":
                 del rule["candles"]
+            if rule.get("join") == "and":
+                del rule["join"]
     rules["symbols"] = sorted(rules["symbols"])
     # Settings added later are left out at their defaults, so older strategies keep their
     # results.
@@ -404,6 +409,8 @@ def signature(spec: StrategySpec) -> str:
         for rule in rules[section].get(key, []):
             if rule.get("candles") == "normal":
                 del rule["candles"]
+            if rule.get("join") == "and":
+                del rule["join"]
     return hashlib.sha256(json.dumps(rules, sort_keys=True).encode()).hexdigest()[:12]
 
 
@@ -568,7 +575,8 @@ def describe_entry(spec: StrategySpec) -> str:
     if entry.iv_rank_max is not None:
         parts.append(f"IV rank at most {entry.iv_rank_max:g}")
     parts += [f"{SIGNALS[c.signal]} {c.op} {c.value:g}" for c in entry.conditions]
-    parts += [rule_text(rule) for rule in entry.rules]
+    if entry.rules:
+        parts.append(rules_text(entry.rules))
     if entry.any_rules:
         parts.append("any of: " + " or ".join(rule_text(rule) for rule in entry.any_rules))
     if entry.time_from or entry.time_to:
@@ -584,7 +592,7 @@ def describe_entry(spec: StrategySpec) -> str:
         parts.append(f"then wait for the premium to move {entry.wait_direction} {amount}")
     text = ", ".join(parts)
     for case in spec.cases:
-        rules = [rule_text(rule) for rule in case.rules]
+        rules = [rules_text(case.rules)] if case.rules else []
         if case.any_rules:
             rules.append("any of: " + " or ".join(rule_text(rule) for rule in case.any_rules))
         legs = describe_legs(spec.model_copy(update={"legs": case.legs, "cases": []}))
@@ -721,10 +729,7 @@ def quick_failures(
             and last_minute_day(built) != now.date()
         ):
             return [*reasons, "entry rule: no one-minute candles for this session"]
-        for rule in rules.rules:
-            failure = rule_failure(rule, built)
-            if failure:
-                reasons.append(failure)
+        reasons += rules_failures(rules.rules, built)
         if rules.any_rules and all(rule_failure(rule, built) for rule in rules.any_rules):
             reasons.append("entry rule: none of the any-of rules holds")
     return reasons
@@ -795,7 +800,10 @@ def entry_reasons(
         )
     if entry.rules or entry.any_rules:
         frames = Frames(ctx.bars, getattr(ctx, "intraday", None))
-        found += [rule_reading(rule, frames) for rule in entry.rules]
+        for index, rule in enumerate(entry.rules):
+            reading = rule_reading(rule, frames)
+            # How it joins the rule before: with "or", a rule may not hold while the trade does.
+            found.append(reading | ({"join": rule.join} if index else {}))
         for rule in entry.any_rules:
             reading = rule_reading(rule, frames)
             if reading["holds"]:

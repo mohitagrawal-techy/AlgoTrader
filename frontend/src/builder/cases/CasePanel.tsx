@@ -16,7 +16,7 @@ import {
 } from "../../components/ui";
 import { LegsEditor } from "./LegsEditor";
 
-/** The open case: its name and view (after Case 1), entry rules, exit rules and legs. */
+/** The open case: its name and view (after Case 1), entry signal, legs and exit signal. */
 export function CasePanel({ b }: { b: ReadyBuilder }) {
   const { cases: c, visible, intraday, lab } = b;
   const catalog = lab.technical;
@@ -36,8 +36,9 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
     >
       {own || !c.item ? (
         <Hint>
-          Case 1 is the strategy's own legs and rules. Its market view is set
-          under Basics.
+          Case 1 is the strategy's main setup. Its market view is set under
+          Basics. Add a case for another way into the trade, such as the put
+          side of a breakout.
         </Hint>
       ) : (
         <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-[1fr_auto_auto]">
@@ -78,7 +79,7 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
       )}
 
       <Block
-        title="Entry when"
+        title="Entry signal"
         tone="entry"
         hint={
           intraday
@@ -86,44 +87,66 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
             : "Rules on the underlying, on daily to monthly candles, read at the close. The trade enters at the next open."
         }
       >
-        <h4 className="mb-1.5 text-[12.5px] font-semibold text-ink-2">
-          All of these
-        </h4>
         <RulesEditor
           key={`entry-${c.active}`}
+          joins
           catalog={catalog}
           picked={picked}
           rules={c.rules}
           problems={visible}
           intraday={intraday}
-          quickAdd={own}
           prefix={`${prefix}rule`}
+          title="Entry signal"
           onChange={c.setRules}
         />
-        <h4 className="mt-4 mb-1.5 text-[12.5px] font-semibold text-ink-2">
-          And any one of these
-        </h4>
-        <RulesEditor
-          key={`any-${c.active}`}
-          catalog={catalog}
-          picked={picked}
-          rules={c.anyRules}
-          problems={visible}
-          intraday={intraday}
-          prefix={`${prefix}any-rule`}
-          addLabel="Add an any-of rule"
-          onChange={c.setAnyRules}
-        />
+        {/* Older strategies may have an any-of list; AND/OR joins replace it, but its rules
+            stay visible and editable until removed. */}
+        {c.anyRules.length > 0 && (
+          <>
+            <h4 className="mt-4 mb-1.5 text-[12.5px] font-semibold text-ink-2">
+              And any one of these
+            </h4>
+            <RulesEditor
+              key={`any-${c.active}`}
+              catalog={catalog}
+              picked={picked}
+              rules={c.anyRules}
+              problems={visible}
+              intraday={intraday}
+              prefix={`${prefix}any-rule`}
+              title="Any one of these"
+              onChange={c.setAnyRules}
+            />
+          </>
+        )}
         <Hint className="mt-3">
-          Empty lists add no condition. The shared rules under Enter when apply
-          too.
+          Join rules with AND or OR; AND is checked first. With no rules, only
+          the Entry filters decide.
         </Hint>
       </Block>
 
       <Block
-        title="Exit when"
+        title="Legs"
+        hint="The options this case buys or sells when its signal holds."
+        aside={
+          <Badge>
+            {c.legs.length} of {MAX_LEGS}
+          </Badge>
+        }
+      >
+        <LegsEditor
+          key={`legs-${c.active}`}
+          legs={c.legs}
+          prefix={`${prefix}leg`}
+          problems={visible}
+          onChange={c.setLegs}
+        />
+      </Block>
+
+      <Block
+        title="Exit signal"
         tone="exit"
-        hint="Close this case's trade when any of these holds, checked at each decision."
+        hint="Optional. Closes this case's trade early when any of these holds, checked at each decision. The target, stop and time exits under Exits and stops apply as well."
       >
         {!own && (
           <div className="mb-3">
@@ -155,27 +178,10 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
             problems={visible}
             intraday={intraday}
             prefix={`${prefix}exit-rule`}
-            addLabel="Add an exit rule"
+            title="Exit signal"
             onChange={c.setExitRules}
           />
         )}
-      </Block>
-
-      <Block
-        title="Legs"
-        aside={
-          <Badge>
-            {c.legs.length} of {MAX_LEGS}
-          </Badge>
-        }
-      >
-        <LegsEditor
-          key={`legs-${c.active}`}
-          legs={c.legs}
-          prefix={`${prefix}leg`}
-          problems={visible}
-          onChange={c.setLegs}
-        />
       </Block>
     </div>
   );

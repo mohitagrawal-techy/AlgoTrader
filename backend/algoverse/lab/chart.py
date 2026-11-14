@@ -17,6 +17,7 @@ from algoverse.lab.technical import (
     CHART_SEPARATE_FIELDS,
     INDICATORS,
     INTRADAY_MINUTES,
+    LEVEL_OPS,
     PATTERNS,
     TIMEFRAMES,
     CandleType,
@@ -25,6 +26,7 @@ from algoverse.lab.technical import (
     Operand,
     PatternRule,
     TechRule,
+    compares,
     rule_text,
 )
 
@@ -107,10 +109,8 @@ def rule_series(rule: CompareRule | PatternRule, frames: Frames) -> pd.Series:
     left = _operand_series(frames, rule.timeframe, rule.left, candles)
     right = _operand_series(frames, rule.timeframe, rule.right, candles)
     known = left.notna() & right.notna()
-    if rule.op == "above":
-        return known & (left > right)
-    if rule.op == "below":
-        return known & (left < right)
+    if rule.op in LEVEL_OPS:
+        return known & compares(rule.op, left, right)
     before_left, before_right = left.shift(1), right.shift(1)
     known &= before_left.notna() & before_right.notna()
     if rule.op == "crosses_above":
@@ -193,19 +193,28 @@ def _case_signals(
                 other.append(rule_text(rule))
                 continue
             try:
-                shown.append((group, rule_text(rule), rule_series(rule, frames)))
+                shown.append((group, rule_text(rule), rule_series(rule, frames), rule.join))
             except (KeyError, ValueError) as exc:
                 problems.append(f"{rule_text(rule)}: {exc}")
     if not shown:
         return {"rules": [], "other_timeframes": other, "problems": problems, "hits": []}
-    held = pd.Series(True, index=range(length))
+    # The main list joins by and/or ("and" first), as the backtest does; any-of rules are ORed.
+    groups: list[pd.Series] = []
     any_held = None
-    for group, _, series in shown:
+    for group, _, series, join in shown:
         values = series.reset_index(drop=True).fillna(False).astype(bool)
         if group == "all":
-            held &= values
+            if not groups or join == "or":
+                groups.append(values)
+            else:
+                groups[-1] = groups[-1] & values
         else:
             any_held = values if any_held is None else (any_held | values)
+    held = pd.Series(True, index=range(length))
+    if groups:
+        held = groups[0]
+        for values in groups[1:]:
+            held = held | values
     if any_held is not None:
         held &= any_held
     window = held.iloc[keep]
@@ -216,7 +225,7 @@ def _case_signals(
                 "text": text,
                 "count": int(series.reset_index(drop=True).iloc[keep].fillna(False).sum()),
             }
-            for group, text, series in shown
+            for group, text, series, _ in shown
         ],
         "other_timeframes": other,
         "problems": problems,

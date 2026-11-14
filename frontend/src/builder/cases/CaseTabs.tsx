@@ -35,6 +35,7 @@ export function CaseTabs({
             type="button"
             role="tab"
             id={`case-tab-${index}`}
+            data-problem={problem || undefined}
             aria-selected={selected}
             aria-controls="case-panel"
             tabIndex={selected ? 0 : -1}

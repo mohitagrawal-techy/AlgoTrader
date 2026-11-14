@@ -18,7 +18,7 @@ export {
 } from "./inputs";
 export { JobStatus } from "./JobStatus";
 export { Panel } from "./Panel";
-export { Badge, Block, FoldContext, Section } from "./Section";
+export { Badge, Block, FoldContext, Section, sectionId } from "./Section";
 export { ChartSkeleton, Empty, LoadFailed } from "./states";
 export { Meter, Pnl, Status, type Tone } from "./Status";
 export { Table } from "./Table";

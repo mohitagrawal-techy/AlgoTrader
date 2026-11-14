@@ -794,17 +794,22 @@ export interface TechOperand {
   bars_ago?: number;
 }
 
+export type RuleJoin = "and" | "or";
+
 export type TechRule =
   | {
       type: "compare";
+      /** How it joins the rule before it in an entry list; "and" binds before "or". */
+      join?: RuleJoin;
       timeframe: TechTimeframe;
       candles?: CandleType;
       left: TechOperand;
-      op: "above" | "below" | "crosses_above" | "crosses_below";
+      op: CompareOp;
       right: TechOperand;
     }
   | {
       type: "pattern";
+      join?: RuleJoin;
       timeframe: TechTimeframe;
       candles?: CandleType;
       pattern: string;
@@ -856,6 +861,16 @@ export interface ChartData {
   };
 }
 
+/** How a rule compares its two sides. "equals" compares to 2 decimals. */
+export type CompareOp =
+  | "above"
+  | "below"
+  | "at_or_above"
+  | "at_or_below"
+  | "equals"
+  | "crosses_above"
+  | "crosses_below";
+
 export interface EntryReading {
   rule: string;
   holds: boolean;
@@ -870,6 +885,8 @@ export interface EntryReading {
   op?: string;
   value_text?: string | null;
   any_of?: boolean;
+  /** How it joins the rule before it; with "or" a rule may not hold while the entry does. */
+  join?: RuleJoin;
 }
 
 export interface ReplayTrade {

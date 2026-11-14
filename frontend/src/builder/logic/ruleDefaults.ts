@@ -10,6 +10,8 @@ import {
   CANDLE_NAMES,
   freshIndicator,
   operandPick,
+  patternOf,
+  patternPick,
   pickedOperand,
   pickKey,
   PRICE_NAMES,
@@ -17,6 +19,20 @@ import {
 import { PRESETS } from "./presets";
 
 type Frame = { timeframe: TechTimeframe; candles?: CandleType };
+
+/** A pattern rule's pattern as an operand, so it lists beside the indicators. */
+export function patternOperand(rule: {
+  pattern: string;
+  within: number;
+}): TechOperand {
+  return {
+    kind: "indicator",
+    name: rule.pattern,
+    params: { within: rule.within },
+    field: null,
+    bars_ago: 0,
+  };
+}
 
 /** How new rules start, and how a rule relates to the strategy's indicators. */
 export function ruleHelpers(catalog: TechCatalog, picked: IndicatorPick[]) {
@@ -26,6 +42,7 @@ export function ruleHelpers(catalog: TechCatalog, picked: IndicatorPick[]) {
   const others = picked.filter(
     (pick) =>
       !CANDLE_NAMES.includes(pick.name) &&
+      !patternOf(catalog, pick.name) &&
       (!candle ||
         ((pick.timeframe ?? "1d") === (candle.timeframe ?? "1d") &&
           (pick.candles ?? "normal") === (candle.candles ?? "normal"))),
@@ -56,7 +73,10 @@ export function ruleHelpers(catalog: TechCatalog, picked: IndicatorPick[]) {
     pickKey(catalog, operandPick(operand, rule));
   /** The picked indicator a compare rule reads, which sets the candles it is read on. */
   const pickOf = (rule: TechRule): IndicatorPick | undefined => {
-    if (rule.type !== "compare") return undefined;
+    if (rule.type === "pattern") {
+      const key = pickKey(catalog, patternPick(rule));
+      return picked.find((pick) => pickKey(catalog, pick) === key);
+    }
     for (const operand of [rule.left, rule.right]) {
       if (
         operand.kind !== "indicator" ||
@@ -72,8 +92,10 @@ export function ruleHelpers(catalog: TechCatalog, picked: IndicatorPick[]) {
   };
   /** Indicators a rule reads that are not among the strategy's on its candles. */
   const strays = (rule: TechRule): TechOperand[] =>
-    rule.type !== "compare"
-      ? []
+    rule.type === "pattern"
+      ? pickOf(rule)
+        ? []
+        : [patternOperand(rule)]
       : [rule.left, rule.right].filter(
           (operand) =>
             operand.kind === "indicator" &&

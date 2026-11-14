@@ -42,6 +42,9 @@ RULES = [
         "op": "crosses_below",
         "right": {"name": "bbands", "field": "middle"},
     },
+    {"left": {"name": "high"}, "op": "at_or_above", "right": {"name": "prior_high"}},
+    {"left": {"name": "rsi"}, "op": "at_or_below", "right": {"kind": "value", "value": 55}},
+    {"left": {"name": "open"}, "op": "equals", "right": {"name": "candle", "field": "open"}},
 ]
 
 
@@ -199,3 +202,36 @@ def test_long_minute_ranges_reach_back_and_one_minute_is_capped():
     one = chart(pd.DataFrame(), data, ChartRequest(symbol="NIFTY", timeframe="1m", sessions=1500))
     days = pd.Series([datetime.fromtimestamp(t, IST).date() for t in one["time"]]).nunique()
     assert days == 125
+
+
+def test_signal_hits_join_rules_by_and_then_or_as_the_backtest_does():
+    from algoverse.lab.technical import rules_failures
+
+    daily = make_bars(count=120)
+    raw = [
+        {
+            "left": {"name": "close"},
+            "op": "above",
+            "right": {"name": "ema", "params": {"period": 10}},
+        },
+        {"left": {"name": "rsi"}, "op": "above", "right": {"kind": "value", "value": 55}},
+        {
+            "join": "or",
+            "left": {"name": "rsi"},
+            "op": "below",
+            "right": {"kind": "value", "value": 40},
+        },
+    ]
+    body = chart(daily, pd.DataFrame(), request(rules=[{"type": "compare", **r} for r in raw]))
+    hits = set(body["signals"]["hits"])
+    rules = [CompareRule(**rule) for rule in raw]
+    shown = len(body["time"])
+    first = len(daily) - shown
+    expected = {
+        position
+        for position in range(shown)
+        if not rules_failures(
+            rules, Frames(daily.iloc[: first + position + 1].reset_index(drop=True))
+        )
+    }
+    assert hits == expected and 0 < len(hits) < shown

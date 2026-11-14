@@ -6,7 +6,13 @@ import type {
   TechOperand,
   TechRule,
 } from "../../api";
-import { normalPick, operandPick, pickKey, PRICE_NAMES } from "../logic/picks";
+import {
+  normalPick,
+  operandPick,
+  patternPick,
+  pickKey,
+  PRICE_NAMES,
+} from "../logic/picks";
 import {
   allRuleLists,
   labelledRuleLists,
@@ -39,6 +45,10 @@ export function usePicks(
     };
     for (const pick of spec.indicators ?? []) add(pick);
     for (const rule of allRuleLists(spec).flat()) {
+      if (rule.type === "pattern") {
+        const key = add(patternPick(rule));
+        counts[key] = (counts[key] ?? 0) + 1;
+      }
       for (const operand of operandsOf(rule)) {
         if (
           operand.kind !== "indicator" ||
@@ -58,13 +68,14 @@ export function usePicks(
     catalog ? pickKey(catalog, pick) : pick.name;
   /** Whether a rule reads this indicator, on its candles. */
   const ruleReads = (rule: TechRule, pick: IndicatorPick) =>
-    rule.type === "compare" &&
-    [rule.left, rule.right].some(
-      (operand) =>
-        operand.kind === "indicator" &&
-        operand.name === pick.name &&
-        keyOf(operandPick(operand, rule)) === keyOf(pick),
-    );
+    rule.type === "pattern"
+      ? keyOf(patternPick(rule)) === keyOf(pick)
+      : [rule.left, rule.right].some(
+          (operand) =>
+            operand.kind === "indicator" &&
+            operand.name === pick.name &&
+            keyOf(operandPick(operand, rule)) === keyOf(pick),
+        );
 
   const addPick = (pick: IndicatorPick) =>
     setSpec((current) => ({ ...current, indicators: [...picks, pick] }));
@@ -101,16 +112,25 @@ export function usePicks(
         ? { ...operand, params: { ...next.params } }
         : operand;
     const move = (rule: TechRule): TechRule =>
-      rule.type === "compare" &&
-      (reads(rule.left, rule) || reads(rule.right, rule))
-        ? {
-            ...rule,
-            left: swap(rule.left, rule),
-            right: swap(rule.right, rule),
-            timeframe: next.timeframe ?? "1d",
-            candles: next.candles ?? "normal",
-          }
-        : rule;
+      rule.type === "pattern"
+        ? keyOf(patternPick(rule)) === oldKey
+          ? {
+              ...rule,
+              within: next.params.within ?? rule.within,
+              timeframe: next.timeframe ?? "1d",
+              candles: next.candles ?? "normal",
+            }
+          : rule
+        : rule.type === "compare" &&
+            (reads(rule.left, rule) || reads(rule.right, rule))
+          ? {
+              ...rule,
+              left: swap(rule.left, rule),
+              right: swap(rule.right, rule),
+              timeframe: next.timeframe ?? "1d",
+              candles: next.candles ?? "normal",
+            }
+          : rule;
     setSpec((current) => ({
       ...mapRuleLists(current, (rules) => rules.map(move)),
       indicators: picks.map((pick) => (keyOf(pick) === oldKey ? next : pick)),

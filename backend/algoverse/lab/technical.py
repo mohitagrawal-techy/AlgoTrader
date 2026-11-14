@@ -7,7 +7,8 @@ month counts as it stands at the decision.
 
 Two kinds of rule:
     compare  left operand, an operator, right operand. Each operand is a number or an indicator,
-             optionally read some candles ago. Operators: above, below, crosses_above,
+             optionally read some candles ago. Operators: above, below, at_or_above,
+             at_or_below, equals (to the paisa: both rounded to 2 decimals), crosses_above,
              crosses_below.
     pattern  a candle pattern that appeared, or did not, within the last N candles.
 
@@ -1674,12 +1675,20 @@ CandleType = Literal["normal", "heikin_ashi"]
 CANDLE_TYPES = {"normal": "Normal", "heikin_ashi": "Heikin-Ashi"}
 
 
+# How a rule joins the one before it in an entry list. "and" binds before "or", so
+# "A and B or C" holds when A and B both hold, or when C does. The first rule's is ignored.
+Join = Literal["and", "or"]
+
+
 class CompareRule(BaseModel):
     type: Literal["compare"] = "compare"
+    join: Join = "and"
     timeframe: Timeframe = "1d"
     candles: CandleType = "normal"
     left: Operand
-    op: Literal["above", "below", "crosses_above", "crosses_below"]
+    op: Literal[
+        "above", "below", "at_or_above", "at_or_below", "equals", "crosses_above", "crosses_below"
+    ]
     right: Operand
 
     @model_validator(mode="after")
@@ -1695,6 +1704,7 @@ class CompareRule(BaseModel):
 
 class PatternRule(BaseModel):
     type: Literal["pattern"] = "pattern"
+    join: Join = "and"
     timeframe: Timeframe = "1d"
     candles: CandleType = "normal"
     pattern: str
@@ -1860,12 +1870,35 @@ def operand_text(operand: Operand) -> str:
     return text
 
 
+# In the order the rule editor lists them.
 OPS = {
     "above": "above",
     "below": "below",
+    "at_or_above": "at or above",
+    "at_or_below": "at or below",
+    "equals": "equal to",
     "crosses_above": "crosses above",
     "crosses_below": "crosses below",
 }
+# Operators that compare the latest candle only; the rest compare it with the one before.
+LEVEL_OPS = {"above", "below", "at_or_above", "at_or_below", "equals"}
+# "Equal to" compares prices to the paisa, so float noise does not decide it.
+EQUAL_DECIMALS = 2
+
+
+def compares(op: str, left, right):
+    """Whether `left op right` holds, for numbers or pandas Series alike (level operators)."""
+    if op == "above":
+        return left > right
+    if op == "below":
+        return left < right
+    if op == "at_or_above":
+        return left >= right
+    if op == "at_or_below":
+        return left <= right
+    if isinstance(left, pd.Series) or isinstance(right, pd.Series):
+        return pd.Series(left).round(EQUAL_DECIMALS) == pd.Series(right).round(EQUAL_DECIMALS)
+    return round(left, EQUAL_DECIMALS) == round(right, EQUAL_DECIMALS)
 
 
 def rule_text(rule: CompareRule | PatternRule) -> str:
@@ -1897,6 +1930,40 @@ def _stale_session(rule: CompareRule, frames: Frames) -> bool:
     return started is None or date(1970, 1, 1) + timedelta(days=started // 86400) != today
 
 
+def rule_groups(rules: list) -> list[list]:
+    """Entry rules split at each "or": every rule of a group must hold, and one group must."""
+    groups: list[list] = []
+    for index, rule in enumerate(rules):
+        if index == 0 or rule.join == "or":
+            groups.append([])
+        groups[-1].append(rule)
+    return groups
+
+
+def rules_text(rules: list) -> str:
+    """Rules joined as written: "A and B or C" reads "(A and B) or C"."""
+    groups = rule_groups(rules)
+    texts = [" and ".join(rule_text(rule) for rule in group) for group in groups]
+    if len(groups) == 1:
+        return texts[0] if texts else ""
+    return " or ".join(
+        f"({text})" if len(group) > 1 else text for group, text in zip(groups, texts, strict=True)
+    )
+
+
+def rules_failures(rules: list, frames: Frames) -> list[str]:
+    """Why the entry rules, joined by and/or, do not hold: empty when one group holds,
+    otherwise the failures of the group that came closest."""
+    closest: list[str] | None = None
+    for group in rule_groups(rules):
+        failures = [found for rule in group if (found := rule_failure(rule, frames))]
+        if not failures:
+            return []
+        if closest is None or len(failures) < len(closest):
+            closest = failures
+    return closest or []
+
+
 def rule_failure(rule: CompareRule | PatternRule, frames: Frames) -> str | None:
     """Why the rule does not hold now, or None when it holds."""
     label = f"entry rule: {rule_text(rule)}"
@@ -1918,10 +1985,8 @@ def rule_failure(rule: CompareRule | PatternRule, frames: Frames) -> str | None:
     right = frames.value(rule.timeframe, rule.right, candles=kind)
     if left is None or right is None:
         return f"{label} is not available yet"
-    if rule.op == "above":
-        return None if left > right else f"{label} does not hold"
-    if rule.op == "below":
-        return None if left < right else f"{label} does not hold"
+    if rule.op in LEVEL_OPS:
+        return None if compares(rule.op, left, right) else f"{label} does not hold"
     left_before = frames.value(rule.timeframe, rule.left, 1, kind)
     right_before = frames.value(rule.timeframe, rule.right, 1, kind)
     if left_before is None or right_before is None:

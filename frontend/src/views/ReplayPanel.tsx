@@ -173,10 +173,14 @@ function EntryReasons({
           {trade.why.map((item, index) => (
             <li key={index}>
               <span className="replay-why-rule">
+                {item.join && <b>{item.join === "or" ? "Or " : "And "}</b>}
                 {item.any_of ? "One of: " : ""}
                 {item.rule}
               </span>
-              <span className="muted">{readingText(item, intradayTimes)}</span>
+              <span className="muted">
+                {readingText(item, intradayTimes)}
+                {!item.holds && " (did not hold; the other side of an OR did)"}
+              </span>
             </li>
           ))}
         </ul>

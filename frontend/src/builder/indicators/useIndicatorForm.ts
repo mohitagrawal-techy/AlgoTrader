@@ -9,6 +9,7 @@ import {
   byType,
   MINUTE_FRAMES,
   normalPick,
+  pickables,
   pickKey,
   pickText,
   PRICE_NAMES,
@@ -68,7 +69,7 @@ export function useIndicatorForm({
       frame.value === timeframe,
   );
   const offered = useMemo(
-    () => catalog.indicators.filter((item) => !PRICE_NAMES.includes(item.name)),
+    () => pickables(catalog).filter((item) => !PRICE_NAMES.includes(item.name)),
     [catalog],
   );
   const needle = query.trim().toLowerCase();

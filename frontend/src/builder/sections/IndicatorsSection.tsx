@@ -9,7 +9,13 @@ import { byType, pickKey } from "../logic/picks";
 import { Button, Hint, Badge, Section } from "../../components/ui";
 
 /** The strategy's indicators grouped by type, and the form to add or change one. */
-export function IndicatorsSection({ b }: { b: ReadyBuilder }) {
+export function IndicatorsSection({
+  b,
+  step,
+}: {
+  b: ReadyBuilder;
+  step?: number;
+}) {
   const catalog = b.lab.technical;
   const { picks, useCount, addPick, replacePick, deletePick, rulesUsing } =
     b.picks;
@@ -23,7 +29,8 @@ export function IndicatorsSection({ b }: { b: ReadyBuilder }) {
   return (
     <Section
       title="Indicators"
-      hint="Pick the indicators this strategy uses, the Current candle among them, each on its own candle interval. Every case's entry and exit rules choose from these."
+      step={step}
+      hint="What the rules can read. Pick each indicator on its own candle interval, the Current candle among them; every case's signals choose from these. Close, Open, High and Low need no picking."
       aside={<Badge>{picks.length}</Badge>}
     >
       {picks.length === 0 && (
