@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 import pandas as pd
@@ -85,6 +85,8 @@ class Candidate:
     case: int = 0
     # Scales the trade's risk budget, for strategies that size by volatility. 1 is unscaled.
     size_scale: float = 1.0
+    # Why the entry rules held when it was proposed: each rule with the values it read.
+    why: tuple = field(default=(), compare=False)
 
     @property
     def front_expiry(self) -> date:

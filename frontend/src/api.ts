@@ -856,6 +856,22 @@ export interface ChartData {
   };
 }
 
+export interface EntryReading {
+  rule: string;
+  holds: boolean;
+  /** Start of the candle the values came from, IST wall-clock seconds. */
+  candle?: number | null;
+  left?: number | null;
+  right?: number | null;
+  left_before?: number | null;
+  right_before?: number | null;
+  left_name?: string;
+  right_name?: string;
+  op?: string;
+  value_text?: string | null;
+  any_of?: boolean;
+}
+
 export interface ReplayTrade {
   symbol: string;
   opened_at: string;
@@ -881,7 +897,21 @@ export interface ReplayTrade {
     units: number;
     entry_price: number;
     exit_price: number | null;
+    /** The leg's own stop and target as option prices, when the leg sets them. */
+    stop_price?: number | null;
+    target_price?: number | null;
+    /** Delta when the leg filled. Missing on older backtests. */
+    entry_delta?: number | null;
   }[];
+  /** Which of the strategy's cases opened it: 0 is the main entry rules. */
+  case?: number;
+  /** The index price when the position filled. Missing on older backtests. */
+  entry_spot?: number | null;
+  /** When the entry rules held and the order was placed (IST wall-clock seconds). It fills
+   * at the next check, `open_time`. Null for backtests from before this was recorded. */
+  decide_time?: number | null;
+  /** Why the entry rules held at the decision. Null for older backtests. */
+  why?: EntryReading[] | null;
   /** The open position's value before costs, by IST wall-clock time. */
   path: { time: number; pnl: number }[];
 }
@@ -893,6 +923,8 @@ export interface ReplayData {
   intraday: boolean;
   decide_every: string;
   trades: ReplayTrade[];
+  /** The strategy's ways in, indexed by each trade's `case`. */
+  cases?: { name: string; bias: string }[];
   stats: { trades: number; net_pnl: number | null; win_rate: number | null; expectancy: number | null; max_drawdown: number | null };
   signals: number;
   blocked: Record<string, number>;

@@ -56,6 +56,8 @@ class PaperLeg:
     mark: float | None = None
     exit_price: float | None = None
     delta: float = 0.0
+    # Delta when the leg filled. None for positions from before it was kept.
+    entry_delta: float | None = None
     gamma: float = 0.0
     vega: float = 0.0
     # The leg's own stop loss and profit target, as set by the strategy ("pct" or "points"),
@@ -110,6 +112,10 @@ class Position:
     peak_pnl: float = 0.0
     # Which case of a custom strategy opened it: 0 is the first.
     case: int = 0
+    # Why the entry rules held at the decision: each rule with the values it read.
+    why: list = field(default_factory=list)
+    # The underlying's price when the position filled.
+    entry_spot: float | None = None
 
     @property
     def front_expiry(self) -> date:

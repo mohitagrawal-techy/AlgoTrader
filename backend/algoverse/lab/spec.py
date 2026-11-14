@@ -23,8 +23,10 @@ from algoverse.lab.technical import (
     Frames,
     TechRule,
     Timeframe,
+    last_minute_day,
     needs_minutes,
     rule_failure,
+    rule_reading,
     rule_text,
 )
 from algoverse.research.ml import probability as ml_probability
@@ -76,6 +78,8 @@ DecideEvery = Literal["day", "5m", "15m", "1h"]
 DECIDE_MINUTES = {"5m": 5, "15m": 15, "1h": 60}
 SESSION_OPEN = time(9, 15)
 SESSION_LAST = time(15, 25)
+# The first five-minute candle has finished by now, so a session's minutes should exist.
+FIRST_CANDLE_DONE = time(9, 20)
 SIMPLE_MAX_FILTERS = 1
 MODERATE_MAX_FILTERS = 2
 
@@ -707,6 +711,16 @@ def quick_failures(
             reasons.append("entry rule: past the square-off time")
     if rules.rules or rules.any_rules:
         built = frames()
+        # Minute rules must read this session's candles. Without any (a session missing from
+        # the stored minutes) they would read the last session's and act on stale levels.
+        if (
+            now is not None
+            and now.time() >= FIRST_CANDLE_DONE
+            and needs_minutes([*rules.rules, *rules.any_rules])
+            and not built.minutes.empty
+            and last_minute_day(built) != now.date()
+        ):
+            return [*reasons, "entry rule: no one-minute candles for this session"]
         for rule in rules.rules:
             failure = rule_failure(rule, built)
             if failure:
@@ -756,6 +770,69 @@ def entry_failures(
         elif condition.op == "below" and value >= condition.value:
             reasons.append(f"entry rule: {label} is not below the level")
     return reasons
+
+
+def _number(value) -> float | None:
+    return None if value is None or pd.isna(value) else round(float(value), 2)
+
+
+def entry_reasons(
+    spec: StrategySpec, ctx: MarketContext, front_expiry: date | None = None
+) -> list[dict]:
+    """Why the entry rules held at this decision: each rule with the values it read, for the
+    trade's record. Only the any-of rules that held are listed."""
+    entry, found = spec.entry, []
+    now = getattr(ctx, "now", None)
+    if entry.time_from or entry.time_to:
+        start = f"{entry.time_from:%H:%M}" if entry.time_from else "09:15"
+        end = f"{entry.time_to:%H:%M}" if entry.time_to else "15:25"
+        found.append(
+            {
+                "rule": f"entry time between {start} and {end}",
+                "holds": True,
+                "value_text": f"{now:%H:%M}" if now else None,
+            }
+        )
+    if entry.rules or entry.any_rules:
+        frames = Frames(ctx.bars, getattr(ctx, "intraday", None))
+        found += [rule_reading(rule, frames) for rule in entry.rules]
+        for rule in entry.any_rules:
+            reading = rule_reading(rule, frames)
+            if reading["holds"]:
+                found.append(reading | {"any_of": True})
+    if entry.trend:
+        trend = ctx.regime.trend if ctx.regime else None
+        found.append(
+            {"rule": f"trend is {' or '.join(entry.trend)}", "holds": True, "value_text": trend}
+        )
+    if entry.iv_rank_min is not None or entry.iv_rank_max is not None:
+        ranking = ctx.iv.ranking
+        low = "0" if entry.iv_rank_min is None else f"{entry.iv_rank_min:g}"
+        high = "100" if entry.iv_rank_max is None else f"{entry.iv_rank_max:g}"
+        found.append(
+            {
+                "rule": f"IV rank between {low} and {high}",
+                "holds": True,
+                "left": ranking.rank if ranking else None,
+            }
+        )
+    for condition in entry.conditions:
+        found.append(
+            {
+                "rule": f"{SIGNALS[condition.signal]} {condition.op} {condition.value:g}",
+                "holds": True,
+                "left": signal_value(condition.signal, ctx, front_expiry),
+                "right": condition.value,
+                "left_name": SIGNALS[condition.signal],
+                "right_name": f"{condition.value:g}",
+                "op": condition.op,
+            }
+        )
+    for reading in found:
+        for key in ("left", "right", "left_before", "right_before"):
+            if key in reading:
+                reading[key] = _number(reading[key])
+    return found
 
 
 STOPPED_OUT = {"stop", "trailing_stop", "stop_at_cost", "leg_stop"}
@@ -1008,6 +1085,9 @@ class CustomSet:
                     continue
                 candidate = replace(candidate, case=case, size_scale=scale)
                 failures = entry_failures(variant, ctx, candidate.front_expiry) + limits
+                if not failures:
+                    why = entry_reasons(variant, ctx, candidate.front_expiry)
+                    candidate = replace(candidate, why=tuple(why))
                 if not failures and spec.entry.wait_move is not None:
                     # The signal arms a wait; the trade comes once the premium has moved.
                     self.waiting[key] = _Wait(ctx.now.date(), candidate, _premium(candidate.legs))
@@ -1048,6 +1128,11 @@ class CustomSet:
         if move < needed:
             return [(candidate, [_wait_reason(entry, wait.premium, now)])]
         del self.waiting[key]
+        waited = {
+            "rule": _wait_reason(entry, wait.premium, now).replace("wait and trade: ", ""),
+            "holds": True,
+        }
+        candidate = replace(candidate, why=(*candidate.why, waited))
         return [(candidate, list(limits))]
 
 

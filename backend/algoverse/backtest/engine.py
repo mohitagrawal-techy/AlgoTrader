@@ -216,6 +216,10 @@ def trade_details(ledger: Ledger, labels: dict[int, dict]) -> list[dict]:
                 else float(position.breakeven_pnl),
                 "settlement_estimated": position.settlement_estimated,
                 "case": position.case,
+                # When the rules held and the order was placed; it fills at the next check.
+                "decided_at": position.created_at,
+                "why": position.why,
+                "entry_spot": position.entry_spot,
                 "legs": [
                     {
                         "side": "buy" if leg.side > 0 else "sell",
@@ -227,6 +231,7 @@ def trade_details(ledger: Ledger, labels: dict[int, dict]) -> list[dict]:
                         "exit_price": leg.exit_price,
                         "stop_price": leg.stop_price,
                         "target_price": leg.target_price,
+                        "entry_delta": leg.entry_delta,
                         "exit_reason": leg.exit_reason,
                         "closed_at": leg.closed_at,
                     }

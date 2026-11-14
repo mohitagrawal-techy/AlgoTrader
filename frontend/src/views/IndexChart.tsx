@@ -42,7 +42,7 @@ import {
   type TechTimeframe,
 } from "../api";
 import { ReplayControls, ReplayPanel } from "./ReplayPanel";
-import { indexAt, timeline, wallText } from "./replay";
+import { indexAt, stateAt, stopAt, timeline, wallText } from "./replay";
 import { IndicatorTip } from "./IndicatorTip";
 import { byType, pickText } from "../builder/logic/picks";
 
@@ -78,6 +78,22 @@ const TIMEFRAMES: { value: TechTimeframe; label: string }[] = [
   { value: "1mo", label: "1M" },
 ];
 const MINUTES = new Set<TechTimeframe>(["1m", "5m", "15m", "1h"]);
+
+/** The first candle of each run where the rules hold: where a trade could be triggered.
+ * A rule like "close above the range" stays true candle after candle, so marking every
+ * candle would bury the moment it started. On minute charts a new session starts a new
+ * run. `times` are the candles' wall-clock seconds. */
+function runStarts(
+  hits: number[],
+  times: number[],
+  intraday: boolean,
+): number[] {
+  const held = new Set(hits);
+  const day = (i: number) => Math.floor((times[i] ?? 0) / 86400);
+  return hits.filter(
+    (i) => !held.has(i - 1) || (intraday && day(i) !== day(i - 1)),
+  );
+}
 // The longest range each minute timeframe offers; the server caps it the same way.
 const RANGE_LIMIT: Partial<Record<TechTimeframe, number>> = { "1m": 125 };
 const rangesFor = (timeframe: TechTimeframe) =>
@@ -692,7 +708,32 @@ export function IndexChart({
   const [editing, setEditing] = useState<string | null>(null);
   const [paneTops, setPaneTops] = useState<number[]>([]);
   // Replay: the draft's backtest, played one candle at a time up to `cursorTime`.
-  const [replay, setReplay] = useState<ReplayData | null>(null);
+  const [replayAll, setReplayAll] = useState<ReplayData | null>(null);
+  // Cases unticked in the replay panel: their trades leave the chart, P&L and panel.
+  const [hiddenCases, setHiddenCases] = useState<Set<number>>(new Set());
+  const setReplay = (next: ReplayData | null) => {
+    setReplayAll(next);
+    setHiddenCases(new Set());
+  };
+  const replay = useMemo(
+    () =>
+      replayAll && hiddenCases.size
+        ? {
+            ...replayAll,
+            trades: replayAll.trades.filter(
+              (trade) => !hiddenCases.has(trade.case ?? 0),
+            ),
+          }
+        : replayAll,
+    [replayAll, hiddenCases],
+  );
+  const toggleCase = (index: number) =>
+    setHiddenCases((before) => {
+      const next = new Set(before);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
   const [replayBusy, setReplayBusy] = useState(false);
   const [replayError, setReplayError] = useState<string | null>(null);
   const [replaySessions, setReplaySessions] = useState(21);
@@ -1115,6 +1156,55 @@ export function IndexChart({
     }
 
     if (replay && replayLine) {
+      // The open trade's stop and target as index levels, by the delta at the fill.
+      for (const [values, colour, title] of [
+        [replayLine.stopIndex, css("--pnl-down"), "SL"],
+        [replayLine.targetIndex, css("--pnl-up"), "Target"],
+      ] as const) {
+        if (!values.some((value) => value !== null)) continue;
+        const line = chart.addSeries(LineSeries, {
+          color: colour,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          lineType: LineType.WithSteps,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+          // A far target should not squash the candles.
+          autoscaleInfoProvider: () => null,
+        });
+        line.setData(
+          times.map((time, i) => {
+            const value = values[i];
+            return value === null || value === undefined
+              ? { time }
+              : { time, value };
+          }),
+        );
+        seriesRef.current.push(line);
+        // Label the level in force now with the option price it stands for.
+        const now = values[end - 1];
+        const { open, until } = stateAt(data.time, replay, end - 1);
+        if (now !== null && now !== undefined && open) {
+          const pnl =
+            title === "SL" ? stopAt(open, until)?.level : open.target_pnl;
+          const leg = open.legs.length === 1 ? open.legs[0] : null;
+          const option =
+            leg && pnl !== undefined && pnl !== null
+              ? leg.entry_price +
+                pnl / (leg.units * (leg.side === "buy" ? 1 : -1))
+              : null;
+          candleSeries.createPriceLine({
+            price: now,
+            color: colour,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title:
+              option === null ? title : `${title} opt ${option.toFixed(2)}`,
+          });
+        }
+      }
       const pnl = chart.addSeries(
         BaselineSeries,
         {
@@ -1210,7 +1300,8 @@ export function IndexChart({
       createSeriesMarkers(candleSeries, markers);
     } else if (signals) {
       // The first case's hits point up; a bearish further case's point down from above.
-      const shown = data.signals.hits
+      const intraday = MINUTES.has(timeframe);
+      const shown = runStarts(data.signals.hits, times, intraday)
         .filter((i) => i < end)
         .map((i) => ({
           time: times[i] as Time,
@@ -1220,7 +1311,7 @@ export function IndexChart({
         }));
       for (const item of data.signals.cases ?? []) {
         const down = item.bias === "bearish";
-        for (const i of item.hits) {
+        for (const i of runStarts(item.hits, times, intraday)) {
           if (i >= end) continue;
           shown.push({
             time: times[i] as Time,
@@ -1970,6 +2061,9 @@ export function IndexChart({
       {replay && cursor !== null && (
         <ReplayPanel
           data={replay}
+          all={replayAll ?? replay}
+          hiddenCases={hiddenCases}
+          onToggleCase={toggleCase}
           times={times}
           cursor={cursor}
           intradayTimes={replay.intraday}
@@ -2010,8 +2104,15 @@ export function IndexChart({
                 <span className="chart-signal-mark" aria-hidden>
                   ▲
                 </span>{" "}
-                Entry rules held on <strong>{signalInfo.hits.length}</strong> of{" "}
-                {count} candles shown.
+                Entry rules started holding{" "}
+                <strong>
+                  {
+                    runStarts(signalInfo.hits, times, MINUTES.has(timeframe))
+                      .length
+                  }
+                </strong>{" "}
+                times (marked), and held on {signalInfo.hits.length} of {count}{" "}
+                candles shown.
                 {signalInfo.rules.map((rule) => (
                   <span
                     key={`${rule.group}-${rule.text}`}
@@ -2035,8 +2136,12 @@ export function IndexChart({
                   <span className="chart-signal-mark" aria-hidden>
                     {item.bias === "bearish" ? "▼" : "▲"}
                   </span>{" "}
-                  {item.name} held on <strong>{item.hits.length}</strong> of{" "}
-                  {count} candles shown.
+                  {item.name} started holding{" "}
+                  <strong>
+                    {runStarts(item.hits, times, MINUTES.has(timeframe)).length}
+                  </strong>{" "}
+                  times, and held on {item.hits.length} of {count} candles
+                  shown.
                   {item.rules.map((rule) => (
                     <span
                       key={`${rule.group}-${rule.text}`}

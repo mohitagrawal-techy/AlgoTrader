@@ -18,6 +18,7 @@ list is where they will be added.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import date, timedelta
 from dataclasses import dataclass, field
 from typing import Annotated, Literal
 
@@ -1878,6 +1879,24 @@ def rule_text(rule: CompareRule | PatternRule) -> str:
     return f"{frame} {operand_text(rule.left)} {OPS[rule.op]} {operand_text(rule.right)}"
 
 
+def _stale_session(rule: CompareRule, frames: Frames) -> bool:
+    """True when a session-anchored indicator (opening range, session average, a set candle)
+    would be read from an earlier session's candle: this session has minutes, but none of the
+    rule's candles has finished yet, as in a session that opens late."""
+    session = [
+        operand
+        for operand in (rule.left, rule.right)
+        if operand.kind == "indicator" and INDICATORS[operand.name].intraday_only
+    ]
+    today = last_minute_day(frames)
+    if not session or today is None:
+        return False
+    candles = frames.frame(rule.timeframe, rule.candles)
+    back = max(operand.bars_ago for operand in session)
+    started = _candle_time(candles, back)
+    return started is None or date(1970, 1, 1) + timedelta(days=started // 86400) != today
+
+
 def rule_failure(rule: CompareRule | PatternRule, frames: Frames) -> str | None:
     """Why the rule does not hold now, or None when it holds."""
     label = f"entry rule: {rule_text(rule)}"
@@ -1893,6 +1912,8 @@ def rule_failure(rule: CompareRule | PatternRule, frames: Frames) -> str | None:
             return f"{label} needs more candles"
         seen = bool(PATTERNS[rule.pattern].detect(candles).iloc[-rule.within :].fillna(False).any())
         return None if seen == rule.present else f"{label} does not hold"
+    if _stale_session(rule, frames):
+        return f"{label} has no finished candle this session yet"
     left = frames.value(rule.timeframe, rule.left, candles=kind)
     right = frames.value(rule.timeframe, rule.right, candles=kind)
     if left is None or right is None:
@@ -1911,6 +1932,50 @@ def rule_failure(rule: CompareRule | PatternRule, frames: Frames) -> str | None:
         else left_before >= right_before and left < right
     )
     return None if crossed else f"{label} does not hold"
+
+
+def _candle_time(candles: pd.DataFrame, back: int) -> int | None:
+    """The start of the candle `back` candles before the latest, as IST wall-clock seconds."""
+    position = len(candles) - 1 - back
+    if position < 0 or "ts" not in candles:
+        return None
+    try:
+        stamp = pd.Series([candles["ts"].iloc[position]])
+        return int(_wall_minutes(pd.to_datetime(stamp))[0]) * 60
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def last_minute_day(frames: Frames) -> date | None:
+    """The session of the latest one-minute candle, or None when there are none."""
+    if frames.minutes.empty or "ts" not in frames.minutes:
+        return None
+    wall = int(_wall_minutes(frames.minutes["ts"].iloc[-1:])[0])
+    return date(1970, 1, 1) + timedelta(days=wall // 1440)
+
+
+def rule_reading(rule: CompareRule | PatternRule, frames: Frames) -> dict:
+    """What a rule read at a decision: its wording, whether it held, the values it compared and
+    the candle they came from, so a trade can show why it was taken."""
+    found: dict = {"rule": rule_text(rule), "holds": rule_failure(rule, frames) is None}
+    kind = rule.candles
+    candles = frames.frame(rule.timeframe, kind)
+    if isinstance(rule, PatternRule):
+        found["candle"] = _candle_time(candles, 0)
+        return found
+    back = rule.left.bars_ago if rule.left.kind == "indicator" else rule.right.bars_ago
+    found |= {
+        "candle": _candle_time(candles, back),
+        "left": frames.value(rule.timeframe, rule.left, candles=kind),
+        "right": frames.value(rule.timeframe, rule.right, candles=kind),
+        "left_name": operand_text(rule.left),
+        "right_name": operand_text(rule.right),
+        "op": OPS[rule.op],
+    }
+    if rule.op in ("crosses_above", "crosses_below"):
+        found["left_before"] = frames.value(rule.timeframe, rule.left, 1, kind)
+        found["right_before"] = frames.value(rule.timeframe, rule.right, 1, kind)
+    return found
 
 
 def catalog() -> dict:

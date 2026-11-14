@@ -26,6 +26,30 @@ export interface ReplayTimeline {
   /** Where the open trade's stop and target sit on the same P&L scale, or null when flat. */
   stop: (number | null)[];
   target: (number | null)[];
+  /** The same stop and target as index prices, by the entry delta, or null when flat. */
+  stopIndex: (number | null)[];
+  targetIndex: (number | null)[];
+}
+
+/** Index points per rupee of the position's value: the position's delta in units at the fill.
+ * Null when the backtest did not record the fill's delta and spot, or the delta is ~0. */
+export function positionDelta(trade: ReplayTrade): number | null {
+  if (trade.entry_spot === null || trade.entry_spot === undefined) return null;
+  let total = 0;
+  for (const leg of trade.legs) {
+    if (leg.entry_delta === null || leg.entry_delta === undefined) return null;
+    total += (leg.side === "buy" ? 1 : -1) * leg.units * leg.entry_delta;
+  }
+  return Math.abs(total) < 1e-6 ? null : total;
+}
+
+/** Where the index must go for the position to be worth `pnl`, by the entry delta: the move
+ * in points is pnl / (delta x units). Gamma and time decay make the real level drift. */
+export function indexLevel(trade: ReplayTrade, pnl: number | null): { price: number; points: number } | null {
+  const delta = positionDelta(trade);
+  if (delta === null || pnl === null) return null;
+  const points = pnl / delta;
+  return { price: (trade.entry_spot as number) + points, points };
 }
 
 /** The stop in force before `until`: the fixed stop, raised by move-to-cost and the trailing
@@ -71,6 +95,8 @@ export function timeline(times: number[], data: ReplayData): ReplayTimeline {
   });
   const stop: (number | null)[] = [];
   const target: (number | null)[] = [];
+  const stopIndex: (number | null)[] = [];
+  const targetIndex: (number | null)[] = [];
   times.forEach((start, i) => {
     const until = i + 1 < times.length ? times[i + 1] : Number.POSITIVE_INFINITY;
     // Open at any time during this candle, including the candle it exits in.
@@ -78,6 +104,8 @@ export function timeline(times: number[], data: ReplayData): ReplayTimeline {
     if (!open) {
       stop.push(null);
       target.push(null);
+      stopIndex.push(null);
+      targetIndex.push(null);
       return;
     }
     const realised = trades
@@ -86,8 +114,10 @@ export function timeline(times: number[], data: ReplayData): ReplayTimeline {
     const level = stopAt(open, until);
     stop.push(level === null ? null : realised + level.level);
     target.push(realised + open.target_pnl);
+    stopIndex.push(indexLevel(open, level?.level ?? null)?.price ?? null);
+    targetIndex.push(indexLevel(open, open.target_pnl)?.price ?? null);
   });
-  return { pnl, entries, exits, stop, target };
+  return { pnl, entries, exits, stop, target, stopIndex, targetIndex };
 }
 
 /** The open position's value before costs from the last price known before `until`. */

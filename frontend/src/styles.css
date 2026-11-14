@@ -4336,6 +4336,77 @@ body.chart-full-open {
   text-align: right;
 }
 
+.index-chart .replay-levels-grid th {
+  padding: 2px 0 2px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.index-chart .replay-levels-grid th.left {
+  padding-left: 0;
+  text-align: left;
+}
+
+.index-chart .replay-levels-grid td + td {
+  padding-left: 10px;
+}
+
+.index-chart .replay-cases {
+  grid-column: 1 / -1;
+}
+
+.index-chart .replay-case {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.index-chart .replay-case .muted {
+  font-size: 11.5px;
+}
+
+.index-chart .replay-case-off td:not(:first-child) {
+  opacity: 0.5;
+}
+
+.index-chart .replay-why {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.index-chart .replay-why h4 {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.index-chart .replay-why ul {
+  margin: 4px 0;
+  padding-left: 16px;
+}
+
+.index-chart .replay-why li {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.index-chart .replay-why-rule {
+  color: var(--ink);
+}
+
+.index-chart .replay-last summary {
+  cursor: pointer;
+  color: var(--ink-2);
+  margin-top: 4px;
+}
+
 .index-chart .replay-past {
   color: var(--pnl-down);
 }

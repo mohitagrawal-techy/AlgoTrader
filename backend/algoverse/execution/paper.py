@@ -147,6 +147,7 @@ class PaperBroker:
             trail_pnl=None if idea.plan.trail is None else idea.plan.trail * lots,
             breakeven_pnl=None if idea.plan.breakeven_at is None else idea.plan.breakeven_at * lots,
             case=getattr(idea.candidate, "case", 0),
+            why=list(getattr(idea.candidate, "why", ())),
         )
         position_id = self.ledger.save(position)
         self.ledger.log(now, position_id, "submitted", f"{position.strategy} x{lots}")
@@ -159,7 +160,7 @@ class PaperBroker:
         report = StepReport()
         halted = self._is_halted(now)
         for position in self.ledger.positions((PENDING,)):
-            self._try_entry(position, now, quotes, halted, report)
+            self._try_entry(position, now, quotes, halted, report, spots.get(position.symbol))
         for position in self.ledger.positions((OPEN,)):
             self._fill_leg_exits(position, now, quotes, report)
         for position in self.ledger.positions((EXITING,)):
@@ -296,7 +297,9 @@ class PaperBroker:
         self.ledger.log(now, position.id, "cancelled", reason)
         report.cancelled.append(position.id)
 
-    def _try_entry(self, position, now, quotes, halted: bool, report: StepReport) -> None:
+    def _try_entry(
+        self, position, now, quotes, halted: bool, report: StepReport, spot: float | None = None
+    ) -> None:
         if halted:
             self._cancel(position, now, "daily loss limit reached", report)
             return
@@ -333,9 +336,13 @@ class PaperBroker:
             leg.entry_price = price
             leg.mark = price
             leg.stop_price, leg.target_price = _leg_levels(leg)
+            # Delta at the fill, kept apart from `delta`, which each mark refreshes.
+            delta = quotes[leg.instrument_key]["delta"]
+            leg.entry_delta = float(delta) if _usable(delta) else leg.delta
             position.entry_costs += self._order_cost(position, leg, leg.side > 0, price, now)
         position.status = OPEN
         position.opened_at = now.isoformat()
+        position.entry_spot = spot if spot is not None else position.last_spot
         self.ledger.save(position)
         self.ledger.log(now, position.id, "opened", f"net debit {debit:.2f}")
         report.opened.append(position.id)

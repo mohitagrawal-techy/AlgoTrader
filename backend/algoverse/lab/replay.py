@@ -196,6 +196,7 @@ def package(
                         "exit_price": leg["exit_price"],
                         "stop_price": leg.get("stop_price"),
                         "target_price": leg.get("target_price"),
+                        "entry_delta": leg.get("entry_delta"),
                         "exit_reason": leg.get("exit_reason"),
                         "close_time": wall_seconds(leg["closed_at"])
                         if leg.get("closed_at")
@@ -204,10 +205,23 @@ def package(
                     for leg in trade["legs"]
                 ],
                 "case": trade.get("case", 0),
+                "decide_time": wall_seconds(trade["decided_at"])
+                if trade.get("decided_at")
+                else None,
+                # None for backtests from before the reasons were recorded.
+                "why": trade.get("why"),
+                "entry_spot": trade.get("entry_spot"),
                 "path": position_path(sessions, trade),
             }
         )
     return sorted(found, key=lambda trade: trade["open_time"])
+
+
+def case_names(spec: StrategySpec) -> list[dict]:
+    """The strategy's ways in, in the order trades number them: the first is the main rules."""
+    return [{"name": "Entry rules", "bias": spec.bias}] + [
+        {"name": case.name, "bias": case.bias} for case in spec.cases
+    ]
 
 
 def _summary(trades: list[dict]) -> dict:
@@ -250,6 +264,7 @@ def replay(
         "intraday": intraday,
         "decide_every": draft.decide_every,
         "trades": trades,
+        "cases": case_names(draft),
         "stats": _summary(trades),
         "signals": result["signals"],
         "blocked": result["blocked"],
@@ -284,6 +299,7 @@ def stored_replay(
         "intraday": intraday,
         "decide_every": spec.decide_every,
         "trades": trades,
+        "cases": case_names(spec),
         "stats": _summary(trades),
         "signals": sum((result.get(part) or {}).get("signals", 0) or 0 for part in parts),
         "blocked": dict(sorted(blocked.items(), key=lambda item: -item[1])[:5]),
