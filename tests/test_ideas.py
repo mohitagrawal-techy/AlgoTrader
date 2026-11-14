@@ -511,3 +511,23 @@ def test_debit_spread_margin_follows_its_small_maximum_loss(
     for strategy in ("bull_call_debit", "bear_put_debit"):
         result = metrics(pick(candidates, strategy), context, risk_config, cost_model)
         assert result.margin == pytest.approx(result.max_loss * 1.2), strategy
+
+
+def test_unlimited_risk_ideas_are_rejected_unless_allowed(
+    chain, context, scoring_config, risk_config, cost_model
+):
+    from algoverse.risk.limits import UNLIMITED_RISK_BLOCKED
+
+    def short_premium(config):
+        ideas = generate_ideas(
+            context, chain, scoring_config, config, cost_model, PortfolioState(capital=500000)
+        )
+        return [idea for idea in ideas if idea.candidate.strategy == "short_straddle"]
+
+    blocked = short_premium(risk_config)
+    assert blocked and not any(idea.tradable for idea in blocked)
+    assert all(UNLIMITED_RISK_BLOCKED in idea.risk.reasons for idea in blocked if idea.risk)
+    allowed = short_premium(risk_config.model_copy(update={"allow_unlimited_risk": True}))
+    assert all(
+        UNLIMITED_RISK_BLOCKED not in (idea.risk.reasons if idea.risk else ()) for idea in allowed
+    )

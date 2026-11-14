@@ -1081,6 +1081,19 @@ export interface LabSummary {
   expectancy?: number | null;
   sharpe?: number | null;
   max_drawdown?: number | null;
+  max_drawdown_pct?: number | null;
+  sortino?: number | null;
+  annual_return?: number | null;
+  total_return_pct?: number | null;
+  average_win?: number | null;
+  average_loss?: number | null;
+  risk_reward?: number | null;
+  longest_winning_streak?: number | null;
+  longest_losing_streak?: number | null;
+  recovery_factor?: number | null;
+  exposure_pct?: number | null;
+  capital_use_pct?: number | null;
+  profit_factor?: number | null;
   signals: number;
   blocked: Record<string, number>;
   unfilled: Record<string, number>;
@@ -1141,6 +1154,22 @@ export interface LabWindowDetail {
   trades: LabTrade[];
 }
 
+export type ResearchStageKey = "reject" | "research" | "paper_trade" | "approved" | "live_monitoring";
+
+export interface ResearchStageInfo {
+  key: ResearchStageKey;
+  label: string;
+  meaning: string;
+}
+
+/** Where a strategy stands on the research ladder, and every check behind it. */
+export interface ResearchStage {
+  stage: ResearchStageKey | null;
+  reason: string;
+  checks: { key: string; label: string; passed: boolean; detail: string }[];
+  folds: { start: string; end: string; sessions: number; net_pnl: number; trades: number }[];
+}
+
 export interface LabBacktestPage {
   spec: LabSpec;
   legs_text: string;
@@ -1149,6 +1178,8 @@ export interface LabBacktestPage {
   level: "simple" | "moderate" | "complex";
   capital: number;
   result: LabResult | null;
+  stage: ResearchStage;
+  stages: ResearchStageInfo[];
   /** Daily bars of each underlying the strategy traded. */
   bars: Record<string, { day: string; open: number; high: number; low: number; close: number }[]>;
   technical?: TechCatalog;
@@ -1261,6 +1292,9 @@ export interface LabRow {
   level: "simple" | "moderate" | "complex";
   entry_text: string;
   result: LabResult | null;
+  stage: ResearchStage;
+  /** Ways the legs contradict the structure the name promises. */
+  structure_problems?: string[];
 }
 
 export interface AutopilotCycle {
@@ -1302,6 +1336,7 @@ export interface AutopilotSettings {
 export interface LabOverview {
   history: { sessions: number; needed: number; ready: boolean };
   min_test_trades: number;
+  stages: ResearchStageInfo[];
   tested: number;
   trials_logged: number;
   ai: { enabled: boolean; model: string };

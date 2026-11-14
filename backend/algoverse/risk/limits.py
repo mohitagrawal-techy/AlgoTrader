@@ -10,6 +10,8 @@ from algoverse.risk.config import RiskConfig
 from algoverse.risk.stress import StressResult
 from algoverse.strategies.base import Candidate
 
+UNLIMITED_RISK_BLOCKED = "unlimited-risk structures are switched off in risk.yaml"
+
 
 @dataclass(frozen=True)
 class ExitPlan:
@@ -118,6 +120,8 @@ def evaluate_risk(
     """Return the largest lot count that satisfies every limit, or a rejection with the cause."""
     if state.halted:
         return _reject("daily loss limit reached", plan, structure)
+    if not structure.bounded and not config.allow_unlimited_risk:
+        return _reject(UNLIMITED_RISK_BLOCKED, plan, structure)
     if position_key(candidate) in state.open_keys:
         return _reject("same structure is already open", plan, structure)
     if state.position_count >= config.max_open_positions:

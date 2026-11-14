@@ -442,6 +442,58 @@ def has_undefined_risk(spec: StrategySpec) -> bool:
     return False
 
 
+def _closeness(leg: LegSpec) -> float:
+    """Higher is nearer the money, comparable between legs that pick strikes the same way."""
+    if leg.select == "delta":
+        return abs(leg.value)
+    if leg.select == "premium":
+        return leg.value
+    return -abs(leg.value)
+
+
+def _inner_sold(legs: list[LegSpec]) -> bool | None:
+    """Whether the sold legs sit nearer the money than the bought ones, on every side that
+    has both. None when no side can be compared."""
+    verdicts = []
+    for option_type in ("CE", "PE"):
+        side = [leg for leg in legs if leg.option_type == option_type and leg.expiry == 0]
+        sold = [leg for leg in side if leg.action == "sell"]
+        bought = [leg for leg in side if leg.action == "buy"]
+        if not sold or not bought or len({leg.select for leg in side}) > 1:
+            continue
+        verdicts.append(
+            min(_closeness(leg) for leg in sold) > max(_closeness(leg) for leg in bought)
+        )
+    return None if not verdicts else all(verdicts)
+
+
+def structure_problems(spec: StrategySpec) -> list[str]:
+    """Ways the legs contradict the structure the name promises, such as an "iron condor"
+    that sells the wings and buys the body, which is really a reverse iron condor."""
+    name = spec.name.lower().replace("-", " ").replace("\u2011", " ")
+    problems = []
+    for variant in variants(spec):
+        legs = list(variant.legs)
+        actions = {leg.action for leg in legs}
+        inner_sold = _inner_sold(legs)
+        if "condor" in name and "reverse" not in name and inner_sold is False:
+            problems.append(
+                "named an iron condor, but it buys the legs nearer the money and sells the "
+                "wings, which is a reverse iron condor"
+            )
+        if "reverse" in name and "condor" in name and inner_sold is True:
+            problems.append("named a reverse iron condor, but it sells the legs nearer the money")
+        if "credit spread" in name and inner_sold is False:
+            problems.append("named a credit spread, but it buys the strike nearer the money")
+        if "debit spread" in name and inner_sold is True:
+            problems.append("named a debit spread, but it sells the strike nearer the money")
+        if ("straddle" in name or "strangle" in name) and "short" in name and "buy" in actions:
+            problems.append("named a short straddle or strangle, but it buys options")
+        if ("straddle" in name or "strangle" in name) and "long" in name and "sell" in actions:
+            problems.append("named a long straddle or strangle, but it sells options")
+    return list(dict.fromkeys(problems))
+
+
 def _filter_count(spec: StrategySpec) -> int:
     entry = spec.entry
     has_iv_rule = entry.iv_rank_min is not None or entry.iv_rank_max is not None

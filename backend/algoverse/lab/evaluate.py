@@ -18,7 +18,7 @@ from algoverse.backtest.engine import ReplaySpec, reference_series, replay
 from algoverse.backtest.intraday import replay_intraday
 from algoverse.backtest.progress import Poller, SessionCounter
 from algoverse.backtest.registry import Registry
-from algoverse.backtest.report import daily_stats, trade_stats
+from algoverse.backtest.report import daily_stats, exposure_stats, trade_stats
 from algoverse.backtest.walkforward import load_services
 from algoverse.dashboard import clean
 from algoverse.data.candles import MINUTE
@@ -157,7 +157,8 @@ def _package(trades, daily, details, unfilled, signals, outcomes: Counter, servi
     """A replay's results. `frame`, `daily_series` and `outcomes` let chunks be merged."""
     return {
         "stats": trade_stats(trades, services.backtest.tail_share)
-        | daily_stats(daily, services.risk.capital),
+        | daily_stats(daily, services.risk.capital)
+        | exposure_stats(trades, daily.index, services.risk.capital),
         "signals": signals,
         "blocked": dict(outcomes.most_common(TOP_REASONS)),
         "unfilled": unfilled,
@@ -261,8 +262,20 @@ def _summary(run: dict) -> dict:
         "profit_factor",
         "sharpe",
         "max_drawdown",
+        "max_drawdown_pct",
         "worst_day",
         "average_holding_days",
+        "sortino",
+        "annual_return",
+        "total_return_pct",
+        "average_win",
+        "average_loss",
+        "risk_reward",
+        "longest_winning_streak",
+        "longest_losing_streak",
+        "recovery_factor",
+        "exposure_pct",
+        "capital_use_pct",
     )
     stats = run["stats"]
     return {key: stats.get(key) for key in keys} | {

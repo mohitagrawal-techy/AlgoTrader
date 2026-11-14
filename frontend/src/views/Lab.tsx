@@ -10,6 +10,7 @@ import {
 } from "../api";
 import { LineChart, timeTicks } from "../charts";
 import { StrategyVisual } from "./StrategyVisual";
+import { StageBadge } from "../components/research/Stage";
 import {
   dateTimeIst,
   fraction,
@@ -776,7 +777,7 @@ export function LabView({
               <thead>
                 <tr>
                   <th>Strategy</th>
-                  <th>Verdict</th>
+                  <th>Stage</th>
                   <th className="right">Test trades</th>
                   <th className="right">Test P&amp;L</th>
                   <th className="right">At 2x slippage</th>
@@ -811,12 +812,22 @@ export function LabView({
                           {LEVELS[row.level]} · {row.legs_text}
                         </div>
                       </td>
-                      <td>
-                        {verdict ? (
-                          <Status tone={verdict.tone}>{verdict.label}</Status>
-                        ) : (
-                          <span className="secondary">Not tested</span>
-                        )}
+                      <td
+                        title={
+                          verdict
+                            ? `${row.stage?.reason ?? ""} Lab verdict: ${verdict.label}.`
+                            : row.stage?.reason
+                        }
+                      >
+                        <StageBadge stage={row.stage} />
+                        {row.structure_problems?.length ? (
+                          <div
+                            className="secondary"
+                            title={`The legs are ${row.structure_problems[0]}.`}
+                          >
+                            <Status tone="warning">Legs don't match name</Status>
+                          </div>
+                        ) : null}
                       </td>
                       <td className="right">
                         {result ? result.test.trades : "–"}

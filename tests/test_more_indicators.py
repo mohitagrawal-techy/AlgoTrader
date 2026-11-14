@@ -150,3 +150,25 @@ def test_every_indicator_explains_itself():
     for item in catalog()["indicators"]:
         assert item["description"] and item["formula"], item["name"]
         assert "\n" not in item["description"], item["name"]
+
+
+def test_session_average_resets_each_day_and_skips_daily_candles():
+    from algoverse.lab.technical import _session_average
+
+    times = pd.to_datetime(
+        ["2026-01-05 09:15", "2026-01-05 09:20", "2026-01-06 09:15", "2026-01-06 09:20"]
+    ).tz_localize("Asia/Kolkata")
+    bars = pd.DataFrame(
+        {
+            "ts": times,
+            "open": [100.0, 110, 200, 210],
+            "high": [100.0, 110, 200, 210],
+            "low": [100.0, 110, 200, 210],
+            "close": [100.0, 110, 200, 210],
+        }
+    )
+    values = _session_average(bars, 2.0)
+    assert list(values["avg"]) == [100.0, 105.0, 200.0, 205.0]
+    assert values["dev_pct"].iloc[1] == pytest.approx((110 / 105 - 1) * 100)
+    daily = bars.assign(ts=pd.to_datetime(["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"]))
+    assert _session_average(daily, 2.0)["avg"].isna().all()

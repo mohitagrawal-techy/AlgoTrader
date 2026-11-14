@@ -91,6 +91,13 @@ class LabConfig(BaseModel):
     def _auto(cls, value: int) -> int:
         return auto_workers() if value == 0 else value
 
+    # Research stages. The training and test sessions are cut into this many periods of
+    # equal length, and a strategy must be profitable in this share of those with trades.
+    stage_folds: int = Field(default=6, ge=2, le=24)
+    stage_min_positive_share: float = Field(default=0.6, gt=0, le=1)
+    # Largest drawdown on unseen data, as a percent of the strategy's budget.
+    stage_max_drawdown_pct: float = Field(default=15.0, gt=0)
+
     # The ladder splits the training period, using this last share for unseen checks.
     validate_share: float = Field(default=0.35, gt=0, lt=1)
     ladder_rungs: int = Field(default=4, ge=1, le=8)

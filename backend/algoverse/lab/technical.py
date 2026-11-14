@@ -180,6 +180,33 @@ def _opening_range(bars: pd.DataFrame, minutes: int) -> dict[str, pd.Series]:
     return {"high": high, "low": low, "mid": (high + low) / 2}
 
 
+SESSION_MINUTES = 375
+
+
+def _session_average(bars: pd.DataFrame, width: float) -> dict[str, pd.Series]:
+    """The session's average typical price so far, with bands of `width` standard deviations.
+
+    Index candles carry no volume, so this weights every candle equally: a time-weighted
+    stand-in for VWAP, reset at 09:15 each session. Each candle includes itself, so a value is
+    known once its candle has closed. Daily or longer candles have no value.
+    """
+    empty = pd.Series(np.nan, index=bars.index, dtype=float)
+    found = _session_offsets(bars, SESSION_MINUTES)
+    if found is None:
+        return {"avg": empty, "upper": empty, "lower": empty, "dev_pct": empty}
+    day, _ = found
+    typical = (bars["high"] + bars["low"] + bars["close"]) / 3
+    grouped = typical.groupby(day)
+    average = grouped.transform(lambda values: values.expanding().mean())
+    spread = grouped.transform(lambda values: values.expanding().std(ddof=0))
+    return {
+        "avg": average,
+        "upper": average + width * spread,
+        "lower": average - width * spread,
+        "dev_pct": (bars["close"] / average - 1) * 100,
+    }
+
+
 def _opening_range_body(bars: pd.DataFrame, minutes: int) -> dict[str, pd.Series]:
     """The open and close of each session's first `minutes`: the open of its first candle and
     the close of its last. "high" is the higher of the two and "low" the lower, so wicks are
@@ -767,6 +794,20 @@ INDICATORS: dict[str, Indicator] = {
         description="High and low of the session's first minutes. Use on 5- or 15-minute candles",
         intraday_only=True,
     ),
+    "session_avg": Indicator(
+        "Session average price (VWAP stand-in)",
+        lambda b, width: _session_average(b, float(width)),
+        (_p("width", "Band width, standard deviations", 2, 0.5, 4, whole=False),),
+        {
+            "avg": "Average",
+            "upper": "Upper band",
+            "lower": "Lower band",
+            "dev_pct": "Distance from average, %",
+        },
+        description="Time-weighted average since 09:15, because index candles have no volume. "
+        "Use on 5- or 15-minute candles",
+        intraday_only=True,
+    ),
     "opening_range_body": Indicator(
         "Opening range, open to close",
         lambda b, minutes: _opening_range_body(b, int(minutes)),
@@ -1028,6 +1069,7 @@ INDICATOR_GROUPS: dict[str, tuple[str, ...]] = {
         "range_pct",
     ),
     "Levels": (
+        "session_avg",
         "opening_range",
         "opening_range_body",
         "cpr",
@@ -1201,6 +1243,12 @@ ABOUT: dict[str, tuple[str, str]] = {
         "High = max H, Low = min L of the candles from 09:15 for the chosen minutes; known once "
         "that window ends",
     ),
+    "session_avg": (
+        "The session's average price so far, a stand-in for VWAP: index candles have no volume, "
+        "so every candle counts equally.",
+        "TP = (H + L + C) / 3; Average = mean of TP since 09:15; bands = Average ± k × SD of TP "
+        "since 09:15; Distance = (C / Average − 1) × 100",
+    ),
     "opening_range_body": (
         "The open and close of the session's first minutes, without the wicks.",
         "Upper = max(first open, last close), Lower = min(first open, last close) of the first "
@@ -1263,6 +1311,7 @@ CHART_OVERLAY = {
     "prior_low",
     "opening_range",
     "opening_range_body",
+    "session_avg",
     "pivots",
     "hma",
     "smma",
@@ -1279,6 +1328,7 @@ CHART_OVERLAY = {
 }
 # Fields of overlay indicators that are not prices.
 CHART_SEPARATE_FIELDS = {
+    ("session_avg", "dev_pct"),
     ("bbands", "width_pct"),
     ("bbands", "percent_b"),
     ("supertrend", "direction"),

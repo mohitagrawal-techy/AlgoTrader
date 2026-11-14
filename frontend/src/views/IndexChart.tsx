@@ -135,6 +135,7 @@ const SHORT: Record<string, string> = {
   change_pct: "Change %",
   opening_range: "Opening range",
   opening_range_body: "Opening range, open–close",
+  session_avg: "Session average",
   pivots: "Pivots",
   hma: "HMA",
   smma: "SMMA",
@@ -268,6 +269,7 @@ const BANDS: Record<string, { upper: string; lower: string; middle: string }> =
     bbands: { upper: "upper", lower: "lower", middle: "middle" },
     donchian: { upper: "upper", lower: "lower", middle: "middle" },
     keltner: { upper: "upper", lower: "lower", middle: "middle" },
+    session_avg: { upper: "upper", lower: "lower", middle: "avg" },
     // The cloud between the leading spans; the base line is the "middle".
     ichimoku: { upper: "span_a", lower: "span_b", middle: "base" },
     // One shaded box per session: empty until the range is known, so each day stands alone.

@@ -51,6 +51,13 @@ lab:
   rounds: 3
   per_round: 4
   workers: 6
+  # Research stages: Reject, Research, Paper trade. The training and test sessions are cut
+  # into stage_folds periods; a strategy must be profitable in stage_min_positive_share of
+  # those with trades, and its unseen drawdown must stay under stage_max_drawdown_pct of its
+  # budget.
+  stage_folds: 6
+  stage_min_positive_share: 0.6
+  stage_max_drawdown_pct: 15.0
   # Strategy ladder. It climbs from simple to complex, one tested change per rung.
   validate_share: 0.35
   ladder_rungs: 4

@@ -93,6 +93,24 @@ export const PRESETS: { label: string; rule: TechRule }[] = [
     rule: compare(ind("range_pct", { period: 5 }), "below", num(2)),
   },
   {
+    label: "Stretched 0.5% below the session average (VWAP stand-in)",
+    rule: compare(
+      ind("session_avg", { width: 2 }, "dev_pct"),
+      "below",
+      num(-0.5),
+      "5m",
+    ),
+  },
+  {
+    label: "Closes below the session average's lower band",
+    rule: compare(
+      close,
+      "below",
+      ind("session_avg", { width: 2 }, "lower"),
+      "5m",
+    ),
+  },
+  {
     label: "Closes above the first 15 minutes' open–close",
     rule: compare(
       close,

@@ -74,3 +74,7 @@ def test_stress_falls_back_to_greeks_without_mark(risk_config):
     assert stress["approximated_legs"] == 1
     up = stress["pnl"][-1][0]
     assert up < 0
+
+
+def test_risk_engine_blocks_unlimited_risk_by_default(risk_config):
+    assert risk_config.allow_unlimited_risk is False

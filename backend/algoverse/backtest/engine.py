@@ -174,6 +174,7 @@ def trades_frame(ledger: Ledger, labels: dict[int, dict]) -> pd.DataFrame:
                 "strategy": position.strategy,
                 "profile": position.profile,
                 "lots": position.lots,
+                "margin": position.margin,
                 "opened": opened,
                 "closed": closed,
                 "holding_days": (closed - opened).days,

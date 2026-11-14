@@ -49,7 +49,9 @@ from algoverse.lab.spec import (
     has_undefined_risk,
     make_id,
     signature,
+    structure_problems,
 )
+from algoverse.lab.stages import STAGES, grade
 from algoverse.lab.technical import catalog as technical_catalog
 from algoverse.lab.tuner import (
     Scorer,
@@ -60,8 +62,10 @@ from algoverse.lab.tuner import (
     new_node,
     public,
 )
+from algoverse.risk.config import load_risk_config
 from algoverse.settings import load_universe
 
+TEMPLATE_IDS = frozenset(spec.id for spec in TEMPLATES)
 log = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 DESIGN_TIMEOUT_SECONDS = 420
@@ -125,6 +129,9 @@ class LabService:
     def specs(self) -> list[StrategySpec]:
         stored = []
         for path in sorted((self._folder / "strategies").glob("*.json")):
+            # A stored copy of a template, left by an older ladder run, would list it twice.
+            if path.stem in TEMPLATE_IDS:
+                continue
             try:
                 stored.append(StrategySpec.model_validate_json(path.read_text()))
             except ValidationError:
@@ -186,6 +193,7 @@ class LabService:
         windows = split_windows(sessions, config)
         rows = []
         for spec in self.specs():
+            result = self.result(spec)
             rows.append(
                 {
                     "spec": spec.model_dump(mode="json"),
@@ -193,7 +201,9 @@ class LabService:
                     "undefined_risk": has_undefined_risk(spec),
                     "level": complexity_level(spec),
                     "entry_text": describe_entry(spec),
-                    "result": _without_detail(self.result(spec)),
+                    "result": _without_detail(result),
+                    "stage": self._grade(spec, result),
+                    "structure_problems": structure_problems(spec),
                 }
             )
         rows.sort(key=lambda row: rank_key(row["result"]))
@@ -208,6 +218,7 @@ class LabService:
                 },
                 "windows": windows.__dict__ if windows else None,
                 "min_test_trades": config.lab.min_test_trades,
+                "stages": STAGES,
                 "tested": sum(1 for row in rows if row["result"]),
                 "trials_logged": Registry(self.data_dir).trial_count(),
                 "ai": {"enabled": self.ai_enabled, "model": load_ai_config(self.config_dir).model},
@@ -223,6 +234,16 @@ class LabService:
                 "ladder_ready": ladder_windows(sessions, config) is not None,
                 "strategies": rows,
             }
+        )
+
+    def _grade(self, spec: StrategySpec, result: dict | None) -> dict:
+        """The research stage, from a result that still carries its daily detail."""
+        return grade(
+            result,
+            has_undefined_risk(spec),
+            load_risk_config(self.config_dir).allow_unlimited_risk,
+            load_backtest_config(self.config_dir).lab,
+            spec.budget.capital,
         )
 
     def backtest_detail(self, spec_id: str) -> dict:
@@ -265,6 +286,8 @@ class LabService:
                 "level": complexity_level(spec),
                 "capital": spec.budget.capital,
                 "result": result,
+                "stage": self._grade(spec, result),
+                "stages": STAGES,
                 "bars": bars,
                 "technical": technical_catalog(),
                 "symbols": load_backtest_config(self.config_dir).symbols,
@@ -311,7 +334,8 @@ class LabService:
         if winner is not None:
             note(f"Final test on the one winner: {winner.name}")
             stored = winner.model_copy(update={"created_at": now.isoformat()})
-            _write(self._spec_path(stored.id), stored.model_dump(mode="json"))
+            if stored.id not in TEMPLATE_IDS:
+                _write(self._spec_path(stored.id), stored.model_dump(mode="json"))
             trials = self._tested_count() + outcome["trials"]
             result = self.run_backtest([stored.id], now, note, trials, progress)[0]
             report["final"] = {
@@ -598,7 +622,8 @@ class LabService:
             stored = StrategySpec.model_validate(best["spec"]).model_copy(
                 update={"created_at": now.isoformat()}
             )
-            _write(self._spec_path(stored.id), stored.model_dump(mode="json"))
+            if stored.id not in TEMPLATE_IDS:
+                _write(self._spec_path(stored.id), stored.model_dump(mode="json"))
             trials = self._tested_count() + session["trials"]
             result = self.run_backtest([stored.id], now, note, trials, progress)[0]
             session["final"] = {

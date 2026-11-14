@@ -345,8 +345,17 @@ def test_one_lot_above_limit_is_rejected(risk_config):
 
 def test_undefined_risk_uses_the_tighter_limit(risk_config):
     spec = structure(margin=1000.0, delta_notional=0.0, net_vega=0.0, gamma_1pct=0.0, bounded=False)
-    decision = evaluate(risk_config, spec=spec, plan=ExitPlan(1.0, -1.0, 1, 1000.0))
+    allowed = risk_config.model_copy(update={"allow_unlimited_risk": True})
+    decision = evaluate(allowed, spec=spec, plan=ExitPlan(1.0, -1.0, 1, 1000.0))
     assert decision.lots == 3
+
+
+def test_undefined_risk_is_rejected_when_switched_off(risk_config):
+    from algoverse.risk.limits import UNLIMITED_RISK_BLOCKED
+
+    spec = structure(margin=1000.0, delta_notional=0.0, net_vega=0.0, gamma_1pct=0.0, bounded=False)
+    decision = evaluate(risk_config, spec=spec, plan=ExitPlan(1.0, -1.0, 1, 1000.0))
+    assert not decision.approved and decision.reasons == (UNLIMITED_RISK_BLOCKED,)
 
 
 def test_stress_loss_limits_size(risk_config):

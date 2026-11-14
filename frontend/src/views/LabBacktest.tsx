@@ -20,7 +20,6 @@ import {
   Panel,
   Pnl,
   LabeledSelect,
-  Status,
   Tile,
   type Tone,
   Table,
@@ -28,6 +27,11 @@ import {
   BackLink,
 } from "../components/ui";
 import { IndexChart } from "./IndexChart";
+import {
+  MetricsGrid,
+  StageBadge,
+  StageCard,
+} from "../components/research/Stage";
 
 const VERDICTS: Record<string, { tone: Tone; label: string }> = {
   held_up: { tone: "good", label: "Held up on unseen data" },
@@ -173,7 +177,7 @@ function GroupTable({
   label: (key: string) => string;
 }) {
   return (
-    <table className="table">
+    <Table>
       <thead>
         <tr>
           <th>{title}</th>
@@ -194,7 +198,7 @@ function GroupTable({
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
@@ -374,8 +378,7 @@ export function LabBacktestView({ id }: { id: string }) {
         <BackLink href={back}>Strategy lab</BackLink>
         <div>
           <h2 className="strike-page-title">
-            {spec.name}{" "}
-            {verdict && <Status tone={verdict.tone}>{verdict.label}</Status>}
+            {spec.name} <StageBadge stage={data.stage} />
           </h2>
           <div className="legs">
             {data.legs_text.split(", ").map((leg) => (
@@ -480,6 +483,31 @@ export function LabBacktestView({ id }: { id: string }) {
               }
             />
           </Tiles>
+
+          <Panel
+            title="Research stage"
+            aside={
+              verdict && (
+                <span className="muted">Lab verdict: {verdict.label}</span>
+              )
+            }
+          >
+            <StageCard stage={data.stage} stages={data.stages} />
+          </Panel>
+
+          {windowKey !== "both" && result[windowKey] && (
+            <Panel
+              title="All statistics"
+              aside={
+                <span className="muted">
+                  {WINDOWS[windowKey]}, after costs, on a ₹{num(data.capital)}{" "}
+                  budget
+                </span>
+              }
+            >
+              <MetricsGrid summary={result[windowKey]} />
+            </Panel>
+          )}
 
           <Panel
             title={`${shownSymbol ?? "Underlying"} with every trade`}
@@ -588,7 +616,7 @@ export function LabBacktestView({ id }: { id: string }) {
               />
             )}
             {period !== "day" && periods.length > 0 && (
-              <table className="table">
+              <Table>
                 <thead>
                   <tr>
                     <th>{period === "week" ? "Week of" : "Month"}</th>
@@ -611,7 +639,7 @@ export function LabBacktestView({ id }: { id: string }) {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </Table>
             )}
           </Panel>
 

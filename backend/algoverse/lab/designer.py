@@ -20,6 +20,7 @@ from algoverse.lab.spec import (
     describe_legs,
     make_id,
     signature,
+    structure_problems,
 )
 from algoverse.lab.technical import INDICATORS, PATTERNS
 
@@ -177,6 +178,10 @@ def design_strategies(
         except (ValidationError, TypeError) as exc:
             first = exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else "bad shape"
             notes.append(f"{name}: dropped, {first}")
+            continue
+        problems = structure_problems(draft)
+        if problems:
+            notes.append(f"{name}: dropped, {problems[0]}")
             continue
         mark = signature(draft)
         if mark in seen:

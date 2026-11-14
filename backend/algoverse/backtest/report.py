@@ -20,12 +20,16 @@ DTE_BUCKETS = (
 BREAKDOWNS = ("strategy", "symbol", "dte_bucket", "iv_regime", "trend")
 
 
-def _longest_losing_streak(pnl: np.ndarray) -> int:
+def _longest_streak(pnl: np.ndarray, winning: bool) -> int:
     longest = current = 0
     for value in pnl:
-        current = current + 1 if value <= 0 else 0
+        current = current + 1 if (value > 0) == winning else 0
         longest = max(longest, current)
     return longest
+
+
+def _longest_losing_streak(pnl: np.ndarray) -> int:
+    return _longest_streak(pnl, winning=False)
 
 
 def max_drawdown(cumulative: np.ndarray) -> float:
@@ -55,6 +59,11 @@ def trade_stats(trades: pd.DataFrame, tail_share: float) -> dict:
         "pnl_std": float(pnl.std(ddof=1)) if len(pnl) > 1 else None,
         "profit_factor": None if gross_loss == 0 else float(wins.sum() / gross_loss),
         "longest_losing_streak": _longest_losing_streak(pnl),
+        "longest_winning_streak": _longest_streak(pnl, winning=True),
+        # Average win over the size of the average loss.
+        "risk_reward": float(wins.mean() / -losses.mean())
+        if len(wins) and len(losses) and losses.mean() < 0
+        else None,
         "average_holding_days": float(ordered["holding_days"].mean()),
         "tail_loss": float(np.sort(pnl)[:tail_count].mean()),
     }
@@ -71,8 +80,12 @@ def daily_stats(daily: pd.Series, capital: float) -> dict:
     years = len(returns) / TRADING_DAYS
     months = pd.Series(values, index=pd.to_datetime(list(daily.index))).resample("ME").sum()
     drawdown = max_drawdown(values.cumsum())
+    net = float(values.sum())
     return {
         "sessions": len(values),
+        "total_return_pct": net / capital * 100,
+        # Net profit for each rupee of the worst drawdown. None when nothing was ever lost.
+        "recovery_factor": float(net / drawdown) if drawdown > 0 else None,
         "annual_return": float(returns.sum() / years) if years else None,
         "annual_volatility": float(deviation * np.sqrt(TRADING_DAYS)),
         "sharpe": None
@@ -85,6 +98,38 @@ def daily_stats(daily: pd.Series, capital: float) -> dict:
         "max_drawdown_pct": drawdown / capital * 100,
         "worst_day": float(values.min()),
         "negative_months_pct": float((months < 0).mean() * 100),
+    }
+
+
+def exposure_stats(trades: pd.DataFrame, sessions: Sequence, capital: float) -> dict:
+    """How often money was at work, and the most margin held at once.
+
+    Exposure is the share of sessions with a position open at any point. Capital use is the
+    peak of the estimated margin of positions open on the same session, over capital.
+    """
+    if not len(sessions):
+        return {}
+    days = pd.to_datetime(pd.Index(list(sessions))).normalize()
+    held = np.zeros(len(days), dtype=bool)
+    margin = np.zeros(len(days))
+    if not trades.empty and "closed" in trades:
+        opened = pd.to_datetime(trades.get("opened", trades["closed"])).to_numpy()
+        closed = pd.to_datetime(trades["closed"]).to_numpy()
+        margins = (
+            trades["margin"].fillna(0.0).to_numpy(float)
+            if "margin" in trades
+            else np.zeros(len(trades))
+        )
+        values = days.to_numpy()
+        for start, end, amount in zip(opened, closed, margins, strict=True):
+            inside = (values >= start) & (values <= end)
+            held |= inside
+            margin[inside] += amount
+    peak = float(margin.max())
+    return {
+        "exposure_pct": float(held.mean() * 100),
+        "peak_margin": peak,
+        "capital_use_pct": peak / capital * 100,
     }
 
 
@@ -176,7 +221,9 @@ def summarize(
     pnl = trades.sort_values("closed")["net_pnl"].to_numpy(float) if not trades.empty else None
     short = trades[trades["profile"] == "short_premium"] if not trades.empty else trades
     return {
-        "overall": trade_stats(trades, config.tail_share) | daily_stats(daily, capital),
+        "overall": trade_stats(trades, config.tail_share)
+        | daily_stats(daily, capital)
+        | exposure_stats(trades, daily.index, capital),
         "short_premium_tail_loss": trade_stats(short, config.tail_share).get("tail_loss"),
         "breakdowns": breakdowns(trades, config.tail_share),
         "monte_carlo": None if pnl is None else monte_carlo(pnl, config.monte_carlo_runs, capital),

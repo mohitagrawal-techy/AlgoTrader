@@ -71,6 +71,9 @@ class RiskConfig(BaseModel):
     # Size each trade by money rather than by risk: as many lots as the margin room allows,
     # with no loss-based, stress or Greek caps. Set for strategies tested on their own budget.
     size_by_budget: bool = False
+    # Structures with no bounded loss, such as a naked short straddle or strangle. Off unless
+    # risk.yaml switches them on.
+    allow_unlimited_risk: bool = False
     stop_gap_buffer: float = Field(ge=1)
     stress: StressConfig
     margin: MarginConfig

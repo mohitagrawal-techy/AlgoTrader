@@ -13,6 +13,10 @@ max_gamma_1pct_pct: 1.5  # Rupees of gamma P&L from a 1% spot move.
 
 max_delta_notional_multiple: 3.0
 max_open_positions: 5
+
+# Naked short straddles, strangles and other structures whose loss has no cap. Off: such ideas
+# are rejected by the risk engine, in paper trading and in every backtest.
+allow_unlimited_risk: false
 max_lots_per_trade: 10
 
 # Multiplier on the stop distance, because stops can fill worse than planned.

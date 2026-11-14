@@ -230,6 +230,11 @@ def test_backtest_stores_results_and_ranks(lab_dirs, tmp_path):
     )
     assert set(page["bars"]) == {t["symbol"] for t in trades} and page["capital"] > 0
     json.dumps(page, allow_nan=False)
+    # Every tested strategy has a research stage with the checks behind it.
+    assert row["stage"]["stage"] in ("reject", "research", "paper_trade")
+    assert page["stage"]["checks"] and len(page["stage"]["folds"]) == 6
+    assert [s["key"] for s in overview["stages"]][-1] == "live_monitoring"
+    assert "exposure_pct" in result["test"] and "recovery_factor" in result["test"]
 
 
 def test_editing_rules_invalidates_the_old_result(lab_dirs, tmp_path):
@@ -384,3 +389,13 @@ def test_lab_cannot_reach_order_placement():
     source = "".join(p.read_text() for p in Path(package.__file__).parent.glob("*.py"))
     assert "upstox" not in source.lower() and "/order" not in source
     assert Services is not None and EventCalendar is not None and date is not None
+
+
+def test_a_stored_copy_of_a_template_is_listed_once(lab_dirs, tmp_path):
+    lab = fresh(lab_dirs, tmp_path)
+    template = TEMPLATES[0]
+    folder = tmp_path / "data" / "lab" / "strategies"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{template.id}.json").write_text(template.model_dump_json())
+    ids = [spec.id for spec in lab.specs()]
+    assert ids.count(template.id) == 1

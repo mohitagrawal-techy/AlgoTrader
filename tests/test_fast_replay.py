@@ -106,7 +106,11 @@ def test_chunked_windows_match_one_long_run(intraday_dirs, name, monkeypatch):  
     # Daily P&L is the change in a running total, so chunks that start their totals afresh
     # differ only in the last floating-point digit.
     for key in ("daily", "stats"):
-        assert chunked[key] == pytest.approx(whole[key], rel=1e-9, abs=1e-6)
+        # Figures with no value, such as a recovery factor with no drawdown, must match exactly.
+        empty = {k for k, v in whole[key].items() if v is None}
+        assert {k for k, v in chunked[key].items() if v is None} == empty
+        numbers = {k: v for k, v in whole[key].items() if k not in empty}
+        assert {k: chunked[key][k] for k in numbers} == pytest.approx(numbers, rel=1e-9, abs=1e-6)
     rest = {k: v for k, v in whole.items() if k not in ("daily", "stats", "equity")}
     assert {k: chunked[k] for k in rest} == rest
     assert calls[-1] == (12, 12)
