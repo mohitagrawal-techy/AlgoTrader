@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from algoverse.ai.budget import AiLog
 from algoverse.ai.client import LLMClient, LLMError, OllamaClient
 from algoverse.ai.schemas import load_ai_config
+from algoverse.analytics.regimes import label_sessions, regime_breakdown
 from algoverse.backtest.config import load_backtest_config
 from algoverse.backtest.dataview import History
 from algoverse.backtest.progress import set_progress
@@ -25,6 +26,7 @@ from algoverse.backtest.registry import Registry
 from algoverse.dashboard import clean
 from algoverse.data.candles import MINUTE
 from algoverse.data.store import SnapshotStore
+from algoverse.lab import dossier as dossiers
 from algoverse.lab import history as test_history
 from algoverse.lab.chart import ChartRequest, chart
 from algoverse.lab.designer import _rules_help, design_strategies, feedback_row
@@ -36,13 +38,24 @@ from algoverse.lab.evaluate import (
     sessions_needed,
     split_windows,
 )
+from algoverse.lab.evidence import trial_spread
 from algoverse.lab.ladder import ROOTS, ladder_windows, run_ladder
 from algoverse.lab.replay import ReplayError, replay, stored_replay
+from algoverse.lab.search import (
+    METHODS,
+    Searcher,
+    describe,
+    run_search,
+    search_space,
+    searched_child,
+    sensitivity,
+)
 from algoverse.lab.seeds import TEMPLATES
 from algoverse.lab.spec import (
     SIGNALS,
     Budget,
     StrategySpec,
+    budget_key,
     complexity_level,
     describe_entry,
     describe_legs,
@@ -150,7 +163,7 @@ class LabService:
         if result.get("signature") != signature(spec):
             return None
         # Tested with another budget, or before budgets existed: the figures no longer apply.
-        if result.get("budget") != spec.budget.model_dump():
+        if budget_key(result.get("budget") or {}) != budget_key(spec.budget):
             return None
         return result
 
@@ -189,11 +202,14 @@ class LabService:
 
     def overview(self) -> dict:
         config = load_backtest_config(self.config_dir)
-        sessions = History(self.data_dir).sessions
+        history = History(self.data_dir)
+        sessions = history.sessions
         windows = split_windows(sessions, config)
+        trials = self._trial_stats()
         rows = []
         for spec in self.specs():
             result = self.result(spec)
+            regimes = self._regimes(result, config.lab.regime_min_trades, history)
             rows.append(
                 {
                     "spec": spec.model_dump(mode="json"),
@@ -202,8 +218,11 @@ class LabService:
                     "level": complexity_level(spec),
                     "entry_text": describe_entry(spec),
                     "result": _without_detail(result),
-                    "stage": self._grade(spec, result),
+                    "stage": self._grade(spec, result, trials),
                     "structure_problems": structure_problems(spec),
+                    "regimes": None
+                    if regimes is None
+                    else {"suits": regimes["suits"], "avoid": regimes["avoid"]},
                 }
             )
         rows.sort(key=lambda row: rank_key(row["result"]))
@@ -236,7 +255,7 @@ class LabService:
             }
         )
 
-    def _grade(self, spec: StrategySpec, result: dict | None) -> dict:
+    def _grade(self, spec: StrategySpec, result: dict | None, trials: dict | None = None) -> dict:
         """The research stage, from a result that still carries its daily detail."""
         return grade(
             result,
@@ -244,7 +263,52 @@ class LabService:
             load_risk_config(self.config_dir).allow_unlimited_risk,
             load_backtest_config(self.config_dir).lab,
             spec.budget.capital,
+            trials if trials is not None else self._trial_stats(),
+            self._search_for(spec.id) if result is not None else None,
         )
+
+    def _trial_stats(self) -> dict:
+        """How many distinct rule sets have been tried, and how much their Sharpe varies.
+
+        One strategy is logged once per window it read, so trials are grouped by rule
+        signature; the variance is across each group's average annual Sharpe."""
+        groups: dict[str, list[float]] = {}
+        for trial in Registry(self.data_dir).all_trials():
+            params = trial["params"] or {}
+            key = params.get("signature") or json.dumps(params, sort_keys=True)
+            values = groups.setdefault(key, [])
+            if trial["sharpe"] is not None:
+                values.append(trial["sharpe"])
+        means = [sum(values) / len(values) for values in groups.values() if values]
+        return {"count": max(len(groups), 1), "variance": trial_spread(means)}
+
+    def _labels(self, symbol: str, history: History) -> pd.DataFrame | None:
+        """Regime labels for a symbol's sessions, kept until new sessions arrive."""
+        last = history.sessions[-1] if history.sessions else None
+        cache = self.__dict__.setdefault("_label_cache", {})
+        if (symbol, last) not in cache:
+            bars = history.bars(symbol)
+            cache[(symbol, last)] = label_sessions(bars) if len(bars) else None
+        return cache[(symbol, last)]
+
+    def _regimes(self, result: dict | None, min_trades: int, history: History) -> dict | None:
+        """Training and test trades split by the market regime they were opened in."""
+        detail = (result or {}).get("detail")
+        if not detail:
+            return None
+        trades = [t for part in detail.values() for t in part.get("trades") or []]
+        sessions = sorted({day for part in detail.values() for day in part.get("daily") or {}})
+        symbols = sorted({t["symbol"] for t in trades if t.get("symbol")}) or [
+            *load_backtest_config(self.config_dir).symbols[:1]
+        ]
+        labels = {}
+        for symbol in symbols:
+            frame = self._labels(symbol, history)
+            if frame is not None:
+                labels[symbol] = frame
+        if not labels:
+            return None
+        return regime_breakdown(trades, labels, sessions, min_trades)
 
     def backtest_detail(self, spec_id: str) -> dict:
         """One strategy's latest result with every trade and day, and the daily bars of each
@@ -288,6 +352,10 @@ class LabService:
                 "result": result,
                 "stage": self._grade(spec, result),
                 "stages": STAGES,
+                "regimes": self._regimes(
+                    result, load_backtest_config(self.config_dir).lab.regime_min_trades, history
+                ),
+                "search": self._search_for(spec.id),
                 "bars": bars,
                 "technical": technical_catalog(),
                 "symbols": load_backtest_config(self.config_dir).symbols,
@@ -702,6 +770,265 @@ class LabService:
         job["session_id"] = target
         return job
 
+    def job(self) -> dict | None:
+        """The latest lab job, running or finished."""
+        return self._job
+
+    # ---- Dossier ---------------------------------------------------------------------------
+
+    def _notes_path(self, spec_id: str) -> Path:
+        return self._folder / "dossiers" / f"{spec_id}.json"
+
+    def _notes(self, spec: StrategySpec, result: dict | None) -> dict | None:
+        """The AI model's dossier notes, if written for this exact result."""
+        if result is None:
+            return None
+        try:
+            notes = json.loads(self._notes_path(spec.id).read_text())
+        except (OSError, ValueError):
+            return None
+        if notes.get("signature") != signature(spec) or notes.get("evaluated_at") != str(
+            result.get("evaluated_at")
+        ):
+            return None
+        return notes
+
+    def _dossier(self, spec: StrategySpec) -> tuple[dict, dict | None]:
+        result = self.result(spec)
+        history = History(self.data_dir)
+        config = load_backtest_config(self.config_dir)
+        built = dossiers.build(
+            spec,
+            result,
+            self._grade(spec, result),
+            self._regimes(result, config.lab.regime_min_trades, history),
+            self._search_for(spec.id),
+            self._notes(spec, result),
+        )
+        return built, result
+
+    def dossier(self, spec_id: str) -> dict:
+        spec = self.spec(spec_id)
+        if spec is None:
+            raise LabError("That strategy no longer exists.")
+        built, result = self._dossier(spec)
+        return clean(built | {"tested": result is not None, "ai": {"enabled": self.ai_enabled}})
+
+    def dossier_markdown(self, spec_id: str) -> tuple[str, str]:
+        spec = self.spec(spec_id)
+        if spec is None:
+            raise LabError("That strategy no longer exists.")
+        built, _ = self._dossier(spec)
+        return f"{spec.id}-dossier.md", dossiers.markdown(spec, clean(built))
+
+    def start_dossier_notes(self, spec_id: str, now: datetime) -> dict:
+        spec = self.spec(spec_id)
+        if spec is None:
+            raise LabError("That strategy no longer exists.")
+        if self.result(spec) is None:
+            raise LabError("Backtest the strategy before writing its dossier.")
+        client = self._design_client()
+
+        def work(note, progress) -> str:
+            note(f"The AI model is writing the dossier notes for {spec.name}")
+            built, result = self._dossier(spec)
+            try:
+                notes = dossiers.write_notes(
+                    client, AiLog(self.data_dir / "ai.sqlite"), now, spec, clean(built)
+                )
+            except LLMError as exc:
+                raise LabError(f"The AI model could not write the notes: {exc}") from exc
+            _write(
+                self._notes_path(spec.id),
+                notes | {"signature": signature(spec), "evaluated_at": str(result["evaluated_at"])},
+            )
+            return f"Wrote the dossier notes for {spec.name}."
+
+        job = self._start("dossier", work)
+        job["spec_id"] = spec.id
+        return job
+
+    # ---- Parameter search ------------------------------------------------------------------
+
+    def _search_folder(self) -> Path:
+        return self._folder / "searches"
+
+    def _searches(self) -> list[dict]:
+        found = []
+        for path in sorted(self._search_folder().glob("*.json"), reverse=True):
+            try:
+                found.append(json.loads(path.read_text()))
+            except (OSError, ValueError):
+                log.warning("Skipping unreadable search file %s", path.name)
+        return found
+
+    def _search_for(self, spec_id: str) -> dict | None:
+        """The search that produced this strategy, as the grade needs it."""
+        for search in self._searches():
+            if search.get("chosen_id") == spec_id and search.get("sensitivity"):
+                return {
+                    "id": search["id"],
+                    "method": search["method"],
+                    "robust": search["sensitivity"]["robust"],
+                    "neighbour_share": search["sensitivity"]["neighbour_share"],
+                    "trials": len(search.get("trials", [])),
+                }
+        return None
+
+    def search_space(self, spec_id: str) -> dict:
+        spec = self.spec(spec_id)
+        if spec is None:
+            raise LabError("That strategy no longer exists.")
+        config = load_backtest_config(self.config_dir)
+        return {
+            "params": [param.__dict__ for param in search_space(spec)],
+            "methods": list(METHODS),
+            "max_trials": config.lab.search_max_trials,
+            "searches": [
+                {
+                    key: search.get(key)
+                    for key in (
+                        "id",
+                        "root_id",
+                        "chosen_id",
+                        "method",
+                        "created_at",
+                        "state",
+                        "message",
+                    )
+                }
+                for search in self._searches()
+                if spec_id in (search.get("root_id"), search.get("chosen_id"))
+            ],
+        }
+
+    def search(self, search_id: str) -> dict:
+        path = self._search_folder() / f"{search_id}.json"
+        if "/" in search_id or not path.exists():
+            raise LabError("That search no longer exists.")
+        return json.loads(path.read_text())
+
+    def run_search(
+        self,
+        spec_id: str,
+        paths: list[str],
+        method: str,
+        max_trials: int | None,
+        now: datetime,
+        note: Callable[[str], None] = lambda _: None,
+        progress: Callable[[int, int], None] | None = None,
+        search_id: str | None = None,
+        stop: threading.Event | None = None,
+    ) -> dict:
+        """Search settings on design sessions, validate the best, and test the winner once."""
+        stop = stop or threading.Event()
+        spec = self.spec(spec_id)
+        if spec is None:
+            raise LabError("That strategy no longer exists.")
+        if method not in METHODS:
+            raise LabError(f"Choose one of {', '.join(METHODS)}.")
+        space = {param.path: param for param in search_space(spec)}
+        params = [space[path] for path in paths if path in space]
+        if not params or len(params) != len(paths):
+            raise LabError("Choose settings from the strategy's own search space.")
+        config, windows = self._tuning_windows()
+        trials_cap = min(max_trials or config.lab.search_max_trials, config.lab.search_max_trials)
+        searcher = Searcher(self.data_dir, self.config_dir, config, windows, now, progress)
+        record = {
+            "id": search_id or self._new_tuning_id(spec.id, now),
+            "root_id": spec.id,
+            "root_name": spec.name,
+            "created_at": now.isoformat(),
+            "method": method,
+            "params": [param.__dict__ for param in params],
+            "windows": windows.__dict__,
+            "state": "running",
+        }
+        try:
+            found = run_search(spec, params, method, trials_cap, searcher, note, stop.is_set)
+        except ValueError as exc:
+            raise LabError(str(exc)) from exc
+        record["trials"] = found["trials"]
+        ranked = found["ranked"]
+        top = ranked[: config.lab.search_validate_top]
+        note(f"Checking the best {len(top)} settings on the validation sessions")
+        children = [searched_child(spec, row["values"], params) for row in top]
+        checked = searcher.validate_scores([child for child in children if child is not None])
+        validated = []
+        scores = iter(checked)
+        for row, child in zip(top, children, strict=True):
+            if child is None:
+                continue
+            validated.append(
+                {"values": row["values"], "design": row["design"], "validate": next(scores)}
+            )
+        record["validated"] = validated
+        min_trades = max(3, config.lab.min_test_trades // 4)
+        holding = [
+            row
+            for row in validated
+            if row["validate"]["trades"] >= min_trades and row["validate"]["net_pnl"] > 0
+        ]
+        chosen = max(holding, key=lambda row: row["validate"].get("sharpe") or 0.0, default=None)
+        center = chosen["values"] if chosen else (ranked[0]["values"] if ranked else None)
+        if center is not None:
+            note("Testing nearby settings for the sensitivity map")
+            record["sensitivity"] = sensitivity(
+                spec, params, center, searcher, config.lab.search_min_neighbour_share
+            )
+        record["chosen_values"] = chosen["values"] if chosen else None
+        record["chosen_label"] = describe(chosen["values"], params) if chosen else None
+        record["chosen_id"] = None
+        if chosen is not None:
+            child = searched_child(spec, chosen["values"], params)
+            same = child is not None and signature(child) == signature(spec)
+            if same:
+                record["chosen_id"] = spec.id
+            elif child is not None:
+                stored = child.model_copy(update={"created_at": now.isoformat()})
+                _write(self._spec_path(stored.id), stored.model_dump(mode="json"))
+                record["chosen_id"] = stored.id
+            if record["chosen_id"] and not same:
+                note(f"Final test on the chosen setting: {record['chosen_label']}")
+                trials = self._tested_count() + searcher.runs
+                result = self.run_backtest([record["chosen_id"]], now, note, trials, progress)[0]
+                record["final"] = {
+                    key: result[key] for key in ("verdict", "test", "test_2x", "evidence")
+                }
+        record["runs"] = searcher.runs
+        record["state"] = "stopped" if stop.is_set() else "done"
+        record["message"] = (
+            f"Chose {record['chosen_label']}."
+            if chosen
+            else "No searched setting made money on the validation sessions."
+        )
+        record["updated_at"] = now.isoformat()
+        _write(self._search_folder() / f"{record['id']}.json", record)
+        return record
+
+    def start_search(
+        self, spec_id: str, paths: list[str], method: str, max_trials: int | None, now: datetime
+    ) -> dict:
+        self._tuning_windows()
+        if self.spec(spec_id) is None:
+            raise LabError("Choose a strategy to search.")
+        if method not in METHODS:
+            raise LabError(f"Choose one of {', '.join(METHODS)}.")
+        target = self._new_tuning_id(spec_id, now)
+        stop = threading.Event()
+
+        def work(note, progress) -> str:
+            record = self.run_search(
+                spec_id, paths, method, max_trials, now, note, progress, target, stop
+            )
+            return f"Searched {len(record['trials'])} settings. {record['message']}"
+
+        job = self._start("search", work)
+        with self._lock:
+            self._stop = stop
+        job["search_id"] = target
+        return job
+
     # ---- Chart ----------------------------------------------------------------------------
 
     def _chart_symbols(self, config) -> list[str]:
@@ -1059,8 +1386,8 @@ class LabService:
 
     def stop_autopilot(self) -> dict:
         job = self._job
-        if not job or job["kind"] != "autopilot" or job["state"] != "running":
-            raise LabError("Autopilot is not running.")
+        if not job or job["kind"] not in ("autopilot", "search") or job["state"] != "running":
+            raise LabError("Nothing to stop: autopilot and parameter search are not running.")
         self._stop.set()
         job["message"] = "Stopping after the current step"
         return job

@@ -1024,6 +1024,14 @@ export interface LabSpec {
     /** "budget" buys as many lots as `deploy_pct` of capital allows; "risk" sizes by risk. */
     sizing?: "budget" | "risk";
     deploy_pct?: number;
+    /** "atr" scales each trade's budget down when the underlying's daily range widens. */
+    vol_sizing?: "off" | "atr";
+    vol_floor?: number;
+    vol_cap?: number;
+    /** Circuit breakers: losing trades in a row, or a fall in percent of capital, then a pause. */
+    pause_after_losses?: number | null;
+    pause_drawdown_pct?: number | null;
+    pause_sessions?: number;
   };
   entry: {
     trend: ("up" | "down" | "range")[];
@@ -1168,6 +1176,119 @@ export interface ResearchStage {
   reason: string;
   checks: { key: string; label: string; passed: boolean; detail: string }[];
   folds: { start: string; end: string; sessions: number; net_pnl: number; trades: number }[];
+  /** Sharpe of the unseen sessions, and the same adjusted for sample and trials run. */
+  significance?: {
+    sharpe: number;
+    psr: number;
+    dsr: number | null;
+    luck_sharpe: number;
+    trials: number;
+    sessions: number;
+  } | null;
+}
+
+export type RegimeGroup = "trend" | "volatility" | "move";
+
+export interface RegimeRow {
+  key: string;
+  group: RegimeGroup;
+  label: string;
+  sessions: number;
+  trades: number;
+  net_pnl: number;
+  win_rate: number | null;
+  expectancy: number | null;
+}
+
+/** Trades split by the market regime of the session each was opened in. */
+export interface RegimeBreakdown {
+  rows: RegimeRow[];
+  suits: string[];
+  avoid: string[];
+  unlabelled_trades: number;
+  min_trades: number;
+}
+
+export interface SearchParam {
+  path: string;
+  label: string;
+  kind: "int" | "float";
+  low: number;
+  high: number;
+  step: number;
+  current: number;
+}
+
+export type SearchMethod = "grid" | "random" | "bayesian";
+
+export interface SearchSummary {
+  id: string;
+  root_id: string;
+  chosen_id: string | null;
+  method: SearchMethod;
+  created_at: string;
+  state: string;
+  message?: string;
+}
+
+export interface SearchSpace {
+  params: SearchParam[];
+  methods: SearchMethod[];
+  max_trials: number;
+  searches: SearchSummary[];
+}
+
+export interface SearchCell {
+  i: number;
+  j: number;
+  x: number;
+  y: number | null;
+  valid: boolean;
+  sharpe: number | null;
+  trades: number | null;
+  net_pnl: number | null;
+  score: number | null;
+}
+
+type SearchScores = { trades: number; net_pnl: number; sharpe: number | null; win_rate: number | null };
+
+export interface SearchRecord extends SearchSummary {
+  root_name: string;
+  params: SearchParam[];
+  trials: { number: number; values: Record<string, number>; valid: boolean; design?: SearchScores; score?: number }[];
+  validated: { values: Record<string, number>; design: SearchScores; validate: SearchScores }[];
+  chosen_values: Record<string, number> | null;
+  chosen_label: string | null;
+  sensitivity?: {
+    x: SearchParam;
+    y: SearchParam | null;
+    xs: number[];
+    ys: (number | null)[];
+    cells: SearchCell[];
+    center: { i: number; j: number };
+    neighbour_share: number;
+    robust: boolean;
+  };
+  final?: { verdict: string; test: LabSummary; test_2x: LabSummary };
+  runs: number;
+}
+
+export interface DossierSection {
+  number: number;
+  title: string;
+  source: "code" | "ai" | "mixed";
+  text?: string;
+  note?: string | null;
+  items?: [string, string][];
+  bullets?: string[];
+  table?: { columns: string[]; rows: string[][] } | null;
+}
+
+export interface Dossier {
+  sections: DossierSection[];
+  notes_written_at: string | null;
+  tested: boolean;
+  ai: { enabled: boolean };
 }
 
 export interface LabBacktestPage {
@@ -1180,6 +1301,9 @@ export interface LabBacktestPage {
   result: LabResult | null;
   stage: ResearchStage;
   stages: ResearchStageInfo[];
+  regimes?: RegimeBreakdown | null;
+  /** The parameter search that produced this strategy, if any. */
+  search?: { id: string; method: SearchMethod; robust: boolean; neighbour_share: number; trials: number } | null;
   /** Daily bars of each underlying the strategy traded. */
   bars: Record<string, { day: string; open: number; high: number; low: number; close: number }[]>;
   technical?: TechCatalog;
@@ -1295,6 +1419,8 @@ export interface LabRow {
   stage: ResearchStage;
   /** Ways the legs contradict the structure the name promises. */
   structure_problems?: string[];
+  /** Market regimes with enough trades where it made, or lost, money on average. */
+  regimes?: { suits: string[]; avoid: string[] } | null;
 }
 
 export interface AutopilotCycle {
@@ -1482,6 +1608,16 @@ export const api = {
     sendJson<ReplayData>("/api/lab/replay", "POST", body),
   labAutopilot: (body: AutopilotSettings) => sendJson<unknown>("/api/lab/autopilot", "POST", body),
   labAutopilotStop: () => sendJson<unknown>("/api/lab/autopilot/stop", "POST"),
+  labJob: () => getJson<{ job: (JobInfo & { kind?: string; search_id?: string; spec_id?: string }) | null }>("/api/lab/job"),
+  labSearchSpace: (id: string) =>
+    getJson<SearchSpace>(`/api/lab/strategies/${encodeURIComponent(id)}/search`),
+  labSearch: (id: string) => getJson<SearchRecord>(`/api/lab/search/${encodeURIComponent(id)}`),
+  labStartSearch: (body: { start_id: string; params: string[]; method: SearchMethod; max_trials: number }) =>
+    sendJson<{ search_id: string }>("/api/lab/search", "POST", body),
+  labDossier: (id: string) => getJson<Dossier>(`/api/lab/strategies/${encodeURIComponent(id)}/dossier`),
+  labDossierNotes: (id: string) =>
+    sendJson<unknown>(`/api/lab/strategies/${encodeURIComponent(id)}/dossier`, "POST"),
+  labDossierUrl: (id: string) => `/api/lab/strategies/${encodeURIComponent(id)}/dossier.md`,
   labGenerate: (guidance: string) => sendJson<unknown>("/api/lab/generate", "POST", { guidance }),
   overview: () => getJson<OverviewPayload>("/api/overview"),
   explain: (

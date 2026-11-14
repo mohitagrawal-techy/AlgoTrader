@@ -159,8 +159,40 @@ export function StageCard({
           ))}
         </ul>
       )}
+      {stage.significance && <Significance value={stage.significance} />}
       <Folds folds={stage.folds} />
     </div>
+  );
+}
+
+/** The unseen Sharpe, and what is left of it after its sample and the trials run. */
+function Significance({
+  value,
+}: {
+  value: NonNullable<ResearchStage["significance"]>;
+}) {
+  const share = (n: number | null) =>
+    n === null ? "–" : `${Math.round(n * 100)}%`;
+  return (
+    <p className="m-0 text-[12.5px] leading-relaxed text-ink-2">
+      Unseen Sharpe{" "}
+      <span className="font-mono text-ink tabular-nums">
+        {num(value.sharpe, 2)}
+      </span>{" "}
+      over {value.sessions} sessions. Chance its true Sharpe is above zero{" "}
+      <span className="font-mono text-ink tabular-nums">
+        {share(value.psr)}
+      </span>
+      ; above the{" "}
+      <span className="font-mono tabular-nums">
+        {num(value.luck_sharpe, 2)}
+      </span>{" "}
+      the best of {num(value.trials)} tried rule sets would show by luck{" "}
+      <span className="font-mono text-ink tabular-nums">
+        {share(value.dsr)}
+      </span>
+      .
+    </p>
   );
 }
 

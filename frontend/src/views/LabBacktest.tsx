@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type LabBacktestPage, type LabTrade } from "../api";
 import {
   LineChart,
@@ -32,6 +32,9 @@ import {
   StageBadge,
   StageCard,
 } from "../components/research/Stage";
+import { RegimeTable } from "../components/research/Regimes";
+import { SearchPanel } from "../components/research/Search";
+import { DossierPanel } from "../components/research/Dossier";
 
 const VERDICTS: Record<string, { tone: Tone; label: string }> = {
   held_up: { tone: "good", label: "Held up on unseen data" },
@@ -210,9 +213,14 @@ function usePage(id: string) {
     data: null,
     error: null,
   });
+  const [version, setVersion] = useState(0);
+  const shown = useRef(id);
   useEffect(() => {
     let active = true;
-    setState({ data: null, error: null });
+    // A new strategy starts blank; a reload of the same one keeps the page in place.
+    if (shown.current !== id || version === 0)
+      setState({ data: null, error: null });
+    shown.current = id;
     api
       .labBacktestPage(id)
       .then((data) => active && setState({ data, error: null }))
@@ -222,12 +230,13 @@ function usePage(id: string) {
     return () => {
       active = false;
     };
-  }, [id]);
-  return state;
+  }, [id, version]);
+  const reload = useCallback(() => setVersion((v) => v + 1), []);
+  return { ...state, reload };
 }
 
 export function LabBacktestView({ id }: { id: string }) {
-  const { data, error } = usePage(id);
+  const { data, error, reload } = usePage(id);
   const [windowKey, setWindowKey] = useState<WindowKey>("test");
   const [period, setPeriod] = useState<Period>("week");
   const [symbol, setSymbol] = useState("");
@@ -495,6 +504,17 @@ export function LabBacktestView({ id }: { id: string }) {
             <StageCard stage={data.stage} stages={data.stages} />
           </Panel>
 
+          {data.regimes && (
+            <Panel
+              title="Market regimes"
+              aside={
+                <span className="muted">Training and test trades together</span>
+              }
+            >
+              <RegimeTable regimes={data.regimes} />
+            </Panel>
+          )}
+
           {windowKey !== "both" && result[windowKey] && (
             <Panel
               title="All statistics"
@@ -745,6 +765,24 @@ export function LabBacktestView({ id }: { id: string }) {
               )}
             </Panel>
           )}
+          <Panel
+            title="Parameter search"
+            aside={
+              data.search && (
+                <span className="muted">
+                  This strategy came from a {data.search.method} search of{" "}
+                  {data.search.trials} settings
+                </span>
+              )
+            }
+          >
+            <SearchPanel specId={id} onFinished={reload} />
+          </Panel>
+
+          <Panel title="Research dossier">
+            <DossierPanel specId={id} />
+          </Panel>
+
           <p className="panel-note">
             Fills use the next session&apos;s open with modelled spreads, after
             brokerage, taxes and slippage. Positions held to expiry settle at

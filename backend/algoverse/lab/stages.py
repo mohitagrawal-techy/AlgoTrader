@@ -3,7 +3,9 @@
 REJECT          No edge: it lost on unseen data, lost its profit at double slippage, or takes
                 unlimited risk while risk.yaml forbids it.
 RESEARCH        A hypothesis still being tested: too few unseen trades, a profit luck could
-                explain, a loss in training, or profit in too few of the consecutive periods.
+                explain, a Sharpe that does not survive the number of trials run, a loss in
+                training, profit in too few of the consecutive periods, or a parameter search
+                whose best setting has no good neighbours.
 PAPER TRADE     Passed every check the lab can run.
 APPROVED        Passed forward paper trading as well. Lab strategies are not paper traded live
                 yet, so nothing reaches this stage.
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 from algoverse.backtest.config import LabConfig
 from algoverse.lab.evaluate import FAILED, FAILS_2X, TOO_FEW, UNPROVEN
+from algoverse.lab.evidence import significance
 
 REJECT = "reject"
 RESEARCH = "research"
@@ -105,8 +108,14 @@ def grade(
     allow_unlimited_risk: bool,
     config: LabConfig,
     capital: float,
+    trials: dict | None = None,
+    search: dict | None = None,
 ) -> dict:
-    """The stage, the reason for it, and every check behind it, passed or not."""
+    """The stage, the reason for it, and every check behind it, passed or not.
+
+    `trials` is {"count", "variance"} for every logged trial, which sets the deflated Sharpe's
+    luck benchmark. `search` is the parameter search that produced the strategy, if any; its
+    `robust` flag adds a check that nearby settings work too."""
     if unlimited_risk and not allow_unlimited_risk:
         return {
             "stage": REJECT,
@@ -115,9 +124,16 @@ def grade(
                 _check("bounded", "Loss is capped", False, "Unlimited-risk structure"),
             ],
             "folds": [],
+            "significance": None,
         }
     if result is None:
-        return {"stage": None, "reason": "Not tested yet.", "checks": [], "folds": []}
+        return {
+            "stage": None,
+            "reason": "Not tested yet.",
+            "checks": [],
+            "folds": [],
+            "significance": None,
+        }
 
     test, train = result.get("test") or {}, result.get("train") or {}
     doubled = result.get("test_2x") or {}
@@ -130,6 +146,15 @@ def grade(
     if drawdown is None and test.get("max_drawdown") is not None and capital > 0:
         drawdown = test["max_drawdown"] / capital * 100
     floor = evidence.get("floor")
+    test_daily = ((result.get("detail") or {}).get("test") or {}).get("daily") or {}
+    count = (trials or {}).get("count") or 1
+    measured = significance(
+        [test_daily[day] for day in sorted(test_daily)],
+        capital,
+        count,
+        (trials or {}).get("variance"),
+    )
+    deflated = None if measured is None else measured["dsr"]
 
     checks = [
         _check(
@@ -157,6 +182,14 @@ def grade(
             "Not measured" if floor is None else f"Luck-adjusted profit per trade {rupees(floor)}",
         ),
         _check(
+            "deflated",
+            f"Sharpe survives the {count} trials run",
+            deflated is not None and deflated >= config.stage_min_deflated_sharpe,
+            "Not measured"
+            if deflated is None
+            else f"Deflated Sharpe {deflated:.2f}, needs {config.stage_min_deflated_sharpe:g}",
+        ),
+        _check(
             "training",
             "Profitable in training too",
             (train.get("net_pnl") or 0) > 0,
@@ -175,6 +208,16 @@ def grade(
             "Not measured" if drawdown is None else f"{drawdown:.1f}% of budget",
         ),
     ]
+    if search is not None and search.get("robust") is not None:
+        checks.append(
+            _check(
+                "robust",
+                "Nearby settings work too",
+                bool(search["robust"]),
+                f"{search.get('neighbour_share', 0):.0%} of neighbouring settings keep half "
+                "the design Sharpe",
+            )
+        )
     passed = {check["key"]: check["passed"] for check in checks}
 
     verdict = result.get("verdict")
@@ -191,4 +234,10 @@ def grade(
         stage, reason = RESEARCH, f"Not yet: {failing['label'].lower()} ({failing['detail']})."
     else:
         stage, reason = PAPER_TRADE, "Passed every lab check."
-    return {"stage": stage, "reason": reason, "checks": checks, "folds": folds}
+    return {
+        "stage": stage,
+        "reason": reason,
+        "checks": checks,
+        "folds": folds,
+        "significance": measured,
+    }

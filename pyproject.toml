@@ -17,6 +17,8 @@ dependencies = [
     # Optional tracing of local AI calls; idle unless LANGSMITH_TRACING is set.
     "langsmith==0.14.10",
     "numpy>=1.26",
+    # Parameter search in the lab: grid, random and Bayesian (TPE) samplers.
+    "optuna>=4.0,<5",
     "pandas>=2.2",
     "protobuf>=7.35.1",
     "pyarrow>=15",

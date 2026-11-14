@@ -58,6 +58,17 @@ lab:
   stage_folds: 6
   stage_min_positive_share: 0.6
   stage_max_drawdown_pct: 15.0
+  # The unseen Sharpe must beat, with this probability, the Sharpe the best of all logged
+  # trials would show by luck alone (deflated Sharpe ratio).
+  stage_min_deflated_sharpe: 0.95
+  # Trades needed in a market regime before a strategy is said to suit or avoid it.
+  regime_min_trades: 5
+  # Parameter search runs at most search_max_trials on the design sessions, validates the
+  # best search_validate_top, and calls the best setting robust when search_min_neighbour_share
+  # of its neighbours keep at least half its design Sharpe.
+  search_max_trials: 40
+  search_validate_top: 3
+  search_min_neighbour_share: 0.6
   # Strategy ladder. It climbs from simple to complex, one tested change per rung.
   validate_share: 0.35
   ladder_rungs: 4

@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, time
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field, model_validator
 
@@ -237,10 +238,44 @@ class Budget(BaseModel):
     # Greek and stress limits.
     sizing: Literal["budget", "risk"] = "budget"
     deploy_pct: float = Field(default=100.0, ge=1, le=100)
+    # "atr": scale each trade's budget by the underlying's typical daily range (14-day ATR as
+    # a share of price) against its median over the past year: smaller when markets swing
+    # more. The scale stays between vol_floor and vol_cap; a cap of 1 only ever sizes down.
+    vol_sizing: Literal["off", "atr"] = "off"
+    vol_floor: float = Field(default=0.5, ge=0.1, le=1)
+    vol_cap: float = Field(default=1.0, ge=1, le=2)
+    # Circuit breakers: after this many losing trades in a row, or a fall of this percent of
+    # capital from the strategy's best closed P&L, open no new trade for `pause_sessions`
+    # weekdays. Open positions run on to their own exits. None switches a breaker off.
+    pause_after_losses: int | None = Field(default=None, ge=2, le=20)
+    pause_drawdown_pct: float | None = Field(default=None, ge=1, le=100)
+    pause_sessions: int = Field(default=5, ge=1, le=60)
 
     @property
     def risk_per_trade(self) -> float:
         return self.capital * self.risk_per_trade_pct / 100
+
+
+# Budget settings added later, left out of the stored budget at their defaults so results
+# tested before they existed still match.
+LATER_BUDGET_SETTINGS = (
+    ("vol_sizing", "off"),
+    ("vol_floor", 0.5),
+    ("vol_cap", 1.0),
+    ("pause_after_losses", None),
+    ("pause_drawdown_pct", None),
+    ("pause_sessions", 5),
+)
+
+
+def budget_key(budget: Budget | dict) -> dict:
+    """The budget as stored with a result, to tell whether the result still applies. Takes a
+    budget or a stored budget dict, so either form compares equal."""
+    data = dict(budget) if isinstance(budget, dict) else budget.model_dump()
+    for key, default in LATER_BUDGET_SETTINGS:
+        if key in data and data[key] == default:
+            del data[key]
+    return data
 
 
 class IndicatorPick(BaseModel):
@@ -744,6 +779,58 @@ def _day(moment: str | None):
     return None if moment is None else datetime.fromisoformat(moment).date()
 
 
+ATR_PERIOD = 14
+ATR_YEAR = 252
+ATR_MIN_HISTORY = 60
+
+
+def volatility_scale(budget: Budget, bars: pd.DataFrame) -> float:
+    """How much of its usual budget a trade gets: the year's median ATR share of price over
+    today's, kept between the floor and the cap. 1 when sizing ignores volatility or there is
+    too little history."""
+    if budget.vol_sizing == "off" or len(bars) < ATR_MIN_HISTORY:
+        return 1.0
+    high, low, close = bars["high"], bars["low"], bars["close"]
+    true_range = pd.concat(
+        [high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1
+    ).max(axis=1)
+    share = (true_range.ewm(alpha=1 / ATR_PERIOD, adjust=False).mean() / close).iloc[-ATR_YEAR:]
+    now, usual = float(share.iloc[-1]), float(share.median())
+    if not now > 0 or not usual > 0:
+        return 1.0
+    return min(max(usual / now, budget.vol_floor), budget.vol_cap)
+
+
+def _add_weekdays(day: date, count: int) -> date:
+    return np.busday_offset(np.datetime64(day), count, roll="forward").astype(date)
+
+
+def breaker_pause(budget: Budget, closed: list[tuple[date, float]]) -> tuple[date, str] | None:
+    """The last pause the circuit breakers set, from closed trades in order: (until, why).
+
+    Each pause starts the count again, so one losing run pauses the strategy once."""
+    if budget.pause_after_losses is None and budget.pause_drawdown_pct is None:
+        return None
+    streak, equity, peak = 0, 0.0, 0.0
+    pause = None
+    for day, pnl in closed:
+        equity += pnl
+        peak = max(peak, equity)
+        streak = streak + 1 if pnl < 0 else 0
+        why = None
+        if budget.pause_after_losses is not None and streak >= budget.pause_after_losses:
+            why = f"{streak} losing trades in a row"
+        elif (
+            budget.pause_drawdown_pct is not None
+            and peak - equity >= budget.capital * budget.pause_drawdown_pct / 100
+        ):
+            why = f"down {budget.pause_drawdown_pct:g}% of capital from its best"
+        if why:
+            pause = (_add_weekdays(day, budget.pause_sessions), why)
+            streak, peak = 0, equity
+    return pause
+
+
 class CustomSet:
     """Feeds custom strategies into the normal idea pipeline, and enforces their exit rules
     and daily limits on the positions they opened."""
@@ -773,11 +860,28 @@ class CustomSet:
                 total += position.unrealized_pnl - position.entry_costs
         return total
 
+    def breaker_failure(self, spec: StrategySpec, positions: list, today) -> str | None:
+        closed = sorted(
+            (p for p in positions if p.status == "closed" and p.closed_at),
+            key=lambda p: p.closed_at,
+        )
+        pause = breaker_pause(
+            spec.budget, [(_day(p.closed_at), p.realized_pnl or 0.0) for p in closed]
+        )
+        if pause is None or today > pause[0]:
+            return None
+        return f"circuit breaker: {pause[1]}, paused until {pause[0]:%d %b %Y}"
+
     def limit_failures(self, spec: StrategySpec, today) -> list[str]:
         """Why the strategy may not open another trade today."""
         entry, exits = spec.entry, spec.exits
+        budget = spec.budget
+        breaker = None
+        if budget.pause_after_losses is not None or budget.pause_drawdown_pct is not None:
+            breaker = self.breaker_failure(spec, self._positions(spec), today)
         if (
-            entry.max_trades_per_day is None
+            breaker is None
+            and entry.max_trades_per_day is None
             and entry.reenter_after_stop
             and entry.reenter_after_target
             and exits.daily_stop is None
@@ -785,7 +889,7 @@ class CustomSet:
         ):
             return []
         positions = self._positions(spec)
-        reasons = []
+        reasons = [breaker] if breaker else []
         today_trades = [p for p in positions if _day(p.created_at) == today]
         if entry.max_trades_per_day is not None and len(today_trades) >= entry.max_trades_per_day:
             reasons.append("entry rule: the day's trade limit is reached")
@@ -882,6 +986,7 @@ class CustomSet:
             if spec.symbols and ctx.symbol not in spec.symbols:
                 continue
             limits = self.limit_failures(spec, ctx.now.date())
+            scale = volatility_scale(spec.budget, ctx.bars)
             for case, variant in enumerate(variants(spec)):
                 key = (spec.id, ctx.symbol, case)
                 wait = self.waiting.get(key)
@@ -895,7 +1000,7 @@ class CustomSet:
                 if candidate is None:
                     self.no_contracts[spec.id] += 1
                     continue
-                candidate = replace(candidate, case=case)
+                candidate = replace(candidate, case=case, size_scale=scale)
                 failures = entry_failures(variant, ctx, candidate.front_expiry) + limits
                 if not failures and spec.entry.wait_move is not None:
                     # The signal arms a wait; the trade comes once the premium has moved.

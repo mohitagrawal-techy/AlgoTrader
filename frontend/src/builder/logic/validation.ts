@@ -153,6 +153,21 @@ function budgetProblems(spec: LabSpec, problems: Problems): void {
   if (!inRange(budget.max_open, 1, 10) || !Number.isInteger(budget.max_open)) {
     problems.max_open = "Use a whole number from 1 to 10.";
   }
+  if ((budget.vol_sizing ?? "off") === "atr") {
+    if (!inRange(budget.vol_floor ?? 0.5, 0.1, 1))
+      problems.vol_floor = "Use 0.1 to 1.";
+    if (!inRange(budget.vol_cap ?? 1, 1, 2)) problems.vol_cap = "Use 1 to 2.";
+  }
+  const losses = budget.pause_after_losses ?? null;
+  if (losses !== null && (!inRange(losses, 2, 20) || !Number.isInteger(losses)))
+    problems.pause_after_losses =
+      "Use a whole number from 2 to 20, or leave it blank.";
+  const fall = budget.pause_drawdown_pct ?? null;
+  if (fall !== null && !inRange(fall, 1, 100))
+    problems.pause_drawdown_pct = "Use 1% to 100%, or leave it blank.";
+  const pause = budget.pause_sessions ?? 5;
+  if (!inRange(pause, 1, 60) || !Number.isInteger(pause))
+    problems.pause_sessions = "Use a whole number from 1 to 60.";
 }
 
 /** The server checks these too. Here they point at the exact field while editing. */

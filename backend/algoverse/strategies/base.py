@@ -83,6 +83,8 @@ class Candidate:
     legs: tuple[Leg, ...]
     # Which of a custom strategy's cases this came from: 0 is the first.
     case: int = 0
+    # Scales the trade's risk budget, for strategies that size by volatility. 1 is unscaled.
+    size_scale: float = 1.0
 
     @property
     def front_expiry(self) -> date:

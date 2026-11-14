@@ -92,13 +92,20 @@ def _reject(reason: str, plan: ExitPlan, structure: StructureMetrics) -> RiskDec
 
 
 def _size_by_budget(
-    structure: StructureMetrics, plan: ExitPlan, state: PortfolioState, config: RiskConfig
+    candidate: Candidate,
+    structure: StructureMetrics,
+    plan: ExitPlan,
+    state: PortfolioState,
+    config: RiskConfig,
 ) -> RiskDecision:
     """As many lots as the money left allows: the budget's share for trading, less what open
     positions already tie up, over one lot's premium or margin."""
     if structure.margin <= 0:
         return _reject("structure ties up no money to size from", plan, structure)
     left = config.amount(config.max_margin_use_pct) - state.margin_used
+    if candidate.size_scale < 1:
+        # A volatility-sized trade spends a smaller share of the budget.
+        left = min(left, config.amount(config.max_margin_use_pct) * candidate.size_scale)
     lots = min(math.floor(left / structure.margin), config.max_lots_per_trade)
     if lots <= 0:
         return _reject(
@@ -130,7 +137,7 @@ def evaluate_risk(
         return _reject("structure has no measurable planned loss", plan, structure)
 
     if config.size_by_budget:
-        return _size_by_budget(structure, plan, state, config)
+        return _size_by_budget(candidate, structure, plan, state, config)
 
     per_trade_pct = (
         config.max_loss_per_trade_pct
@@ -140,7 +147,10 @@ def evaluate_risk(
     symbol_risk = state.risk_by_symbol.get(candidate.symbol, 0.0)
     worst_loss = max(-stress.worst_pnl, 0.0)
     rooms: dict[str, float] = {
-        "per-trade loss limit": config.amount(per_trade_pct) / plan.planned_loss,
+        # Volatility sizing scales the per-trade budget; every other limit still applies.
+        "per-trade loss limit": config.amount(per_trade_pct)
+        * candidate.size_scale
+        / plan.planned_loss,
         "open risk limit": (config.amount(config.max_open_risk_pct) - state.open_risk)
         / plan.planned_loss,
         "underlying risk limit": (config.amount(config.max_underlying_risk_pct) - symbol_risk)

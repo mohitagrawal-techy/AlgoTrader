@@ -104,6 +104,12 @@ class Registry:
             for row in rows
         ]
 
+    def trial_sharpes(self) -> list[float]:
+        """The annual Sharpe of every trial that had one."""
+        with self._connect() as connection:
+            rows = connection.execute("SELECT sharpe FROM trials WHERE sharpe IS NOT NULL")
+            return [float(row[0]) for row in rows.fetchall()]
+
     def trial_count(self) -> int:
         with self._connect() as connection:
             return connection.execute("SELECT COUNT(*) FROM trials").fetchone()[0]

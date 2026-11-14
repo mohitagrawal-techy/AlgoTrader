@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -140,6 +140,13 @@ class LabTuneRequest(BaseModel):
     per_round: int | None = Field(default=None, ge=1, le=10)
     guidance: str = Field(default="", max_length=500)
     use_ai: bool = True
+
+
+class LabSearchRequest(BaseModel):
+    start_id: str = Field(min_length=1, max_length=64)
+    params: list[str] = Field(min_length=1, max_length=4)
+    method: Literal["grid", "random", "bayesian"] = "bayesian"
+    max_trials: int | None = Field(default=None, ge=4, le=400)
 
 
 class LabReplayRequest(BaseModel):
@@ -553,6 +560,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _require_dashboard(x_algoverse_client)
         saved = _lab(lambda: runtime.lab.save_tuned(session_id, body.node_id, datetime.now(IST)))
         return {"id": saved}
+
+    @app.get("/api/lab/job")
+    def lab_job() -> dict:
+        return {"job": runtime.lab.job()}
+
+    @app.get("/api/lab/strategies/{spec_id}/search")
+    def lab_search_space(spec_id: str) -> dict:
+        return _lab(lambda: runtime.lab.search_space(spec_id))
+
+    @app.get("/api/lab/search/{search_id}")
+    def lab_search(search_id: str) -> dict:
+        return _lab(lambda: runtime.lab.search(search_id))
+
+    @app.post("/api/lab/search")
+    def lab_start_search(
+        body: LabSearchRequest, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        _require_dashboard(x_algoverse_client)
+        return _lab(
+            lambda: runtime.lab.start_search(
+                body.start_id, body.params, body.method, body.max_trials, datetime.now(IST)
+            )
+        )
+
+    @app.get("/api/lab/strategies/{spec_id}/dossier")
+    def lab_dossier(spec_id: str) -> dict:
+        return _lab(lambda: runtime.lab.dossier(spec_id))
+
+    @app.get("/api/lab/strategies/{spec_id}/dossier.md", response_class=PlainTextResponse)
+    def lab_dossier_markdown(spec_id: str) -> PlainTextResponse:
+        name, text = _lab(lambda: runtime.lab.dossier_markdown(spec_id))
+        return PlainTextResponse(
+            text,
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
+
+    @app.post("/api/lab/strategies/{spec_id}/dossier")
+    def lab_dossier_notes(
+        spec_id: str, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        _require_dashboard(x_algoverse_client)
+        return _lab(lambda: runtime.lab.start_dossier_notes(spec_id, datetime.now(IST)))
 
     @app.get("/api/forward")
     def forward() -> dict:

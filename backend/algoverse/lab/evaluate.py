@@ -30,6 +30,7 @@ from algoverse.lab.spec import (
     CustomSet,
     StrategySpec,
     apply_specs,
+    budget_key,
     signature,
     with_budget,
 )
@@ -412,7 +413,7 @@ def evaluate_specs(
                 "signature": signature(spec),
                 "evaluated_at": now,
                 # The budget it was tested with; a different one makes the result stale.
-                "budget": spec.budget.model_dump(),
+                "budget": budget_key(spec.budget),
                 "config_hash": digest,
                 "windows": windows.__dict__,
                 "train": train,

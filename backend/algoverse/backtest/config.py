@@ -97,6 +97,17 @@ class LabConfig(BaseModel):
     stage_min_positive_share: float = Field(default=0.6, gt=0, le=1)
     # Largest drawdown on unseen data, as a percent of the strategy's budget.
     stage_max_drawdown_pct: float = Field(default=15.0, gt=0)
+    # Deflated Sharpe ratio needed: the chance the unseen Sharpe beats what the best of every
+    # logged trial would show by luck.
+    stage_min_deflated_sharpe: float = Field(default=0.95, gt=0, lt=1)
+    # Trades a market regime needs before the lab says a strategy suits or should avoid it.
+    regime_min_trades: int = Field(default=5, ge=1)
+    # Parameter search: the most trials one search may run on the design sessions, how many
+    # of the best go on to the validation sessions, and the share of a best setting's
+    # neighbours that must keep half its design Sharpe for the result to count as robust.
+    search_max_trials: int = Field(default=40, ge=4, le=400)
+    search_validate_top: int = Field(default=3, ge=1, le=10)
+    search_min_neighbour_share: float = Field(default=0.6, gt=0, le=1)
 
     # The ladder splits the training period, using this last share for unseen checks.
     validate_share: float = Field(default=0.35, gt=0, lt=1)

@@ -11,6 +11,7 @@ import {
 import { LineChart, timeTicks } from "../charts";
 import { StrategyVisual } from "./StrategyVisual";
 import { StageBadge } from "../components/research/Stage";
+import { REGIME_NAMES } from "../components/research/Regimes";
 import {
   dateTimeIst,
   fraction,
@@ -820,6 +821,15 @@ export function LabView({
                         }
                       >
                         <StageBadge stage={row.stage} />
+                        {row.regimes?.suits.length ? (
+                          <div className="secondary">
+                            Suits{" "}
+                            {row.regimes.suits
+                              .map((key) => REGIME_NAMES[key] ?? key)
+                              .join(", ")
+                              .toLowerCase()}
+                          </div>
+                        ) : null}
                         {row.structure_problems?.length ? (
                           <div
                             className="secondary"
