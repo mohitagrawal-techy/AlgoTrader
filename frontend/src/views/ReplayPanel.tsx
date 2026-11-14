@@ -1,4 +1,5 @@
-import { ChartChip } from "../components/ui";
+import { useState } from "react";
+import { ChartChip, cx } from "../components/ui";
 import type { EntryReading, ReplayData, ReplayTrade } from "../api";
 import { signedInr } from "../format";
 import {
@@ -9,6 +10,7 @@ import {
   stopAt,
   wallText,
 } from "./replay";
+import { legPrice, TradeChart } from "./TradeChart";
 
 export const EXIT_REASONS: Record<string, string> = {
   target: "profit target",
@@ -146,8 +148,8 @@ function LevelsTable({
   );
 }
 
-/** Why the entry rules held, and where the trade exits, as option prices. */
-export function EntryWhy({
+/** Why the entry rules held at the decision, rule by rule. */
+function EntryReasons({
   trade,
   intradayTimes,
   decideEvery,
@@ -156,18 +158,8 @@ export function EntryWhy({
   intradayTimes: boolean;
   decideEvery: string;
 }) {
-  const single = trade.legs.length === 1 ? trade.legs[0] : null;
-  // A position-level P&L level as the single leg's option price.
-  const legPrice = (pnl: number | null) => {
-    if (!single || pnl === null) return null;
-    const sign = single.side === "buy" ? 1 : -1;
-    return single.entry_price + pnl / (single.units * sign);
-  };
-  const stopPrice = single?.stop_price ?? legPrice(trade.stop_pnl);
-  const targetPrice = single?.target_price ?? legPrice(trade.target_pnl);
   return (
     <div className="replay-why">
-      <h4>Why it entered</h4>
       {trade.decide_time ? (
         <p className="muted">
           The rules held at {wallText(trade.decide_time, intradayTimes)}, on
@@ -198,12 +190,6 @@ export function EntryWhy({
           them.
         </p>
       )}
-      <LevelsTable
-        trade={trade}
-        stopPnl={trade.stop_pnl}
-        stopPrice={stopPrice}
-        targetPrice={targetPrice}
-      />
     </div>
   );
 }
@@ -303,89 +289,158 @@ function CaseResults({
   onToggle: (index: number) => void;
 }) {
   const cases = all.cases ?? [{ name: "Entry rules", bias: "neutral" }];
-  const rows = cases.map((item, index) => {
-    const trades = all.trades.filter((trade) => (trade.case ?? 0) === index);
-    const closed = trades.filter((trade) => trade.close_time < until);
-    const sum = (list: ReplayTrade[]) =>
-      list.reduce((total, trade) => total + trade.net_pnl, 0);
-    return {
-      index,
-      item,
-      trades,
-      closed,
-      wins: closed.filter((trade) => trade.net_pnl > 0).length,
-      soFar: sum(closed),
-      total: sum(trades),
-      totalWins: trades.filter((trade) => trade.net_pnl > 0).length,
-    };
-  });
+  const percent = (part: number, whole: number) =>
+    whole ? `${Math.round((part / whole) * 100)}%` : "–";
   return (
-    <section className="replay-cases" aria-label="Results by case">
+    <section className="replay-section" aria-label="Results by case">
       <h3>Results by case</h3>
-      <table className="replay-levels replay-levels-grid">
-        <thead>
-          <tr>
-            <th className="left">Case</th>
-            <th className="right">Closed</th>
-            <th className="right">Won</th>
-            <th className="right">Net so far</th>
-            <th className="right">Whole replay</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr
-              key={row.index}
-              className={hidden.has(row.index) ? "replay-case-off" : undefined}
+      <ul className="replay-case-list">
+        {cases.map((item, index) => {
+          const trades = all.trades.filter((t) => (t.case ?? 0) === index);
+          const closed = trades.filter((t) => t.close_time < until);
+          const won = (list: ReplayTrade[]) =>
+            list.filter((t) => t.net_pnl > 0).length;
+          const net = (list: ReplayTrade[]) =>
+            list.reduce((sum, t) => sum + t.net_pnl, 0);
+          return (
+            <li
+              key={index}
+              className={hidden.has(index) ? "replay-case-off" : undefined}
             >
-              <td>
-                <label className="replay-case">
-                  <input
-                    type="checkbox"
-                    checked={!hidden.has(row.index)}
-                    aria-label={`Show ${row.item.name} trades`}
-                    onChange={() => onToggle(row.index)}
-                  />
-                  {row.item.name}
-                  <span className="muted">{row.item.bias}</span>
-                </label>
-              </td>
-              <td className="right">
-                {row.closed.length} of {row.trades.length}
-              </td>
-              <td className="right">
-                {row.closed.length
-                  ? `${Math.round((row.wins / row.closed.length) * 100)}%`
-                  : "–"}
-              </td>
-              <td className="right">
-                {row.closed.length ? <Pnl value={row.soFar} /> : "–"}
-              </td>
-              <td className="right">
-                {row.trades.length ? (
-                  <>
-                    <Pnl value={row.total} />{" "}
+              <label className="replay-case">
+                <input
+                  type="checkbox"
+                  checked={!hidden.has(index)}
+                  aria-label={`Show ${item.name} trades`}
+                  onChange={() => onToggle(index)}
+                />
+                <span className="replay-case-name">{item.name}</span>
+                <span className="muted">{item.bias}</span>
+              </label>
+              <dl className="replay-case-stats">
+                <div>
+                  <dt>So far</dt>
+                  <dd>
+                    {closed.length ? <Pnl value={net(closed)} /> : "–"}{" "}
                     <span className="muted">
-                      {row.trades.length} trades,{" "}
-                      {Math.round((row.totalWins / row.trades.length) * 100)}%
-                      won
+                      {closed.length} closed,{" "}
+                      {percent(won(closed), closed.length)} won
                     </span>
-                  </>
-                ) : (
-                  <span className="muted">no trades</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Whole replay</dt>
+                  <dd>
+                    {trades.length ? <Pnl value={net(trades)} /> : "–"}{" "}
+                    <span className="muted">
+                      {trades.length} trades,{" "}
+                      {percent(won(trades), trades.length)} won
+                    </span>
+                  </dd>
+                </div>
+              </dl>
+            </li>
+          );
+        })}
+      </ul>
       <p className="muted replay-plan">
-        Net is after costs. Untick a case to hide its trades from the chart, the
-        P&amp;L line and the totals below. Trades still happened in the backtest
-        order: one trade at a time, so a case&apos;s trades can block
-        another&apos;s.
+        Net is after costs. Untick a case to hide its trades from the chart and
+        the totals. The backtest takes one trade at a time, so one case&apos;s
+        trades can have blocked another&apos;s.
       </p>
     </section>
+  );
+}
+
+/** A trade in the side panel. Clicking it opens the option's chart, its levels and why it
+ * was taken. */
+function TradeItem({
+  trade,
+  until,
+  isOpen,
+  openPnl,
+  selected,
+  onSelect,
+  intradayTimes,
+  decideEvery,
+}: {
+  trade: ReplayTrade;
+  until: number;
+  isOpen: boolean;
+  openPnl: number;
+  selected: boolean;
+  onSelect: () => void;
+  intradayTimes: boolean;
+  decideEvery: string;
+}) {
+  const stop = isOpen
+    ? stopAt(trade, until)
+    : trade.stop_pnl === null
+      ? null
+      : { level: trade.stop_pnl, kind: "stop loss" };
+  const single = trade.legs.length === 1 ? trade.legs[0] : null;
+  const optionNow = isOpen && single ? legPrice(trade, openPnl) : null;
+  const value = isOpen ? openPnl : trade.net_pnl;
+  return (
+    <li
+      className={cx(
+        "replay-trade",
+        isOpen && "is-open",
+        selected && "is-selected",
+      )}
+    >
+      <button
+        type="button"
+        className="replay-trade-head"
+        aria-expanded={selected}
+        onClick={onSelect}
+      >
+        <span className="replay-trade-legs">
+          {trade.legs.map((leg) => legText(leg, trade.lots)).join(", ")}
+        </span>
+        <span className="replay-trade-value">
+          <Pnl value={value} />
+        </span>
+        <span className="replay-trade-when muted">
+          {isOpen
+            ? `Open since ${wallText(trade.open_time, intradayTimes)}${optionNow !== null ? `, option ${price(optionNow)} from ${price(single!.entry_price)}` : ""}`
+            : `${wallText(trade.open_time, intradayTimes)} to ${wallText(trade.close_time, intradayTimes)}, ${EXIT_REASONS[trade.exit_reason ?? ""] ?? trade.exit_reason}`}
+        </span>
+        <span className="replay-trade-hint muted">
+          {isOpen ? "value before costs" : "after costs"}
+          {selected ? ", hide chart" : ", show chart"}
+        </span>
+      </button>
+      {isOpen && stop && openPnl <= stop.level && (
+        <p className="replay-past">
+          Past the {stop.kind} by{" "}
+          {signedInr(stop.level - openPnl).replace("+", "")}: it exits at the
+          next check.
+        </p>
+      )}
+      {selected && (
+        <div className="replay-trade-body">
+          <TradeChart trade={trade} until={until} />
+          <LevelsTable
+            trade={trade}
+            stopPnl={stop?.level ?? null}
+            stopLabel={
+              stop && stop.kind !== "stop loss" ? stop.kind : "Stop loss"
+            }
+            stopPrice={single ? legPrice(trade, stop?.level) : null}
+            targetPrice={single ? legPrice(trade, trade.target_pnl) : null}
+          />
+          <details className="replay-last" open>
+            <summary>Why it entered</summary>
+            <EntryReasons
+              trade={trade}
+              intradayTimes={intradayTimes}
+              decideEvery={decideEvery}
+            />
+          </details>
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -408,14 +463,64 @@ export function ReplayPanel({
   intradayTimes: boolean;
 }) {
   const { closed, open, openPnl, until } = stateAt(times, data, cursor);
-  const stop = open ? stopAt(open, until) : null;
+  const [selected, setSelected] = useState<number | null>(null);
   const realised = closed.reduce((sum, trade) => sum + trade.net_pnl, 0);
   const wins = closed.filter((trade) => trade.net_pnl > 0).length;
-  const recent = [...closed].reverse().slice(0, 8);
+  const recent = [...closed].reverse();
   const blocked = Object.entries(data.blocked).slice(0, 4);
+  const toggle = (trade: ReplayTrade) =>
+    setSelected((now) => (now === trade.open_time ? null : trade.open_time));
+  const item = (trade: ReplayTrade, isOpen: boolean) => (
+    <TradeItem
+      key={`${trade.open_time}-${trade.close_time}`}
+      trade={trade}
+      until={until}
+      isOpen={isOpen}
+      openPnl={isOpen ? openPnl : 0}
+      selected={selected === trade.open_time}
+      onSelect={() => toggle(trade)}
+      intradayTimes={intradayTimes}
+      decideEvery={data.decide_every}
+    />
+  );
 
   return (
-    <div className="replay-panel">
+    <aside className="replay-panel" aria-label="Replay results">
+      <section className="replay-summary" aria-label="Summary">
+        <div>
+          <span className="muted">Realised after costs</span>
+          <strong>
+            <Pnl value={realised} />
+          </strong>
+        </div>
+        <div>
+          <span className="muted">Closed</span>
+          <strong>
+            {closed.length}
+            <span className="muted"> of {data.trades.length}</span>
+          </strong>
+        </div>
+        <div>
+          <span className="muted">Won / lost</span>
+          <strong>
+            {wins} / {closed.length - wins}
+          </strong>
+        </div>
+      </section>
+
+      <section className="replay-section" aria-label="Open trade">
+        <h3>Open trade</h3>
+        {open ? (
+          <ul className="replay-trade-list">{item(open, true)}</ul>
+        ) : (
+          <p className="muted">
+            {closed.length === data.trades.length && data.trades.length
+              ? "Flat. Every trade of the replay is done."
+              : "Flat, waiting for the entry rules to hold."}
+          </p>
+        )}
+      </section>
+
       {(all.cases?.length ?? 1) > 1 && (
         <CaseResults
           all={all}
@@ -424,158 +529,14 @@ export function ReplayPanel({
           onToggle={onToggleCase}
         />
       )}
-      <section className="replay-position" aria-label="Position">
-        <h3>Position</h3>
-        {open ? (
-          <>
-            <p className="replay-open-head">
-              Open since {wallText(open.open_time, intradayTimes)}. Value now{" "}
-              <Pnl value={openPnl} />{" "}
-              <span className="muted">before costs</span>
-            </p>
-            <table className="replay-legs">
-              <tbody>
-                {open.legs.map((leg, index) => {
-                  // With one leg, the position's value gives the option's price now.
-                  const sign = leg.side === "buy" ? 1 : -1;
-                  const now =
-                    open.legs.length === 1
-                      ? leg.entry_price + openPnl / (leg.units * sign)
-                      : null;
-                  return (
-                    <tr key={index}>
-                      <td
-                        className={
-                          leg.side === "buy" ? "replay-buy" : "replay-sell"
-                        }
-                      >
-                        {legText(leg, open.lots)}
-                      </td>
-                      <td className="right">
-                        filled at {leg.entry_price.toFixed(2)}
-                        {now !== null && <>, now {now.toFixed(2)}</>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <table className="replay-levels">
-              <tbody>
-                <tr>
-                  <td>Exits at a profit of</td>
-                  <td className="right">
-                    <Pnl value={open.target_pnl} />
-                  </td>
-                </tr>
-                <tr>
-                  <td>
-                    {stop
-                      ? `Exits at the ${stop.kind}, a value of`
-                      : "Stop loss"}
-                  </td>
-                  <td className="right">
-                    {stop ? (
-                      <Pnl value={stop.level} />
-                    ) : (
-                      <span className="muted">not recorded</span>
-                    )}
-                  </td>
-                </tr>
-                {stop &&
-                  (openPnl > stop.level ? (
-                    <tr>
-                      <td className="muted">Room left before the stop</td>
-                      <td className="right">
-                        {signedInr(openPnl - stop.level).replace("+", "")}
-                      </td>
-                    </tr>
-                  ) : (
-                    <tr>
-                      <td className="replay-past" colSpan={2}>
-                        Past the {stop.kind} by{" "}
-                        {signedInr(stop.level - openPnl).replace("+", "")}: it
-                        exits at the next check.
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-            <EntryWhy
-              trade={open}
-              intradayTimes={intradayTimes}
-              decideEvery={data.decide_every}
-            />
-            <p className="muted replay-plan">
-              Levels are the position's value before costs, measured from the
-              fill prices. Exits fill at the next check
-              {data.intraday ? `, every ${data.decide_every}` : ""}, so the fill
-              can be past the level.
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="muted">
-              {closed.length === data.trades.length && data.trades.length
-                ? "Flat. Every trade of the replay is done."
-                : "Flat, waiting for the entry rules to hold."}
-            </p>
-            {closed.length > 0 && (
-              <details className="replay-last">
-                <summary>Last trade: why it entered</summary>
-                <EntryWhy
-                  trade={closed[closed.length - 1]}
-                  intradayTimes={intradayTimes}
-                  decideEvery={data.decide_every}
-                />
-              </details>
-            )}
-          </>
-        )}
-      </section>
 
-      <section className="replay-trades" aria-label="Trades so far">
+      <section className="replay-section" aria-label="Closed trades">
         <h3>
-          Trades so far{" "}
-          <span className="muted">
-            {closed.length} of {data.trades.length}
-          </span>
+          Closed trades <span className="muted">latest first</span>
         </h3>
-        {closed.length > 0 && (
-          <p className="replay-total">
-            Realised <Pnl value={realised} /> after costs, {wins} won,{" "}
-            {closed.length - wins} lost
-          </p>
-        )}
         {recent.length > 0 ? (
-          <ul>
-            {recent.map((trade) => (
-              <li key={`${trade.open_time}-${trade.close_time}`}>
-                <span>
-                  {wallText(trade.open_time, intradayTimes)} →{" "}
-                  {wallText(trade.close_time, intradayTimes)}
-                </span>
-                <span className="muted">
-                  {trade.legs.map((leg) => legText(leg, trade.lots)).join(", ")}
-                </span>
-                <span>
-                  <Pnl value={trade.net_pnl} />{" "}
-                  <span className="muted">
-                    {EXIT_REASONS[trade.exit_reason ?? ""] ?? trade.exit_reason}
-                    {trade.exit_reason === "stop" && trade.stop_pnl !== null
-                      ? ` at ${signedInr(trade.stop_pnl)}`
-                      : ""}
-                    {trade.exit_reason === "target"
-                      ? ` at ${signedInr(trade.target_pnl)}`
-                      : ""}
-                    {trade.legs.length === 1 &&
-                    trade.legs[0].exit_price !== null
-                      ? `, filled ${trade.legs[0].exit_price.toFixed(2)} from ${trade.legs[0].entry_price.toFixed(2)}`
-                      : ""}
-                  </span>
-                </span>
-              </li>
-            ))}
+          <ul className="replay-trade-list">
+            {recent.map((trade) => item(trade, false))}
           </ul>
         ) : data.trades.length === 0 ? (
           <div className="muted">
@@ -597,10 +558,11 @@ export function ReplayPanel({
         )}
       </section>
       <p className="replay-note muted">
-        This is the lab backtest of the strategy on {data.symbol}, {data.start}{" "}
-        to {data.end}: the same fills, modelled spreads, costs and exits.
-        Nothing is saved.
+        The lab backtest of the strategy on {data.symbol}, {data.start} to{" "}
+        {data.end}: the same fills, modelled spreads, costs and exits. Levels
+        are the position&apos;s value before costs; exits fill at the next check
+        {data.intraday ? `, every ${data.decide_every}` : ""}. Nothing is saved.
       </p>
-    </div>
+    </aside>
   );
 }

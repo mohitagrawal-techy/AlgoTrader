@@ -61,21 +61,30 @@ export function OperandPicker({
             pickKey(catalog, operandPick(operand, frame)),
         )
       : -1;
+  // An indicator with several lines (a candle's open, high, low and close) lists each line as
+  // its own choice: "pick:<index>:<line>".
+  const pickChoice = (index: number, field?: string | null) =>
+    field ? `pick:${index}:${field}` : `pick:${index}`;
   const choice =
     operand.kind === "value"
       ? NUMBER
       : isPrice
         ? (operand.name ?? "")
         : pickIndex >= 0
-          ? `pick:${pickIndex}`
+          ? pickChoice(
+              pickIndex,
+              indicator?.fields.length ? operand.field : null,
+            )
           : OTHER;
 
   const choose = (value: string) => {
     if (value === OTHER) return;
     if (value === NUMBER) onChange({ kind: "value", value: 0 });
     else if (value.startsWith("pick:")) {
-      const pick = picked[Number(value.slice(5))];
-      onChange(pickedOperand(catalog, pick), pick);
+      const [, index, field] = value.split(":");
+      const pick = picked[Number(index)];
+      const chosen = pickedOperand(catalog, pick);
+      onChange(field ? { ...chosen, field } : chosen, pick);
     } else onChange(freshIndicator(catalog, value));
   };
 
@@ -85,6 +94,12 @@ export function OperandPicker({
         id={`${id}-name`}
         small
         aria-label="Value to compare"
+        // Long choices are cut off in the box; the tooltip shows the whole of it.
+        title={
+          operand.kind === "indicator"
+            ? operandText(catalog, { ...operand, bars_ago: 0 })
+            : undefined
+        }
         value={choice}
         onChange={(e) => choose(e.target.value)}
       >
@@ -109,15 +124,22 @@ export function OperandPicker({
             (entry) => entry.pick.name,
           ).map((group) => (
             <optgroup key={group.title} label={group.title}>
-              {group.items.map(({ pick, index }) => (
-                <option
-                  key={index}
-                  value={`pick:${index}`}
-                  title={indicatorTitle(indicatorOf(catalog, pick.name))}
-                >
-                  {pickText(catalog, pick)}
-                </option>
-              ))}
+              {group.items.flatMap(({ pick, index }) => {
+                const found = indicatorOf(catalog, pick.name);
+                const lines = found?.fields.length
+                  ? found.fields
+                  : [{ value: "", label: "" }];
+                return lines.map((line) => (
+                  <option
+                    key={`${index}-${line.value}`}
+                    value={pickChoice(index, line.value || null)}
+                    title={indicatorTitle(found)}
+                  >
+                    {pickText(catalog, pick)}
+                    {line.label ? `: ${line.label}` : ""}
+                  </option>
+                ));
+              })}
             </optgroup>
           ))
         ) : (
@@ -144,7 +166,8 @@ export function OperandPicker({
           </Small>
         ) : (
           <>
-            {indicator && indicator.fields.length > 0 && (
+            {/* Picked indicators list each line above; this is for one not in Indicators. */}
+            {choice === OTHER && indicator && indicator.fields.length > 0 && (
               <Small label="Line" id={`${id}-field`}>
                 <Select
                   id={`${id}-field`}

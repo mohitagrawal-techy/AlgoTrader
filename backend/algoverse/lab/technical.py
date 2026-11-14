@@ -18,8 +18,8 @@ list is where they will be added.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, timedelta
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Annotated, Literal
 
 import numpy as np

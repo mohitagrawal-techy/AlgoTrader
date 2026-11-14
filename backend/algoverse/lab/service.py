@@ -8,7 +8,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -40,7 +40,7 @@ from algoverse.lab.evaluate import (
 )
 from algoverse.lab.evidence import trial_spread
 from algoverse.lab.ladder import ROOTS, ladder_windows, run_ladder
-from algoverse.lab.replay import ReplayError, replay, stored_replay
+from algoverse.lab.replay import ReplayError, option_candles, replay, stored_replay
 from algoverse.lab.search import (
     METHODS,
     Searcher,
@@ -1065,6 +1065,15 @@ class LabService:
             return clean(
                 replay(self.data_dir, self.config_dir, draft, symbol, sessions, config.lab.workers)
             )
+        except ReplayError as exc:
+            raise LabError(str(exc)) from exc
+
+    def option_candles(
+        self, symbol: str, expiry: date, strike: float, option_type: str, start: date, end: date
+    ) -> dict:
+        """One traded contract's candles, for the replay's side chart. Read-only."""
+        try:
+            return option_candles(self.data_dir, symbol, expiry, strike, option_type, start, end)
         except ReplayError as exc:
             raise LabError(str(exc)) from exc
 

@@ -476,6 +476,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """A saved backtest's trades with each position's value over time. Read-only."""
         return _lab(lambda: runtime.lab.backtest_replay(spec_id, window, symbol))
 
+    @app.get("/api/lab/replay/option")
+    def lab_replay_option(
+        symbol: str, expiry: date, strike: float, option_type: str, start: date, end: date
+    ) -> dict:
+        """One option contract's candles for the replay's trade chart. Read-only."""
+        return _lab(
+            lambda: runtime.lab.option_candles(symbol, expiry, strike, option_type, start, end)
+        )
+
     @app.post("/api/lab/strategies")
     def lab_save(body: dict, x_algoverse_client: str | None = Header(default=None)) -> dict:
         _require_dashboard(x_algoverse_client)

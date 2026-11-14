@@ -271,6 +271,65 @@ def replay(
     }
 
 
+# Longest stretch of one contract's candles the side chart loads, in sessions.
+MAX_OPTION_SESSIONS = 30
+
+
+def option_candles(
+    data_dir: Path,
+    symbol: str,
+    expiry: date,
+    strike: float,
+    option_type: str,
+    start: date,
+    end: date,
+) -> dict:
+    """One option contract's candles from `start` to `end`: 5-minute bars where they were
+    imported, otherwise the session's daily candle. Times are IST wall-clock seconds at each
+    candle's start, like the index chart's."""
+    if end < start:
+        raise ReplayError("The end is before the start.")
+    history = History(data_dir)
+    sessions = [d for d in history.sessions if start <= d <= end][:MAX_OPTION_SESSIONS]
+    frames, interval = [], "5m"
+    for day in sessions:
+        bars = history.intraday(day)
+        if not bars.empty:
+            bars = bars[
+                (bars["symbol"] == symbol)
+                & (pd.to_datetime(bars["expiry"]).dt.date == expiry)
+                & (bars["strike"].astype(float) == float(strike))
+                & (bars["option_type"] == option_type)
+            ]
+            if not bars.empty:
+                frames.append(bars.assign(time=bars["t"] // 1000 + IST_SECONDS))
+                continue
+        rows = history.day(day)
+        rows = rows[
+            (rows["instrument"] == "OPT")
+            & (rows["symbol"] == symbol)
+            & (pd.to_datetime(rows["expiry"]).dt.date == expiry)
+            & (rows["strike"].astype(float) == float(strike))
+            & (rows["option_type"] == option_type)
+        ]
+        if not rows.empty:
+            interval = "1d" if not frames else interval
+            frames.append(rows.assign(time=wall_seconds(pd.Timestamp(day).tz_localize(IST))))
+    empty = {"time": [], "open": [], "high": [], "low": [], "close": []}
+    if not frames:
+        return {"interval": interval, **empty}
+    found = pd.concat(frames, ignore_index=True).sort_values("time")
+    found = found.drop_duplicates("time", keep="last")
+    return {
+        "interval": interval,
+        "time": [int(t) for t in found["time"]],
+        **{
+            column: [round(float(v), 2) for v in found[column]]
+            for column in ("open", "high", "low", "close")
+        },
+    }
+
+
 WINDOWS = {"train": ("train_start", "train_end"), "test": ("test_start", "test_end")}
 
 

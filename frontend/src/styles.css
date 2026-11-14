@@ -4161,15 +4161,198 @@ main > .empty {
   margin-left: auto;
 }
 
-.index-chart .replay-panel {
+/* Replay: the chart on the left and the results in a side panel as tall as the chart. */
+.index-chart .chart-body.has-side {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px 20px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+  gap: 12px;
+}
+
+.index-chart .replay-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--surface-2);
   font-size: 13px;
+}
+
+/* As tall as the chart beside it, scrolling inside. */
+.index-chart .has-side > .replay-panel {
+  height: 0;
+  min-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 1100px) {
+  .index-chart .chart-body.has-side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .index-chart .has-side > .replay-panel {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+}
+
+.index-chart .replay-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.index-chart .replay-summary div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.index-chart .replay-summary .muted {
+  font-size: 11.5px;
+}
+
+.index-chart .replay-summary strong {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.index-chart .replay-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.index-chart .replay-trade-list,
+.index-chart .replay-case-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.index-chart .replay-trade {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.index-chart .replay-trade.is-open {
+  border-color: var(--accent);
+}
+
+.index-chart .replay-trade-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--r-md);
+}
+
+.index-chart .replay-trade-head:hover {
+  background: var(--surface-2);
+}
+
+.index-chart .replay-trade-head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.index-chart .replay-trade-legs {
+  font-weight: 500;
+}
+
+.index-chart .replay-trade-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.index-chart .replay-trade-when,
+.index-chart .replay-trade-hint {
+  font-size: 12px;
+}
+
+.index-chart .replay-trade-hint {
+  text-align: right;
+}
+
+.index-chart .replay-trade > .replay-past {
+  margin: 0;
+  padding: 0 10px 8px;
+}
+
+.index-chart .replay-trade-body {
+  padding: 0 10px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.index-chart .trade-chart {
+  margin-top: 8px;
+}
+
+.index-chart .trade-chart-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+}
+
+.index-chart .trade-chart-canvas {
+  position: relative;
+}
+
+.index-chart .trade-chart-box {
+  position: absolute;
+  inset: 0;
+}
+
+.index-chart .trade-chart-note {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+.index-chart .trade-chart-legs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.index-chart .trade-chart-legs button {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm, 4px);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.index-chart .trade-chart-legs button.is-on {
+  border-color: var(--accent);
+  color: var(--ink);
 }
 
 .index-chart .replay-panel h3 {
@@ -4218,31 +4401,11 @@ main > .empty {
   font-style: italic;
 }
 
-.index-chart .replay-trades ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 6px;
-}
-
-.index-chart .replay-trades li {
-  display: grid;
-  gap: 1px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border);
-}
-
 .index-chart .replay-note {
-  grid-column: 1 / -1;
   font-size: 12px;
 }
 
 @media (max-width: 720px) {
-  .index-chart .replay-panel {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .index-chart .replay-exit {
     margin-left: 0;
   }
@@ -4303,11 +4466,20 @@ td.nowrap {
   z-index: 1000;
 }
 
+.index-chart.is-full .chart-body {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.index-chart.is-full .chart-body.has-side {
+  display: grid;
+}
+
 .index-chart.is-full .chart-stage {
   flex: 1 0 auto;
 }
 
-.index-chart.is-full .replay-panel,
 .index-chart.is-full .chart-foot {
   flex: none;
 }
@@ -4352,10 +4524,6 @@ body.chart-full-open {
   padding-left: 10px;
 }
 
-.index-chart .replay-cases {
-  grid-column: 1 / -1;
-}
-
 .index-chart .replay-case {
   display: inline-flex;
   align-items: center;
@@ -4368,7 +4536,39 @@ body.chart-full-open {
   font-size: 11.5px;
 }
 
-.index-chart .replay-case-off td:not(:first-child) {
+.index-chart .replay-case-list li {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.index-chart .replay-case-name {
+  font-weight: 500;
+}
+
+.index-chart .replay-case-stats {
+  display: grid;
+  gap: 2px;
+  margin: 6px 0 0;
+  font-size: 12.5px;
+}
+
+.index-chart .replay-case-stats div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+}
+
+.index-chart .replay-case-stats dt {
+  color: var(--ink-3);
+}
+
+.index-chart .replay-case-stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.index-chart .replay-case-off .replay-case-stats {
   opacity: 0.5;
 }
 

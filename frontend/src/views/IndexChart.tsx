@@ -44,6 +44,7 @@ import {
 import { ReplayControls, ReplayPanel } from "./ReplayPanel";
 import { indexAt, stateAt, stopAt, timeline, wallText } from "./replay";
 import { IndicatorTip } from "./IndicatorTip";
+import { css, useThemeTick } from "./chartTheme";
 import { byType, pickText } from "../builder/logic/picks";
 
 type Indicator = TechCatalog["indicators"][number];
@@ -243,33 +244,6 @@ function readSaved(symbols: string[]): Saved {
   } catch {
     return fallback;
   }
-}
-
-function css(name: string): string {
-  return (
-    getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
-    "#888"
-  );
-}
-
-/** Bumps when the light or dark theme changes, so the chart can recolour. */
-function useThemeTick(): number {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const bump = () => setTick((t) => t + 1);
-    const observer = new MutationObserver(bump);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-theme"],
-    });
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    media.addEventListener("change", bump);
-    return () => {
-      observer.disconnect();
-      media.removeEventListener("change", bump);
-    };
-  }, []);
-  return tick;
 }
 
 function priceText(value: number | null | undefined): string {
@@ -2013,62 +1987,68 @@ export function IndexChart({
       )}
 
       <div
-        className="chart-stage"
-        style={full !== "off" ? { minHeight: height } : { height }}
+        className={
+          replay && cursor !== null ? "chart-body has-side" : "chart-body"
+        }
       >
-        <div ref={box} className="chart-canvas" />
-        <div className="chart-legend" style={{ top: (paneTops[0] ?? 0) + 6 }}>
-          <div className="chart-legend-head">
-            <strong>{symbol}</strong>
-            <span className="muted">
-              {TIMEFRAMES.find((t) => t.value === timeframe)?.label}
-              {candles === "heikin_ashi" ? " · Heikin-Ashi" : ""}
-            </span>
-            {ohlc && (
-              <span className="chart-ohlc">
-                O <b>{priceText(ohlc.o)}</b> H <b>{priceText(ohlc.h)}</b> L{" "}
-                <b>{priceText(ohlc.l)}</b> C <b>{priceText(ohlc.c)}</b>
-                {change !== null && (
-                  <b className={change >= 0 ? "pnl-up" : "pnl-down"}>
-                    {" "}
-                    {change >= 0 ? "+" : ""}
-                    {change.toFixed(2)}%
-                  </b>
-                )}
+        <div
+          className="chart-stage"
+          style={full !== "off" ? { minHeight: height } : { height }}
+        >
+          <div ref={box} className="chart-canvas" />
+          <div className="chart-legend" style={{ top: (paneTops[0] ?? 0) + 6 }}>
+            <div className="chart-legend-head">
+              <strong>{symbol}</strong>
+              <span className="muted">
+                {TIMEFRAMES.find((t) => t.value === timeframe)?.label}
+                {candles === "heikin_ashi" ? " · Heikin-Ashi" : ""}
               </span>
-            )}
-            {loading && <span className="muted">Updating…</span>}
-          </div>
-          {overlayStudies.map(legendRow)}
-        </div>
-        {[...panes.entries()].map(([id, pane]) => {
-          const state = shown.find((s) => s.id === id);
-          return state ? (
-            <div
-              key={id}
-              className="chart-legend"
-              style={{ top: (paneTops[pane] ?? 0) + 4 }}
-            >
-              {legendRow(state)}
+              {ohlc && (
+                <span className="chart-ohlc">
+                  O <b>{priceText(ohlc.o)}</b> H <b>{priceText(ohlc.h)}</b> L{" "}
+                  <b>{priceText(ohlc.l)}</b> C <b>{priceText(ohlc.c)}</b>
+                  {change !== null && (
+                    <b className={change >= 0 ? "pnl-up" : "pnl-down"}>
+                      {" "}
+                      {change >= 0 ? "+" : ""}
+                      {change.toFixed(2)}%
+                    </b>
+                  )}
+                </span>
+              )}
+              {loading && <span className="muted">Updating…</span>}
             </div>
-          ) : null;
-        })}
-        {(error || data?.empty) && (
-          <div className="chart-empty">{error ?? data?.empty}</div>
+            {overlayStudies.map(legendRow)}
+          </div>
+          {[...panes.entries()].map(([id, pane]) => {
+            const state = shown.find((s) => s.id === id);
+            return state ? (
+              <div
+                key={id}
+                className="chart-legend"
+                style={{ top: (paneTops[pane] ?? 0) + 4 }}
+              >
+                {legendRow(state)}
+              </div>
+            ) : null;
+          })}
+          {(error || data?.empty) && (
+            <div className="chart-empty">{error ?? data?.empty}</div>
+          )}
+        </div>
+
+        {replay && cursor !== null && (
+          <ReplayPanel
+            data={replay}
+            all={replayAll ?? replay}
+            hiddenCases={hiddenCases}
+            onToggleCase={toggleCase}
+            times={times}
+            cursor={cursor}
+            intradayTimes={replay.intraday}
+          />
         )}
       </div>
-
-      {replay && cursor !== null && (
-        <ReplayPanel
-          data={replay}
-          all={replayAll ?? replay}
-          hiddenCases={hiddenCases}
-          onToggleCase={toggleCase}
-          times={times}
-          cursor={cursor}
-          intradayTimes={replay.intraday}
-        />
-      )}
 
       <div className="chart-foot">
         {strategyPreview && (strategy?.otherPicks.length ?? 0) > 0 && (

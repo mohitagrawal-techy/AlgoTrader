@@ -916,6 +916,17 @@ export interface ReplayTrade {
   path: { time: number; pnl: number }[];
 }
 
+/** One option contract's candles, for the replay's trade chart. */
+export interface OptionCandles {
+  interval: "5m" | "1d";
+  /** Each candle's start, IST wall-clock seconds. */
+  time: number[];
+  open: number[];
+  high: number[];
+  low: number[];
+  close: number[];
+}
+
 export interface ReplayData {
   symbol: string;
   start: string;
@@ -1805,6 +1816,17 @@ export const api = {
     ),
   labReplay: (body: { spec: LabSpec; symbol: string; sessions: number }) =>
     sendJson<ReplayData>("/api/lab/replay", "POST", body),
+  labReplayOption: (params: {
+    symbol: string;
+    expiry: string;
+    strike: number;
+    option_type: string;
+    start: string;
+    end: string;
+  }) =>
+    getJson<OptionCandles>(
+      `/api/lab/replay/option?${new URLSearchParams({ ...params, strike: String(params.strike) })}`,
+    ),
   labAutopilot: (body: AutopilotSettings) => sendJson<unknown>("/api/lab/autopilot", "POST", body),
   labAutopilotStop: () => sendJson<unknown>("/api/lab/autopilot/stop", "POST"),
   data: () => getJson<DataPayload>("/api/data"),
