@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   api,
   type LabSummary,
@@ -74,13 +74,11 @@ function NodeCard({
   node,
   parent,
   best,
-  analysis,
   actions,
 }: {
   node: TuneNode;
   parent: TuneNode | undefined;
   best: boolean;
-  analysis: TuneSession["rounds"];
   actions: NodeActions;
 }) {
   const state =
@@ -143,49 +141,36 @@ function NodeCard({
           </Button>
         )}
       </div>
-      {analysis.map((round) => (
-        <div className="tune-analysis" key={round.round}>
-          <strong>
-            Round {round.round},{" "}
-            {round.source === "ai" ? "AI analysis" : "built-in changes"}
-          </strong>
-          <span className="muted">
-            {" "}
-            · {round.tried.length} tested, {round.kept.length} kept
-          </span>
-          <p>{round.analysis}</p>
-          {round.skipped.length > 0 && (
-            <details>
-              <summary>{round.skipped.length} suggestions not tested</summary>
-              <ul>
-                {round.skipped.map((text, i) => (
-                  <li key={i}>{text}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-        </div>
-      ))}
     </div>
   );
 }
 
+type TuneRound = TuneSession["rounds"][number];
+
+/** Kept changes first, then the rest, best unseen Sharpe first within each. */
+function byResult(nodes: TuneNode[]): TuneNode[] {
+  const sharpe = (n: TuneNode) => n.validate.sharpe ?? -99;
+  return [...nodes].sort(
+    (a, b) =>
+      Number(!!b.accepted) - Number(!!a.accepted) || sharpe(b) - sharpe(a),
+  );
+}
+
+/** One version, then each round run from it as a branch holding that round's changes. */
 function Branch({
   node,
   session,
-  children,
   actions,
 }: {
   node: TuneNode;
   session: TuneSession;
-  children: Map<string, TuneNode[]>;
   actions: NodeActions;
 }) {
-  const below = children.get(node.id) ?? [];
-  const kept = below.filter((n) => n.accepted);
-  const dropped = below.filter((n) => !n.accepted);
-  const analysis = session.rounds.filter(
-    (round) => round.parent_id === node.id,
+  const rounds = session.rounds.filter((round) => round.parent_id === node.id);
+  const inRounds = new Set(rounds.flatMap((round) => round.tried));
+  // Sessions saved before rounds listed their changes.
+  const loose = Object.values(session.nodes).filter(
+    (n) => n.parent_id === node.id && !inRounds.has(n.id),
   );
   return (
     <li>
@@ -193,54 +178,105 @@ function Branch({
         node={node}
         parent={node.parent_id ? session.nodes[node.parent_id] : undefined}
         best={node.id === session.best_id}
-        analysis={analysis}
         actions={actions}
       />
-      {below.length > 0 && (
+      {(rounds.length > 0 || loose.length > 0) && (
         <ul className="tune-tree">
-          {kept.map((child) => (
-            <Branch
-              key={child.id}
-              node={child}
+          {rounds.map((round) => (
+            <RoundBranch
+              key={round.round}
+              round={round}
               session={session}
-              children={children}
               actions={actions}
             />
           ))}
-          {!actions.hideDropped &&
-            dropped.map((child) => (
-              <Branch
-                key={child.id}
-                node={child}
-                session={session}
-                children={children}
-                actions={actions}
-              />
-            ))}
-          {actions.hideDropped && dropped.length > 0 && (
-            <li>
-              <details className="tune-dropped">
-                <summary>
-                  {dropped.length} change{dropped.length > 1 ? "s" : ""} not
-                  kept
-                </summary>
-                <ul className="tune-tree">
-                  {dropped.map((child) => (
-                    <Branch
-                      key={child.id}
-                      node={child}
-                      session={session}
-                      children={children}
-                      actions={actions}
-                    />
-                  ))}
-                </ul>
-              </details>
-            </li>
+          {loose.length > 0 && (
+            <Changes nodes={loose} session={session} actions={actions} />
           )}
         </ul>
       )}
     </li>
+  );
+}
+
+function RoundBranch({
+  round,
+  session,
+  actions,
+}: {
+  round: TuneRound;
+  session: TuneSession;
+  actions: NodeActions;
+}) {
+  const nodes = round.tried
+    .map((id) => session.nodes[id])
+    .filter((n): n is TuneNode => !!n);
+  const added = round.built_in_added ?? 0;
+  return (
+    <li className="tune-round">
+      <details className="tune-round-box" open>
+        <summary>
+          <strong>Round {round.round}</strong>
+          <span className="muted">
+            {" "}
+            · {nodes.length} tested, {round.kept.length} kept ·{" "}
+            {round.source === "ai" ? "AI suggestions" : "built-in changes"}
+            {added > 0 && round.source === "ai" && `, ${added} built-in`}
+          </span>
+        </summary>
+        <p className="tune-round-analysis">{round.analysis}</p>
+        {round.skipped.length > 0 && (
+          <details>
+            <summary>{round.skipped.length} suggestions not tested</summary>
+            <ul>
+              {round.skipped.map((text, i) => (
+                <li key={i}>{text}</li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </details>
+      {nodes.length > 0 && (
+        <ul className="tune-tree">
+          <Changes nodes={nodes} session={session} actions={actions} />
+        </ul>
+      )}
+    </li>
+  );
+}
+
+/** A round's changes: kept ones grow their own branches; the others can fold away. */
+function Changes({
+  nodes,
+  session,
+  actions,
+}: {
+  nodes: TuneNode[];
+  session: TuneSession;
+  actions: NodeActions;
+}) {
+  const sorted = byResult(nodes);
+  const kept = sorted.filter((n) => n.accepted);
+  const dropped = sorted.filter((n) => !n.accepted);
+  const branch = (child: TuneNode) => (
+    <Branch key={child.id} node={child} session={session} actions={actions} />
+  );
+  return (
+    <>
+      {kept.map(branch)}
+      {actions.hideDropped && dropped.length > 0 ? (
+        <li>
+          <details className="tune-dropped">
+            <summary>
+              {dropped.length} change{dropped.length > 1 ? "s" : ""} not kept
+            </summary>
+            <ul className="tune-tree">{dropped.map(branch)}</ul>
+          </details>
+        </li>
+      ) : (
+        dropped.map(branch)
+      )}
+    </>
   );
 }
 
@@ -404,19 +440,6 @@ function SessionView({
     onSelect: (node) => setSelectedId(node.id),
   };
   const selected = selectedId ? session.nodes[selectedId] : undefined;
-  const children = useMemo(() => {
-    const map = new Map<string, TuneNode[]>();
-    for (const node of Object.values(session.nodes)) {
-      if (!node.parent_id) continue;
-      map.set(node.parent_id, [...(map.get(node.parent_id) ?? []), node]);
-    }
-    for (const list of map.values()) {
-      list.sort(
-        (a, b) => (b.validate.sharpe ?? -99) - (a.validate.sharpe ?? -99),
-      );
-    }
-    return map;
-  }, [session]);
   const root = session.nodes[session.root_id];
   const best = session.nodes[session.best_id];
   const tested = Object.keys(session.nodes).length - 1;
@@ -519,11 +542,6 @@ function SessionView({
       </Panel>
       <div className={selected ? "split tune-split" : ""}>
         <div className="tune-main">
-          <AllTests
-            session={session}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-          />
           <Panel
             title="Tree of changes"
             aside={
@@ -539,18 +557,20 @@ function SessionView({
             }
           >
             <p className="panel-note tune-tree-note">
-              One setting changed per step. Choose “See what changed” on any try
-              to compare it with the version it came from.
+              Each round branches from the version it tuned and holds exactly
+              the changes it tested, one setting each. A kept change starts the
+              next round’s branch. Choose “See what changed” on any try to
+              compare it with the version it came from.
             </p>
             <ul className="tune-tree tune-root">
-              <Branch
-                node={root}
-                session={session}
-                children={children}
-                actions={actions}
-              />
+              <Branch node={root} session={session} actions={actions} />
             </ul>
           </Panel>
+          <AllTests
+            session={session}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
         </div>
         {selected && (
           <aside className="panel detail-panel">

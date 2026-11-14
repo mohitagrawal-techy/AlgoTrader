@@ -2719,21 +2719,31 @@ main {
   gap: 4px 14px;
 }
 
-.tune-analysis {
-  margin-top: 4px;
+.tune-round-box {
+  max-width: 720px;
   padding: 6px 8px;
   border-radius: 2px;
   background: var(--selected);
   font-size: 12px;
 }
 
-.tune-analysis p {
-  margin: 2px 0 0;
+.tune-round-box > summary {
+  cursor: pointer;
 }
 
-.tune-analysis ul {
+.tune-round-analysis {
+  margin: 4px 0 0;
+}
+
+.tune-round-box ul {
   margin: 4px 0 0;
   padding-left: 18px;
+}
+
+.tune-round-box details > summary {
+  cursor: pointer;
+  margin-top: 4px;
+  color: var(--ink-3);
 }
 
 .tune-dropped > summary {

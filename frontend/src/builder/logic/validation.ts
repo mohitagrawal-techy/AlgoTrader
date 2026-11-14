@@ -126,6 +126,7 @@ function exitProblems(
   check("target_frac", exits.target_frac, exits.target_unit);
   check("stop_frac", exits.stop_frac, exits.stop_unit);
   check("trail", exits.trail, exits.trail_unit, true);
+  check("trail_step", exits.trail_step, exits.trail_unit, true);
   check("breakeven_at", exits.breakeven_at, exits.breakeven_unit, true);
   for (const key of ["daily_stop", "daily_target"] as const) {
     const value = exits[key];

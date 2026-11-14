@@ -109,6 +109,8 @@ class Position:
     # P&L seen so far. None when the strategy does not use them.
     trail_pnl: float | None = None
     breakeven_pnl: float | None = None
+    # A stepped trailing stop: the stop rises by trail_pnl for each full step of the best P&L.
+    trail_step_pnl: float | None = None
     peak_pnl: float = 0.0
     # Which case of a custom strategy opened it: 0 is the first.
     case: int = 0

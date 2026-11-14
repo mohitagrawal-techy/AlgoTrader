@@ -24,6 +24,8 @@ class ExitPlan:
     # Trailing distance and move-to-cost trigger, in rupees per lot. None when unused.
     trail: float | None = None
     breakeven_at: float | None = None
+    # With a step, the stop rises by `trail` for each full step of gain, in rupees per lot.
+    trail_step: float | None = None
 
 
 @dataclass
@@ -84,6 +86,7 @@ def make_exit_plan(
         planned,
         rupees(getattr(rule, "trail", None), getattr(rule, "trail_unit", "premium")),
         rupees(getattr(rule, "breakeven_at", None), getattr(rule, "breakeven_unit", "premium")),
+        rupees(getattr(rule, "trail_step", None), getattr(rule, "trail_unit", "premium")),
     )
 
 

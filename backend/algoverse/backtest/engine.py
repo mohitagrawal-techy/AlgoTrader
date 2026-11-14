@@ -211,6 +211,9 @@ def trade_details(ledger: Ledger, labels: dict[int, dict]) -> list[dict]:
                 # Exit levels in rupees for the whole position, against its fill prices.
                 "stop_pnl": float(position.stop_pnl),
                 "trail_pnl": None if position.trail_pnl is None else float(position.trail_pnl),
+                "trail_step_pnl": None
+                if position.trail_step_pnl is None
+                else float(position.trail_step_pnl),
                 "breakeven_pnl": None
                 if position.breakeven_pnl is None
                 else float(position.breakeven_pnl),

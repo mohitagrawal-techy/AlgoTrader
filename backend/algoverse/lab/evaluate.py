@@ -78,12 +78,17 @@ def normalize_reason(reason: str) -> str:
 
 
 def _minutes(data_dir: str, symbols: list[str]) -> dict[str, pd.DataFrame]:
-    """One-minute index candles per underlying, read once per worker."""
-    key = ("minutes", data_dir)
-    if key not in _CACHE:
-        store = SnapshotStore(Path(data_dir))
-        _CACHE[key] = {symbol: store.read_candles(symbol, MINUTE) for symbol in symbols}
-    return _CACHE[key]
+    """One-minute index candles for these underlyings, each read once per worker."""
+    store = SnapshotStore(Path(data_dir))
+    for symbol in symbols:
+        key = ("minutes", data_dir, symbol)
+        if key not in _CACHE:
+            _CACHE[key] = store.read_candles(symbol, MINUTE)
+    return {symbol: _CACHE[("minutes", data_dir, symbol)] for symbol in symbols}
+
+
+def traded_symbols(symbols: list[str], spec: StrategySpec) -> list[str]:
+    return [symbol for symbol in symbols if not spec.symbols or symbol in spec.symbols]
 
 
 def _load(data_dir: str, config_dir: str):
@@ -137,7 +142,8 @@ def _run(task: tuple) -> dict:
             history,
             services,
             window,
-            _minutes(data_dir, services.backtest.symbols),
+            # Only the underlyings it trades; the others would be read and walked for nothing.
+            _minutes(data_dir, traded_symbols(services.backtest.symbols, spec)),
             DECIDE_MINUTES[spec.decide_every],
             reference,
             custom=custom,

@@ -64,7 +64,11 @@ export function SummaryText({
     `loss ${amountText(exits.stop_frac, exits.stop_unit)}`,
     `${exits.exit_dte}d before expiry`,
     exits.square_off ? `square off by ${hhmm(exits.square_off)}` : "",
-    exits.trail ? `trailing ${amountText(exits.trail, exits.trail_unit)}` : "",
+    exits.trail
+      ? exits.trail_step
+        ? `stop up ${amountText(exits.trail, exits.trail_unit)} every ${amountText(exits.trail_step, exits.trail_unit)}`
+        : `trailing ${amountText(exits.trail, exits.trail_unit)}`
+      : "",
     exits.breakeven_at
       ? `to cost after ${amountText(exits.breakeven_at, exits.breakeven_unit)}`
       : "",

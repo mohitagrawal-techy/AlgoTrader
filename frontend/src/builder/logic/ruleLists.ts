@@ -1,8 +1,39 @@
-import type { LabCase, LabSpec, TechOperand, TechRule } from "../../api";
+import type {
+  BaseTechRule,
+  LabCase,
+  LabSpec,
+  TechOperand,
+  TechRule,
+} from "../../api";
 
-/** Every rule list in a strategy, the strategy's own first, then each case's. */
+/** The conditions a rule stands for: itself, or a signal's own conditions. */
+export function baseRules(rule: TechRule): BaseTechRule[] {
+  return rule.type === "signal" ? (rule.rules ?? []) : [rule];
+}
+
+/** The strategy with each signal condition carrying its signal's conditions, as the server
+ * fills them in, for the chart and anything else that reads rules on their own. */
+export function withSignalRules(spec: LabSpec): LabSpec {
+  const byName = new Map(
+    (spec.signals ?? []).map((signal) => [
+      signal.name.trim().toLowerCase(),
+      signal.rules,
+    ]),
+  );
+  const fill = (rules: TechRule[]) =>
+    rules.map((rule) =>
+      rule.type === "signal"
+        ? { ...rule, rules: byName.get(rule.name.trim().toLowerCase()) ?? [] }
+        : rule,
+    );
+  return { ...mapRuleLists(spec, fill), signals: spec.signals };
+}
+
+/** Every rule list in a strategy, the strategy's own first, then each case's, then each
+ * named signal's conditions. */
 export function allRuleLists(spec: LabSpec): TechRule[][] {
   return [
+    ...(spec.signals ?? []).map((signal) => signal.rules),
     spec.entry.rules ?? [],
     spec.entry.any_rules ?? [],
     spec.exits.rules ?? [],
@@ -27,6 +58,10 @@ export function mapRuleLists(
       any_rules: change(spec.entry.any_rules ?? []),
     },
     exits: { ...spec.exits, rules: change(spec.exits.rules ?? []) },
+    signals: (spec.signals ?? []).map((signal) => ({
+      ...signal,
+      rules: change(signal.rules) as BaseTechRule[],
+    })),
     cases: (spec.cases ?? []).map((item) => ({
       ...item,
       rules: change(item.rules ?? []),
@@ -47,6 +82,8 @@ export function labelledRuleLists(
     { where: "Case 1, entry (any of)", rules: spec.entry.any_rules ?? [] },
     { where: "Case 1, exit", rules: spec.exits.rules ?? [] },
   ];
+  for (const signal of spec.signals ?? [])
+    lists.push({ where: `Signal "${signal.name}"`, rules: signal.rules });
   (spec.cases ?? []).forEach((item, index) => {
     const name = item.name.trim() || `Case ${index + 2}`;
     lists.push(

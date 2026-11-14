@@ -1733,7 +1733,33 @@ class PatternRule(BaseModel):
         return self
 
 
-TechRule = Annotated[CompareRule | PatternRule, Field(discriminator="type")]
+# A condition on the underlying itself: a comparison or a candle pattern.
+BaseRule = Annotated[CompareRule | PatternRule, Field(discriminator="type")]
+
+
+class SignalRule(BaseModel):
+    """One of the strategy's named signals, read as true or false: "Sell signal 1 is true".
+    Its conditions are copied in from the strategy's signal of that name when the strategy is
+    checked, so every place a rule is read works from the rule alone."""
+
+    type: Literal["signal"] = "signal"
+    join: Join = "and"
+    name: str = Field(min_length=1, max_length=40)
+    present: bool = True
+    rules: list[BaseRule] = Field(default_factory=list, max_length=8)
+
+    # A signal is checked on the candles of its first condition; the others are read as they
+    # were known when each of those finished.
+    @property
+    def timeframe(self) -> str:
+        return self.rules[0].timeframe if self.rules else "1d"
+
+    @property
+    def candles(self) -> str:
+        return self.rules[0].candles if self.rules else "normal"
+
+
+TechRule = Annotated[CompareRule | PatternRule | SignalRule, Field(discriminator="type")]
 
 
 # ---- Evaluation ----------------------------------------------------------------------------
@@ -1741,6 +1767,8 @@ TechRule = Annotated[CompareRule | PatternRule, Field(discriminator="type")]
 
 def rule_frames(rule) -> set[str]:
     """Every timeframe a rule reads: its own, and any a side of it is read on."""
+    if isinstance(rule, SignalRule):
+        return set().union(*(rule_frames(inner) for inner in rule.rules)) or {"1d"}
     frames = {rule.timeframe}
     if isinstance(rule, CompareRule):
         frames |= {o.timeframe for o in (rule.left, rule.right) if o.timeframe}
@@ -1983,6 +2011,8 @@ def compares(op: str, left, right):
 
 
 def rule_text(rule: CompareRule | PatternRule) -> str:
+    if isinstance(rule, SignalRule):
+        return f"{rule.name} is {'true' if rule.present else 'false'}"
     frame = TIMEFRAMES[rule.timeframe].lower()
     if rule.candles == "heikin_ashi":
         frame += " Heikin-Ashi"
@@ -2050,6 +2080,11 @@ def rules_failures(rules: list, frames: Frames) -> list[str]:
 def rule_failure(rule: CompareRule | PatternRule, frames: Frames) -> str | None:
     """Why the rule does not hold now, or None when it holds."""
     label = f"entry rule: {rule_text(rule)}"
+    if isinstance(rule, SignalRule):
+        if not rule.rules:
+            return f"{label}: the signal has no conditions"
+        held = not rules_failures(rule.rules, frames)
+        return None if held == rule.present else f"{label} does not hold"
     kind = rule.candles
     used = rule_frames(rule)
     if any(frame in INTRADAY_MINUTES for frame in used) and frames.minutes.empty:
@@ -2106,6 +2141,10 @@ def rule_reading(rule: CompareRule | PatternRule, frames: Frames) -> dict:
     """What a rule read at a decision: its wording, whether it held, the values it compared and
     the candle they came from, so a trade can show why it was taken."""
     found: dict = {"rule": rule_text(rule), "holds": rule_failure(rule, frames) is None}
+    if isinstance(rule, SignalRule):
+        # What each of the signal's own conditions read.
+        found["parts"] = [rule_reading(inner, frames) for inner in rule.rules]
+        return found
     kind = rule.candles
     candles = frames.frame(rule.timeframe, kind)
     if isinstance(rule, PatternRule):

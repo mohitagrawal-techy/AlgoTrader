@@ -36,6 +36,9 @@ export function OperandPicker({
   frame,
   onChange,
   onPattern,
+  signals,
+  signal,
+  onSignal,
 }: {
   id: string;
   /** What this side is, for screen readers; the column heading shows it. */
@@ -51,6 +54,11 @@ export function OperandPicker({
   onChange: (operand: TechOperand, pick?: IndicatorPick) => void;
   /** Offers the picked candle patterns too; choosing one makes the rule a pattern rule. */
   onPattern?: (pick: IndicatorPick) => void;
+  /** The strategy's named signals, offered first; choosing one makes a signal condition. */
+  signals?: string[];
+  /** The signal this side reads now, if it is a signal condition. */
+  signal?: string;
+  onSignal?: (name: string) => void;
 }) {
   const indicator =
     operand.kind === "indicator"
@@ -77,19 +85,25 @@ export function OperandPicker({
   const pickChoice = (index: number, field?: string | null) =>
     field ? `pick:${index}:${field}` : `pick:${index}`;
   const choice =
-    operand.kind === "value"
-      ? NUMBER
-      : isPrice
-        ? (operand.name ?? "")
-        : pickIndex >= 0
-          ? pickChoice(
-              pickIndex,
-              indicator?.fields.length ? operand.field : null,
-            )
-          : OTHER;
+    signal !== undefined
+      ? `signal:${signal}`
+      : operand.kind === "value"
+        ? NUMBER
+        : isPrice
+          ? (operand.name ?? "")
+          : pickIndex >= 0
+            ? pickChoice(
+                pickIndex,
+                indicator?.fields.length ? operand.field : null,
+              )
+            : OTHER;
 
   const choose = (value: string) => {
     if (value === OTHER) return;
+    if (value.startsWith("signal:")) {
+      onSignal?.(value.slice("signal:".length));
+      return;
+    }
     if (value === NUMBER) onChange({ kind: "value", value: 0 });
     else if (value.startsWith("pick:")) {
       const [, index, field] = value.split(":");
@@ -102,7 +116,10 @@ export function OperandPicker({
       onChange(field ? { ...chosen, field } : chosen, pick);
     } else onChange(freshIndicator(catalog, value));
   };
-  const ago = operand.kind === "indicator" ? (operand.bars_ago ?? 0) : 0;
+  const ago =
+    signal === undefined && operand.kind === "indicator"
+      ? (operand.bars_ago ?? 0)
+      : 0;
 
   return (
     <div className="flex min-w-0 flex-col gap-1">
@@ -122,6 +139,20 @@ export function OperandPicker({
           onChange={(e) => choose(e.target.value)}
         >
           {allowNumber && <option value={NUMBER}>A number</option>}
+          {onSignal && (signals?.length ?? 0) > 0 && (
+            <optgroup label="Signals">
+              {signals?.map((name) => (
+                <option key={name} value={`signal:${name}`}>
+                  {name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {signal !== undefined && !signals?.includes(signal) && (
+            <option value={`signal:${signal}`}>
+              {signal} (no such signal)
+            </option>
+          )}
           <optgroup label="Price">
             {catalog.indicators
               .filter((item) => PRICE_NAMES.includes(item.name))
@@ -166,7 +197,7 @@ export function OperandPicker({
             </option>
           )}
         </Select>
-        {operand.kind === "value" && (
+        {signal === undefined && operand.kind === "value" && (
           <NumberInput
             id={id}
             className="w-28 shrink-0"

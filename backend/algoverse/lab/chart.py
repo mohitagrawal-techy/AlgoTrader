@@ -25,6 +25,7 @@ from algoverse.lab.technical import (
     Frames,
     Operand,
     PatternRule,
+    SignalRule,
     TechRule,
     Timeframe,
     aligned,
@@ -102,6 +103,8 @@ def _operand_series(frames: Frames, timeframe: str, operand: Operand, candles: s
 def rule_series(rule: CompareRule | PatternRule, frames: Frames) -> pd.Series:
     """Whether the rule held at each candle of its timeframe. Matches `rule_failure`, which
     checks only the latest candle."""
+    if isinstance(rule, SignalRule):
+        return _signal_series(rule, frames)
     candles = rule.candles
     frame = frames.frame(rule.timeframe, candles)
     if isinstance(rule, PatternRule):
@@ -121,6 +124,33 @@ def rule_series(rule: CompareRule | PatternRule, frames: Frames) -> pd.Series:
     if rule.op == "crosses_above":
         return known & (before_left <= before_right) & (left > right)
     return known & (before_left >= before_right) & (left < right)
+
+
+def _signal_series(rule: SignalRule, frames: Frames) -> pd.Series:
+    """Whether a named signal held at each candle of its first condition's timeframe: its
+    conditions joined by and/or as the backtest joins them, those on other candles read as
+    they were known when each candle finished."""
+    base = (rule.timeframe, rule.candles)
+    index = frames.frame(*base).index
+    groups: list[pd.Series] = []
+    for position, inner in enumerate(rule.rules):
+        values = rule_series(inner, frames).astype(float)
+        if (inner.timeframe, inner.candles) != base:
+            placed = aligned(
+                values, frames.ends(inner.timeframe, inner.candles), frames.ends(*base)
+            )
+            values = pd.Series(placed, index=index)
+        held = values.fillna(0).to_numpy() > 0.5
+        if position == 0 or inner.join == "or":
+            groups.append(pd.Series(held, index=index))
+        else:
+            groups[-1] = groups[-1] & held
+    if not groups:
+        return pd.Series(False, index=index)
+    result = groups[0]
+    for group in groups[1:]:
+        result = result | group
+    return result if rule.present else ~result
 
 
 def _study(frames: Frames, request: ChartRequest, study: Study, keep: slice) -> dict:

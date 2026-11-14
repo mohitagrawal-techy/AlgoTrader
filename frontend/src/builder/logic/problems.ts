@@ -1,5 +1,6 @@
 import type { LabSpec, TechCatalog, TechRule } from "../../api";
 import { MINUTE_FRAMES } from "./picks";
+import { baseRules, withSignalRules } from "./ruleLists";
 import { ruleProblems } from "./ruleText";
 import { hhmm } from "./spec";
 import { findProblems, type Problems } from "./validation";
@@ -16,6 +17,9 @@ function prefixedRuleLists(spec: LabSpec): [string, TechRule[]][] {
     lists.push([`case-${index}-any-rule`, item.any_rules ?? []]);
     lists.push([`case-${index}-exit-rule`, item.exit_rules ?? []]);
   });
+  (spec.signals ?? []).forEach((signal, index) =>
+    lists.push([`signal-${index}-rule`, signal.rules]),
+  );
   return lists;
 }
 
@@ -25,7 +29,26 @@ export function allProblems(
   catalog: TechCatalog | null,
 ): Problems {
   const found: Problems = { ...findProblems(spec) };
-  const lists = prefixedRuleLists(spec);
+  const lists = prefixedRuleLists(withSignalRules(spec));
+  const names = new Set(
+    (spec.signals ?? []).map((signal) => signal.name.trim().toLowerCase()),
+  );
+  for (const [prefix, list] of lists)
+    list.forEach((rule, index) => {
+      if (rule.type === "signal" && !names.has(rule.name.trim().toLowerCase()))
+        found[`${prefix}-${index}-left`] =
+          `There is no signal named "${rule.name}" under Indicators.`;
+    });
+  const seen = new Set<string>();
+  (spec.signals ?? []).forEach((signal, index) => {
+    const key = signal.name.trim().toLowerCase();
+    if (!key) found[`signal-${index}-name`] = "Name the signal.";
+    else if (seen.has(key))
+      found[`signal-${index}-name`] = "Another signal has this name.";
+    else if (!signal.rules.length)
+      found[`signal-${index}-name`] = "Add at least one condition.";
+    seen.add(key);
+  });
   if (catalog) {
     for (const [prefix, list] of lists)
       Object.assign(found, ruleProblems(catalog, list, prefix));
@@ -33,7 +56,7 @@ export function allProblems(
   if ((spec.decide_every ?? "day") === "day") {
     for (const [prefix, list] of lists) {
       list.forEach((rule, index) => {
-        if (MINUTE_FRAMES.includes(rule.timeframe)) {
+        if (baseRules(rule).some((r) => MINUTE_FRAMES.includes(r.timeframe))) {
           found[`${prefix}-${index}-left`] =
             "Minute candles need a decision every 5, 15 or 60 minutes.";
         }

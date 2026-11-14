@@ -37,6 +37,8 @@ class ExitRule(BaseModel):
     # Trailing stop: once in profit, the stop follows the best P&L at this distance.
     trail: float | None = Field(default=None, gt=0)
     trail_unit: ExitUnit = "premium"
+    # With a step, the stop rises by `trail` for every full `trail_step` of gain instead.
+    trail_step: float | None = Field(default=None, gt=0)
     # Move-to-cost: once the gain reaches this, the stop moves up to the entry price.
     breakeven_at: float | None = Field(default=None, gt=0)
     breakeven_unit: ExitUnit = "premium"

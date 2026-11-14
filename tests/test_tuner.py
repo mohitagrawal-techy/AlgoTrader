@@ -300,3 +300,33 @@ def test_an_unreadable_reply_is_asked_for_again(tmp_path):
 def test_repeated_unreadable_replies_fall_back(tmp_path):
     with pytest.raises(LLMError, match="3 times"):
         suggest(Raw("no", "", "still no"), tmp_path)
+
+
+def test_every_round_tests_exactly_the_changes_asked_for(ladder_dirs, tmp_path):  # noqa: F811
+    lab = fresh(ladder_dirs, tmp_path)
+    # One usable suggestion, then only repeats: the AI is asked again, twice, and
+    # built-in nudges fill the rest of the round.
+    ai = Tuner(
+        reply(("exits.stop_frac", 0.3), ("name", "renamed")),
+        reply(("exits.stop_frac", 0.3)),
+        reply(("exits.stop_frac", 0.3)),
+    )
+    lab._client = ai
+    session = lab.run_tuning("tpl_long_call", NOW, rounds=3, per_round=3, new_id="t4")
+    assert [len(r["tried"]) for r in session["rounds"]] == [3, 3, 3]
+    assert len(session["nodes"]) == 1 + 9
+    first = session["rounds"][0]
+    assert first["built_in_added"] == 2 and len(ai.prompts) >= 3
+    # Repeats are named for the AI, so it can avoid them when asked again.
+    assert any(t["kept"] is None for t in ai.prompts[1][1]["already_tried"])
+
+
+def test_rounds_go_on_when_nothing_is_kept(ladder_dirs, tmp_path):  # noqa: F811
+    lab = fresh(ladder_dirs, tmp_path)
+    session = lab.run_tuning("tpl_long_call", NOW, rounds=4, per_round=5, use_ai=False, new_id="t5")
+    assert [len(r["tried"]) for r in session["rounds"]] == [5, 5, 5, 5]
+    ids = [i for r in session["rounds"] for i in r["tried"]]
+    assert len(set(ids)) == 20
+    for record in session["rounds"]:
+        for node_id in record["tried"]:
+            assert session["nodes"][node_id]["parent_id"] == record["parent_id"]

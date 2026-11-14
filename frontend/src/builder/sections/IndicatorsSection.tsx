@@ -5,17 +5,12 @@ import type { ReadyBuilder } from "../hooks/useStrategyBuilder";
 import { DeleteIndicatorDialog } from "../indicators/DeleteIndicatorDialog";
 import { IndicatorForm } from "../indicators/IndicatorForm";
 import { IndicatorRow } from "../indicators/IndicatorRow";
+import { SignalsList } from "../indicators/SignalsList";
 import { byType, pickKey } from "../logic/picks";
 import { Button, Hint, Badge, Section } from "../../components/ui";
 
 /** The strategy's indicators grouped by type, and the form to add or change one. */
-export function IndicatorsSection({
-  b,
-  step,
-}: {
-  b: ReadyBuilder;
-  step?: number;
-}) {
+export function IndicatorsSection({ b }: { b: ReadyBuilder }) {
   const catalog = b.lab.technical;
   const { picks, useCount, addPick, replacePick, deletePick, rulesUsing } =
     b.picks;
@@ -29,7 +24,6 @@ export function IndicatorsSection({
   return (
     <Section
       title="Indicators"
-      step={step}
       hint="What the rules can read. Pick each indicator on its own candle interval, the Current candle among them; every case's signals choose from these. Close, Open, High and Low need no picking."
       aside={<Badge>{picks.length}</Badge>}
     >
@@ -77,6 +71,16 @@ export function IndicatorsSection({
       >
         Add indicator
       </Button>
+
+      <div className="mt-6 border-t border-line pt-4">
+        <h3 className="mb-1 text-[13px] font-semibold text-ink">Signals</h3>
+        <p className="mb-3 text-[12.5px] text-ink-3">
+          Named sets of conditions on these indicators, such as "Sell signal 1":
+          the opening range closed green and the 5-minute low broke its open.
+          Each case's Entry when and Exit when read them as true or false.
+        </p>
+        <SignalsList b={b} />
+      </div>
 
       {form && (
         <IndicatorForm

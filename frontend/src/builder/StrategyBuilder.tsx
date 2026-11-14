@@ -1,11 +1,10 @@
-import { ChevronsLeft } from "lucide-react";
+import { ChevronsLeft, Play } from "lucide-react";
 import { useState } from "react";
 import {
   BuilderErrorBoundary,
   BuilderProblem,
   BuilderSkeleton,
 } from "./BuilderStates";
-import { BuilderSteps } from "./BuilderSteps";
 import { BuilderToolbar } from "./BuilderToolbar";
 import { CasesSection } from "./cases/CasesSection";
 import type { EditorRoute } from "./hooks/useLab";
@@ -17,11 +16,15 @@ import {
 import { ChartDialog, MapDialog } from "./PreviewDialogs";
 import { BasicsSection, StartFromSection } from "./sections/BasicsSection";
 import { BudgetSection } from "./sections/BudgetSection";
-import { EnterWhenSection } from "./sections/EnterWhenSection";
-import { ExitWhenSection } from "./sections/ExitWhenSection";
 import { IndicatorsSection } from "./sections/IndicatorsSection";
+import {
+  ExpirySection,
+  FeaturesSection,
+  MarketFiltersSection,
+  TargetsSection,
+} from "./sections/PlanSections";
 import { SummaryPanel } from "./summary/SummaryPanel";
-import { cx, FoldContext } from "../components/ui";
+import { Button, cx, FoldContext } from "../components/ui";
 
 export type { EditorRoute };
 
@@ -94,16 +97,19 @@ function BuilderForm({
           )}
         >
           <div className="flex min-w-0 flex-col gap-3">
-            <BuilderSteps />
             {route.mode === "new" && <StartFromSection b={b} />}
-            {/* In the order a strategy is defined: what and when, what the rules read,
-                the signals and legs, the filters on entry, the exits, then sizing. */}
-            <BasicsSection b={b} step={1} />
-            <IndicatorsSection b={b} step={2} />
-            <CasesSection b={b} step={3} />
-            <EnterWhenSection b={b} step={4} />
-            <ExitWhenSection b={b} step={5} />
-            <BudgetSection b={b} step={6} />
+            {/* One page, top to bottom: what it trades, what it reads and the signals made
+                from that, the features switched on, the cases with their entry, exit and
+                legs, the targets, expiry and timing, then market filters and sizing. */}
+            <BasicsSection b={b} />
+            <IndicatorsSection b={b} />
+            <FeaturesSection b={b} />
+            <CasesSection b={b} />
+            <TargetsSection b={b} />
+            <ExpirySection b={b} />
+            <MarketFiltersSection b={b} />
+            <BudgetSection b={b} />
+            <RunBar b={b} />
           </div>
           {summaryOpen ? (
             <SummaryPanel
@@ -139,5 +145,38 @@ function BuilderForm({
         <MapDialog b={b} onClose={() => setPreview(null)} />
       )}
     </FoldContext.Provider>
+  );
+}
+
+/** Save, or save and run the backtest, at the foot of the form. */
+function RunBar({ b }: { b: ReadyBuilder }) {
+  const blocked = b.attempted && Object.keys(b.problems).length > 0;
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2 rounded-lg border border-line bg-surface px-4 py-3">
+      {blocked && (
+        <span className="mr-auto text-[12.5px] text-down">
+          Fix the fields marked in red, then run again.
+        </span>
+      )}
+      {b.saveError && (
+        <span className="mr-auto text-[12.5px] text-down">{b.saveError}</span>
+      )}
+      <Button disabled={b.busy} onClick={() => b.save(false)}>
+        Save
+      </Button>
+      <Button
+        variant="primary"
+        icon={Play}
+        disabled={b.busy || !b.lab.history.ready}
+        title={
+          b.lab.history.ready
+            ? "Save the strategy and run its backtest"
+            : "Backtests need price history; load it on the Data page."
+        }
+        onClick={() => b.save(true)}
+      >
+        {b.busy ? "Saving…" : "Save and run backtest"}
+      </Button>
+    </div>
   );
 }

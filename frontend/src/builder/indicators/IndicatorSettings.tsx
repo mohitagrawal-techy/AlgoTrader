@@ -104,7 +104,7 @@ export function IndicatorSettings({
       {!intraday && (
         <Hint>
           5-minute to hourly intervals need a decision every 5, 15 or 60
-          minutes, set under Basics.
+          minutes, set under Strategy.
         </Hint>
       )}
       {chosen.params.length ? (
@@ -169,8 +169,8 @@ export function IndicatorSettings({
       )}
       {form.unavailable && (
         <Alert tone="warning">
-          {chosen.label} needs 5-minute to hourly candles. Under Basics, decide
-          every 5, 15 or 60 minutes first.
+          {chosen.label} needs 5-minute to hourly candles. Under Strategy,
+          decide every 5, 15 or 60 minutes first.
         </Alert>
       )}
     </div>

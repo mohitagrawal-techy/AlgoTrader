@@ -36,6 +36,7 @@ export function ConditionRow({
   onChange,
   onRemove,
   onAddPick,
+  signals,
 }: {
   id: string;
   index: number;
@@ -49,6 +50,8 @@ export function ConditionRow({
   /** Adds an indicator to the strategy's Indicators, for one a condition reads but is not
    * there yet. */
   onAddPick?: (pick: IndicatorPick) => void;
+  /** The strategy's named signals a condition may read; none inside a signal's own. */
+  signals?: string[];
 }) {
   const strays = helpers.strays(rule);
   const frameOf = (chosen?: IndicatorPick) =>
@@ -59,7 +62,12 @@ export function ConditionRow({
         }
       : {};
   type Compare = Extract<TechRule, { type: "compare" }>;
-  const ruleFrame = { timeframe: rule.timeframe, candles: rule.candles };
+  // A signal condition has no candles of its own; a comparison chosen in its place starts
+  // on daily ones until an indicator sets them.
+  const ruleFrame =
+    rule.type === "signal"
+      ? { timeframe: "1d" as const, candles: "normal" as const }
+      : { timeframe: rule.timeframe, candles: rule.candles };
   // The Value's candles are the rule's: the condition is checked as each of them finishes.
   // Compared with may read other candles, such as a 15-minute opening range under a 5-minute
   // close; it keeps its own when the Value moves to other candles.
@@ -94,14 +102,18 @@ export function ConditionRow({
       candles: chosen.candles ?? "normal",
       pattern: chosen.name,
       within: chosen.params.within ?? 1,
-      present: rule.type === "pattern" ? rule.present : true,
+      present: rule.type === "compare" ? true : rule.present,
+      join: rule.join,
+    });
+  const toSignal = (name: string) =>
+    onChange({
+      type: "signal",
+      name,
+      present: rule.type === "compare" ? true : rule.present,
       join: rule.join,
     });
   const toCompare = (left: TechOperand, chosen?: IndicatorPick) => {
-    const fresh = helpers.newCompare({
-      timeframe: rule.timeframe,
-      candles: rule.candles,
-    });
+    const fresh = helpers.newCompare(ruleFrame);
     onChange({
       ...fresh,
       ...frameOf(chosen),
@@ -131,6 +143,8 @@ export function ConditionRow({
               frame={rule}
               onChange={setLeft}
               onPattern={toPattern}
+              signals={signals}
+              onSignal={toSignal}
             />
             <Select
               aria-label="Condition"
@@ -166,13 +180,20 @@ export function ConditionRow({
               id={`${id}-left`}
               label="Value"
               catalog={catalog}
-              operand={patternOperand(rule)}
+              operand={
+                rule.type === "pattern"
+                  ? patternOperand(rule)
+                  : { kind: "indicator", name: null }
+              }
               allowNumber={false}
               problems={problems}
               picked={picked}
-              frame={rule}
+              frame={ruleFrame}
               onChange={toCompare}
               onPattern={toPattern}
+              signals={signals}
+              signal={rule.type === "signal" ? rule.name : undefined}
+              onSignal={toSignal}
             />
             <Select aria-label="Condition" value="is" onChange={() => {}}>
               <option value="is">Is</option>
@@ -202,15 +223,15 @@ export function ConditionRow({
           catalog,
           operand.name ?? "",
           operand.params,
-          operandPick(operand, rule),
+          operandPick(operand, ruleFrame),
         );
         // The same indicator, with the same settings, picked on other candles.
         const elsewhere = picked.filter(
           (pick) =>
             pickKey(catalog, {
               ...pick,
-              timeframe: rule.timeframe,
-              candles: rule.candles ?? "normal",
+              timeframe: ruleFrame.timeframe,
+              candles: ruleFrame.candles ?? "normal",
             }) === pickKey(catalog, wanted),
         );
         return (

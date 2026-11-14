@@ -2,7 +2,7 @@ import type {
   CompareOp,
   CandleType,
   TechOperand,
-  TechRule,
+  BaseTechRule,
   TechTimeframe,
 } from "../../api";
 
@@ -26,7 +26,7 @@ function compare(
   right: TechOperand,
   timeframe: TechTimeframe = "1d",
   candles?: CandleType,
-): TechRule {
+): BaseTechRule {
   return {
     type: "compare",
     timeframe,
@@ -37,7 +37,7 @@ function compare(
   };
 }
 
-const pattern = (name: string): TechRule => ({
+const pattern = (name: string): BaseTechRule => ({
   type: "pattern",
   timeframe: "1d",
   pattern: name,
@@ -48,7 +48,7 @@ const pattern = (name: string): TechRule => ({
 const MACD = { fast: 12, slow: 26, signal: 9 };
 
 /** Ready-made rules for common setups. They are ordinary rules and can be edited after. */
-export const PRESETS: { label: string; rule: TechRule }[] = [
+export const PRESETS: { label: string; rule: BaseTechRule }[] = [
   {
     label: "Close above EMA 20",
     rule: compare(close, "above", ind("ema", { period: 20 })),

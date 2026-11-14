@@ -26,6 +26,7 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
   const picked = b.picks.picks;
   const shared = c.item?.exit_rules == null && !own;
   const caseOneExits = b.spec.exits.rules ?? [];
+  const signalNames = b.signals.signals.map((signal) => signal.name);
 
   return (
     <div
@@ -37,7 +38,7 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
       {own || !c.item ? (
         <Hint>
           Case 1 is the strategy's main setup. Its market view is set under
-          Basics. Add a case for another way into the trade, such as the put
+          Strategy. Add a case for another way into the trade, such as the put
           side of a breakout.
         </Hint>
       ) : (
@@ -78,15 +79,8 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
         </div>
       )}
 
-      <Block
-        title="Entry signal"
-        tone="entry"
-        hint={
-          intraday
-            ? "Rules on the underlying, on 5-minute to monthly candles. A trade enters at the next check."
-            : "Rules on the underlying, on daily to monthly candles, read at the close. The trade enters at the next open."
-        }
-      >
+      {/* Entry and exit, a row each, then the legs it trades. */}
+      <div className="flex flex-col gap-2">
         <RulesEditor
           key={`entry-${c.active}`}
           joins
@@ -96,63 +90,42 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
           problems={visible}
           intraday={intraday}
           onAddPick={b.picks.addPick}
+          signals={signalNames}
           prefix={`${prefix}rule`}
           title="Entry signal"
+          label="Entry when"
           onChange={c.setRules}
         />
         {/* Older strategies may have an any-of list; AND/OR joins replace it, but its rules
             stay visible and editable until removed. */}
         {c.anyRules.length > 0 && (
-          <>
-            <h4 className="mt-4 mb-1.5 text-[12.5px] font-semibold text-ink-2">
-              And any one of these
-            </h4>
-            <RulesEditor
-              key={`any-${c.active}`}
-              catalog={catalog}
-              picked={picked}
-              rules={c.anyRules}
-              problems={visible}
-              intraday={intraday}
-              onAddPick={b.picks.addPick}
-              prefix={`${prefix}any-rule`}
-              title="Any one of these"
-              onChange={c.setAnyRules}
-            />
-          </>
-        )}
-        <Hint className="mt-3">
-          Join rules with AND or OR; AND is checked first. With no rules, only
-          the Entry filters decide.
-        </Hint>
-      </Block>
-
-      <Block
-        title="Exit signal"
-        tone="exit"
-        hint="Optional. Closes this case's trade early when any of these holds, checked at each decision. The target, stop and time exits under Exits and stops apply as well."
-      >
-        {!own && (
-          <div className="mb-3">
-            <Switch
-              id={`case-${index}-same-exits`}
-              checked={shared}
-              onChange={(on) =>
-                c.setCase(index, { exit_rules: on ? null : [] })
-              }
-            >
-              Same exit rules as Case 1
-            </Switch>
-          </div>
+          <RulesEditor
+            key={`any-${c.active}`}
+            catalog={catalog}
+            picked={picked}
+            rules={c.anyRules}
+            problems={visible}
+            intraday={intraday}
+            onAddPick={b.picks.addPick}
+            signals={signalNames}
+            prefix={`${prefix}any-rule`}
+            title="Any one of these"
+            label="And any of"
+            onChange={c.setAnyRules}
+          />
         )}
         {shared ? (
-          <Hint>
-            {caseOneExits.length
-              ? caseOneExits
-                  .map((rule) => ruleText(catalog, rule))
-                  .join("; or ")
-              : "Case 1 has no exit rules."}
-          </Hint>
+          <div className="flex flex-col gap-2 rounded-md border border-l-[3px] border-line border-l-down/70 bg-surface px-3 py-2.5 sm:flex-row sm:items-center">
+            <span className="shrink-0 text-[13px] font-semibold text-down sm:w-24">
+              Exit when
+            </span>
+            <span className="flex-1 text-[13px] text-ink-2">
+              Same as Case 1
+              {caseOneExits.length
+                ? `: ${caseOneExits.map((rule) => ruleText(catalog, rule)).join("; or ")}`
+                : " (none)"}
+            </span>
+          </div>
         ) : (
           <RulesEditor
             key={`exit-${c.active}`}
@@ -162,12 +135,35 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
             problems={visible}
             intraday={intraday}
             onAddPick={b.picks.addPick}
+            signals={signalNames}
             prefix={`${prefix}exit-rule`}
             title="Exit signal"
+            label="Exit when"
+            tone="exit"
             onChange={c.setExitRules}
           />
         )}
-      </Block>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Hint>
+            {intraday
+              ? "Checked as each candle closes; a trade enters at the next check."
+              : "Read at the close; a trade enters at the next open."}{" "}
+            Empty entry means only the filters decide. Exit when closes the
+            trade early; the targets and timing below apply too.
+          </Hint>
+          {!own && (
+            <Switch
+              id={`case-${index}-same-exits`}
+              checked={shared}
+              onChange={(on) =>
+                c.setCase(index, { exit_rules: on ? null : [] })
+              }
+            >
+              Same exit as Case 1
+            </Switch>
+          )}
+        </div>
+      </div>
 
       <Block
         title="Legs"

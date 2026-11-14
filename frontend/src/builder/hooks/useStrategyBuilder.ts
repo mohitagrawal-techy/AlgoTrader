@@ -6,6 +6,7 @@ import { allRuleLists, operandsOf } from "../logic/ruleLists";
 import { blankSpec, DEFAULT_BUDGET, type Budget } from "../logic/spec";
 import type { Problems } from "../logic/validation";
 import { useCases } from "./useCases";
+import { useSignals } from "./useSignals";
 import { copyOf, useLab, type EditorRoute } from "./useLab";
 import { usePicks } from "./usePicks";
 
@@ -58,6 +59,7 @@ export function useStrategyBuilder(route: EditorRoute, onBlocked: () => void) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const picks = usePicks(spec, setSpec, lab?.technical ?? null);
   const cases = useCases(spec, setSpec);
+  const signals = useSignals(spec, setSpec);
 
   const problems = useMemo(
     () => allProblems(spec, lab?.technical ?? null),
@@ -138,6 +140,7 @@ export function useStrategyBuilder(route: EditorRoute, onBlocked: () => void) {
     save,
     picks,
     cases,
+    signals,
   };
 }
 

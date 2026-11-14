@@ -67,9 +67,17 @@ export function stopAt(trade: ReplayTrade, until: number): { level: number; kind
     level = 0;
     kind = "stop at cost";
   }
-  if (trade.trail_pnl !== null && trade.trail_pnl !== undefined && peak > 0 && peak - trade.trail_pnl > level) {
-    level = peak - trade.trail_pnl;
-    kind = "trailing stop";
+  if (trade.trail_pnl !== null && trade.trail_pnl !== undefined && peak > 0) {
+    // Stepped: up by the trail amount for each full step gained, from the first stop.
+    const step = trade.trail_step_pnl;
+    const trailed =
+      step && trade.stop_pnl !== null
+        ? trade.stop_pnl + Math.floor(peak / step + 1e-9) * trade.trail_pnl
+        : peak - trade.trail_pnl;
+    if (trailed > level) {
+      level = trailed;
+      kind = "trailing stop";
+    }
   }
   return { level, kind };
 }

@@ -799,7 +799,26 @@ export interface TechOperand {
 
 export type RuleJoin = "and" | "or";
 
+/** A condition on the underlying itself: a comparison or a candle pattern. */
+export type BaseTechRule = Exclude<TechRule, { type: "signal" }>;
+
+/** A named signal of the strategy, read as true or false. */
+export interface NamedSignal {
+  name: string;
+  /** Its conditions, joined by and/or as entry rules are. */
+  rules: BaseTechRule[];
+}
+
 export type TechRule =
+  | {
+      type: "signal";
+      join?: RuleJoin;
+      /** The strategy signal it reads, by name. */
+      name: string;
+      present: boolean;
+      /** Filled in by the server from the strategy's signal of that name. */
+      rules?: BaseTechRule[];
+    }
   | {
       type: "compare";
       /** How it joins the rule before it in an entry list; "and" binds before "or". */
@@ -909,6 +928,8 @@ export interface ReplayTrade {
   stop_pnl: number | null;
   trail_pnl: number | null;
   breakeven_pnl: number | null;
+  /** A stepped trailing stop: the stop rises by trail_pnl for each full step of gain. */
+  trail_step_pnl?: number | null;
   legs: {
     side: "buy" | "sell";
     option_type: string;
@@ -1079,6 +1100,8 @@ export interface LabSpec {
   cases?: LabCase[];
   /** The indicators the rules of every case choose from. */
   indicators?: IndicatorPick[];
+  /** Named signals the entry and exit conditions read as true or false. */
+  signals?: NamedSignal[];
   /** The account the strategy is tested as. */
   budget?: {
     capital: number;
@@ -1130,6 +1153,8 @@ export interface LabSpec {
     square_off?: string | null;
     trail?: number | null;
     trail_unit?: ExitUnit;
+    /** With a step, the stop rises by `trail` for every full step of gain, same unit. */
+    trail_step?: number | null;
     breakeven_at?: number | null;
     breakeven_unit?: ExitUnit;
     /** Exit when any of these holds. */
@@ -1599,6 +1624,8 @@ export interface TuneRound {
   skipped: string[];
   tried: string[];
   kept: string[];
+  /** Built-in changes that filled the round when the AI model's fell short. */
+  built_in_added?: number;
 }
 
 type FinalTest = Pick<LabResult, "verdict" | "test" | "test_2x">;

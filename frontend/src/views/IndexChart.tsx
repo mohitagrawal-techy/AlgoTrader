@@ -46,6 +46,7 @@ import { indexAt, stateAt, stopAt, timeline, wallText } from "./replay";
 import { IndicatorTip } from "./IndicatorTip";
 import { css, useThemeTick } from "./chartTheme";
 import { byType, pickText } from "../builder/logic/picks";
+import { baseRules } from "../builder/logic/ruleLists";
 
 type Indicator = TechCatalog["indicators"][number];
 
@@ -565,7 +566,7 @@ function strategyFrame(
   ];
   if (!rules.length) return null;
   const counts = new Map<string, number>();
-  for (const rule of rules) {
+  for (const rule of rules.flatMap(baseRules)) {
     const key = `${rule.timeframe}|${rule.candles ?? "normal"}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }

@@ -215,7 +215,13 @@ export function StrategyVisual({
     { label: `Take profit at ${amount(exits.target_frac, exits.target_unit)}`, tone: "good" },
     { label: `Stop loss at ${amount(exits.stop_frac, exits.stop_unit)}`, tone: "bad" },
   ];
-  if (exits.trail) exitItems.push({ label: `Trailing stop ${amount(exits.trail, exits.trail_unit)} behind the best price`, tone: "bad" });
+  if (exits.trail)
+    exitItems.push({
+      label: exits.trail_step
+        ? `Stop rises ${amount(exits.trail, exits.trail_unit)} for every ${amount(exits.trail_step, exits.trail_unit)} gained`
+        : `Trailing stop ${amount(exits.trail, exits.trail_unit)} behind the best price`,
+      tone: "bad",
+    });
   if (exits.breakeven_at)
     exitItems.push({ label: `Stop moves to cost after ${amount(exits.breakeven_at, exits.breakeven_unit)}` });
   for (const rule of exits.rules ?? []) exitItems.push({ label: `Signal: ${text(rule)}` });

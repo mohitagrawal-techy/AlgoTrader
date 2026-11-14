@@ -1,8 +1,8 @@
 import { CircleAlert, Plus } from "lucide-react";
 import type { LabLeg } from "../../api";
 import { MAX_LEGS, NEW_LEG } from "../logic/spec";
-import { Button, Hint } from "../../components/ui";
-import { LegRow } from "./LegRow";
+import { Button, cx, Hint } from "../../components/ui";
+import { LEG_COLUMNS, LEG_HEADINGS, LegRow } from "./LegRow";
 
 /** The options a case trades, one row each, with every leg's problems listed below. */
 export function LegsEditor({
@@ -24,7 +24,19 @@ export function LegsEditor({
   );
   return (
     <div className="@container flex flex-col gap-3">
-      <ol className="flex flex-col gap-4 pt-1">
+      <div
+        aria-hidden
+        className={cx(
+          "hidden gap-x-3 px-3 text-[11.5px] font-semibold text-ink-3 @4xl:grid",
+          LEG_COLUMNS,
+        )}
+      >
+        {LEG_HEADINGS.map((heading) => (
+          <span key={heading}>{heading}</span>
+        ))}
+        <span />
+      </div>
+      <ol className="flex flex-col gap-4 pt-1 @4xl:gap-3">
         {legs.map((leg, index) => (
           <LegRow
             key={index}

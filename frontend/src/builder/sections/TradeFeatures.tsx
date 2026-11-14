@@ -3,7 +3,13 @@ import { FEATURE_HELP } from "../../views/FeatureHelp";
 import type { ReadyBuilder } from "../hooks/useStrategyBuilder";
 import { UNIT_DEFAULTS } from "../logic/spec";
 import { AmountInput } from "../amounts";
-import { Field, InputGroup, NumberInput, Select } from "../../components/ui";
+import {
+  Field,
+  InputGroup,
+  NumberInput,
+  Segmented,
+  Select,
+} from "../../components/ui";
 import { FeatureCard } from "./FeatureCard";
 
 const GRID = "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3";
@@ -18,15 +24,61 @@ export function StopFeatures({ b }: { b: ReadyBuilder }) {
         id="feature-trail"
         help={FEATURE_HELP.trail}
         label="Trailing stop"
-        hint="Once in profit, the stop follows the best P&L at this distance."
+        hint={
+          exits.trail_step != null
+            ? "For every step of gain, the stop moves up by the amount set."
+            : "Once in profit, the stop follows the best P&L at this distance."
+        }
         checked={exits.trail != null}
         onChange={(on) =>
           edit.exits({
             trail: on ? UNIT_DEFAULTS[exits.trail_unit ?? "premium"] / 2 : null,
+            trail_step: null,
           })
         }
       >
-        <Field id="trail" label="Distance" problem={visible.trail}>
+        <Segmented
+          label="How the stop trails"
+          className="w-full"
+          value={exits.trail_step != null ? "steps" : "distance"}
+          options={[
+            { value: "distance", label: "Behind the best price" },
+            { value: "steps", label: "In steps (X / Y)" },
+          ]}
+          onChange={(how) =>
+            edit.exits({
+              trail_step:
+                how === "steps"
+                  ? (exits.trail ??
+                      UNIT_DEFAULTS[exits.trail_unit ?? "premium"] / 2) * 5
+                  : null,
+            })
+          }
+        />
+        {exits.trail_step != null && (
+          <Field
+            id="trail_step"
+            label="For every gain of (X)"
+            problem={visible.trail_step}
+          >
+            <AmountInput
+              id="trail_step"
+              value={exits.trail_step}
+              unit={exits.trail_unit}
+              invalid={!!visible.trail_step}
+              onChange={(value, unit) =>
+                edit.exits({ trail_step: value, trail_unit: unit })
+              }
+            />
+          </Field>
+        )}
+        <Field
+          id="trail"
+          label={
+            exits.trail_step != null ? "Move the stop up by (Y)" : "Distance"
+          }
+          problem={visible.trail}
+        >
           <AmountInput
             id="trail"
             value={exits.trail}
@@ -103,7 +155,7 @@ export function EntryFeatures({ b }: { b: ReadyBuilder }) {
         hint={
           intraday
             ? "When the entry rules hold, wait for the chosen options' premium to move before entering. A wait ends with the day."
-            : "Needs a decision every 5, 15 or 60 minutes, set under Basics."
+            : "Needs a decision every 5, 15 or 60 minutes, set under Strategy."
         }
         checked={waiting}
         onChange={(on) =>

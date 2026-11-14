@@ -73,7 +73,13 @@ class History:
         """
         rows = []
         for session in self.sessions:
-            day = self.day(session)
+            # Only futures and index rows: reading every option contract to keep one row a day
+            # cost each replay worker about 250 MB that was never handed back.
+            day = pd.read_parquet(
+                self._files[session],
+                columns=COLUMNS,
+                filters=[("instrument", "in", ["FUT", "IDX"])],
+            )
             futures = day[(day["instrument"] == "FUT") & (day["expiry"] >= session)]
             if not futures.empty:
                 nearest = futures.sort_values("expiry").groupby("symbol", as_index=False).first()

@@ -52,8 +52,15 @@ def effective_stop(position: Position) -> tuple[float, str]:
     peak = position.peak_pnl
     if position.breakeven_pnl is not None and peak >= position.breakeven_pnl and stop < 0:
         stop, reason = 0.0, "stop_at_cost"
-    if position.trail_pnl is not None and peak > 0 and peak - position.trail_pnl > stop:
-        stop, reason = peak - position.trail_pnl, "trailing_stop"
+    if position.trail_pnl is not None and peak > 0:
+        if position.trail_step_pnl:
+            # Stepped: up by the trail amount for each full step gained, from the first stop.
+            steps = math.floor(peak / position.trail_step_pnl + 1e-9)
+            trailed = position.stop_pnl + steps * position.trail_pnl
+        else:
+            trailed = peak - position.trail_pnl
+        if trailed > stop:
+            stop, reason = trailed, "trailing_stop"
     return stop, reason
 
 
@@ -146,6 +153,7 @@ class PaperBroker:
             legs=legs,
             trail_pnl=None if idea.plan.trail is None else idea.plan.trail * lots,
             breakeven_pnl=None if idea.plan.breakeven_at is None else idea.plan.breakeven_at * lots,
+            trail_step_pnl=None if idea.plan.trail_step is None else idea.plan.trail_step * lots,
             case=getattr(idea.candidate, "case", 0),
             why=list(getattr(idea.candidate, "why", ())),
         )

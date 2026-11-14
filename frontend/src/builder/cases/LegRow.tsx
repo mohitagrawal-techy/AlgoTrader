@@ -18,6 +18,19 @@ const VALUE_NAME = {
   atm_offset: "Strikes from ATM",
 };
 
+/** The legs table's columns on a wide panel; narrower, each leg is a card of labelled cells. */
+export const LEG_COLUMNS =
+  "@4xl:grid-cols-[5.5rem_4.5rem_minmax(0,1fr)_minmax(0,1.7fr)_4.5rem_minmax(0,1fr)_minmax(0,1fr)_2rem]";
+export const LEG_HEADINGS = [
+  "Action",
+  "Option",
+  "Expiry",
+  "Strike by",
+  "Lots",
+  "Stop loss",
+  "Take profit",
+];
+
 function Cell({
   id,
   label,
@@ -31,7 +44,10 @@ function Cell({
 }) {
   return (
     <div className={cx("flex min-w-0 flex-col gap-1", className)}>
-      <label htmlFor={id} className="text-[11.5px] font-semibold text-ink-3">
+      <label
+        htmlFor={id}
+        className="text-[11.5px] font-semibold text-ink-3 @4xl:sr-only"
+      >
         {label}
       </label>
       {children}
@@ -66,11 +82,12 @@ export function LegRow({
     <li
       aria-label={`Leg ${index + 1}`}
       className={cx(
-        "relative grid grid-cols-2 gap-x-3 gap-y-2.5 rounded-md border bg-surface p-3 pt-4 @xl:grid-cols-4 @6xl:grid-cols-8",
+        "relative grid grid-cols-2 items-center gap-x-3 gap-y-2.5 rounded-md border bg-surface p-3 pt-4 @xl:grid-cols-4 @4xl:py-2",
+        LEG_COLUMNS,
         hasProblem ? "border-down/60" : "border-line",
       )}
     >
-      <span className="absolute -top-2.5 left-3 rounded-sm bg-surface px-1.5 text-[11.5px] font-semibold text-ink-2">
+      <span className="absolute -top-2.5 left-3 rounded-sm bg-surface px-1.5 text-[11.5px] font-semibold text-ink-2 @4xl:-top-2 @4xl:text-[11px]">
         Leg {index + 1}
       </span>
       <Cell id={`${id}-action`} label="Action">
@@ -87,7 +104,7 @@ export function LegRow({
           <option value="sell">Sell</option>
         </Select>
       </Cell>
-      <Cell id={`${id}-type`} label="Type">
+      <Cell id={`${id}-type`} label="Option">
         <Select
           id={`${id}-type`}
           small
@@ -114,16 +131,11 @@ export function LegRow({
           <option value={2}>Expiry after next</option>
         </Select>
       </Cell>
-      <Cell id={`${id}-ratio`} label="Lots">
-        <NumberInput
-          id={`${id}-ratio`}
-          small
-          value={leg.ratio}
-          invalid={!!problems[`${id}-ratio`]}
-          onChange={(value) => onChange({ ratio: value as number })}
-        />
-      </Cell>
-      <Cell id={`${id}-select`} label="Strike by" className="col-span-2">
+      <Cell
+        id={`${id}-select`}
+        label="Strike by"
+        className="col-span-2 @4xl:col-span-1"
+      >
         <InputGroup>
           <Select
             id={`${id}-select`}
@@ -151,6 +163,15 @@ export function LegRow({
           />
         </InputGroup>
       </Cell>
+      <Cell id={`${id}-ratio`} label="Lots">
+        <NumberInput
+          id={`${id}-ratio`}
+          small
+          value={leg.ratio}
+          invalid={!!problems[`${id}-ratio`]}
+          onChange={(value) => onChange({ ratio: value as number })}
+        />
+      </Cell>
       <Cell id={`${id}-stop`} label="Stop loss">
         <LegLevel
           id={`${id}-stop`}
@@ -171,15 +192,17 @@ export function LegRow({
           onChange={(target, target_unit) => onChange({ target, target_unit })}
         />
       </Cell>
-      {removable && (
+      {removable ? (
         <Button
           variant="ghost"
           size="icon"
           icon={X}
           aria-label={`Remove leg ${index + 1}`}
           onClick={onRemove}
-          className="absolute -top-3 right-2 size-6 rounded-sm border-line bg-surface text-ink-3 hover:text-down"
+          className="absolute -top-3 right-2 size-6 rounded-sm border-line bg-surface text-ink-3 hover:text-down @4xl:static @4xl:size-8 @4xl:border-0"
         />
+      ) : (
+        <span className="hidden @4xl:block" aria-hidden />
       )}
     </li>
   );

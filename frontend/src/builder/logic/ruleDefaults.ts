@@ -73,6 +73,7 @@ export function ruleHelpers(catalog: TechCatalog, picked: IndicatorPick[]) {
     pickKey(catalog, operandPick(operand, rule));
   /** The picked indicator a compare rule reads, which sets the candles it is read on. */
   const pickOf = (rule: TechRule): IndicatorPick | undefined => {
+    if (rule.type === "signal") return undefined;
     if (rule.type === "pattern") {
       const key = pickKey(catalog, patternPick(rule));
       return picked.find((pick) => pickKey(catalog, pick) === key);
@@ -92,18 +93,20 @@ export function ruleHelpers(catalog: TechCatalog, picked: IndicatorPick[]) {
   };
   /** Indicators a rule reads that are not among the strategy's on its candles. */
   const strays = (rule: TechRule): TechOperand[] =>
-    rule.type === "pattern"
-      ? pickOf(rule)
-        ? []
-        : [patternOperand(rule)]
-      : [rule.left, rule.right].filter(
-          (operand) =>
-            operand.kind === "indicator" &&
-            !PRICE_NAMES.includes(operand.name ?? "") &&
-            !picked.some(
-              (pick) => pickKey(catalog, pick) === keyOf(operand, rule),
-            ),
-        );
+    rule.type === "signal"
+      ? []
+      : rule.type === "pattern"
+        ? pickOf(rule)
+          ? []
+          : [patternOperand(rule)]
+        : [rule.left, rule.right].filter(
+            (operand) =>
+              operand.kind === "indicator" &&
+              !PRICE_NAMES.includes(operand.name ?? "") &&
+              !picked.some(
+                (pick) => pickKey(catalog, pick) === keyOf(operand, rule),
+              ),
+          );
   // Only ready-made rules built from prices and the strategy's indicators are offered.
   const presets = PRESETS.filter((preset) => strays(preset.rule).length === 0);
 

@@ -4,7 +4,12 @@ Each round, the AI model (or a built-in list when it is off) reads the current b
 results on the design sessions and suggests changes to single settings. Every change is
 backtested on design sessions and on later unseen sessions. A change is kept only if it is
 better on the unseen sessions by more than luck explains, the same test the ladder uses. The
-best kept change becomes the parent for the next round.
+best kept change becomes the parent for the next round; when none is kept, the next round
+tries other changes on the same version.
+
+Every round tests exactly the number of changes asked for. When the AI model's suggestions
+fall short (invalid, or tried before) it is asked again, and built-in nudges fill the rest.
+A round has fewer only when no untried change is left.
 
 The AI never sees unseen-session results, only whether each change was kept, so its
 suggestions cannot be fitted to the sessions that judge them. The lab's final test period is
@@ -51,8 +56,14 @@ MAX_HISTORY = 30
 # Lists a change may add one item to, with a path ending in ".+".
 GROWABLE = {"legs", "entry.conditions", "entry.rules", "entry.any_rules", "exits.rules"}
 TOP_LEVEL = {"legs", "entry", "exits", "decide_every"}
-# Rounds in a row with nothing kept before the tuner stops.
-PATIENCE = 2
+# Indicator period scales for filling a round, with the reason shown for each.
+SPEEDS = (
+    (0.67, "faster indicator"),
+    (2.0, "much slower indicator"),
+    (0.5, "much faster indicator"),
+)
+# Extra times the AI model is asked when its suggestions leave a round short.
+EXTRA_ASKS = 2
 SUMMARY_KEYS = ("trades", "net_pnl", "win_rate", "expectancy", "sharpe", "max_drawdown")
 
 
@@ -242,6 +253,89 @@ def built_in_changes(spec: StrategySpec) -> list[Change]:
             )
     if exits.trail is None:
         changes.append(Change("exits.trail", exits.stop_frac, "trail the stop behind gains"))
+    return changes
+
+
+def more_changes(spec: StrategySpec) -> list[Change]:
+    """Wider and finer nudges than `built_in_changes`, to fill a round the first list cannot."""
+    exits, entry = spec.exits, spec.entry
+    changes = []
+    for scale in (1.25, 0.8, 2.0, 0.5):
+        changes.append(
+            Change(
+                "exits.target_frac",
+                _round_like(exits.target_frac * scale, exits.target_frac),
+                "move the profit target",
+            )
+        )
+        changes.append(
+            Change(
+                "exits.stop_frac",
+                _round_like(exits.stop_frac * scale, exits.stop_frac),
+                "move the stop loss",
+            )
+        )
+    if exits.trail is not None:
+        for scale in (0.5, 1.5):
+            changes.append(
+                Change(
+                    "exits.trail",
+                    _round_like(exits.trail * scale, exits.trail),
+                    "trail closer or looser",
+                )
+            )
+    for index, leg in enumerate(spec.legs):
+        if leg.select == "delta":
+            steps = [round(leg.value + step, 2) for step in (0.1, -0.1, 0.15, -0.15)]
+            values = [value for value in steps if 0.05 <= value <= 0.95]
+        elif leg.select == "premium":
+            values = [_round_like(leg.value * scale, leg.value) for scale in (1.25, 0.8, 1.5, 0.6)]
+        else:
+            values = [leg.value + step for step in (2, -2, 3, -3)]
+        changes += [Change(f"legs.{index}.value", value, "move this strike") for value in values]
+    for section, rules in (("entry.rules", entry.rules), ("exits.rules", exits.rules)):
+        for index, rule in enumerate(rules):
+            if rule.type != "compare":
+                continue
+            for side in ("left", "right"):
+                operand = getattr(rule, side)
+                if operand.kind == "value" and operand.value:
+                    for scale in (0.9, 1.05, 0.95, 1.2):
+                        changes.append(
+                            Change(
+                                f"{section}.{index}.{side}.value",
+                                _round_like(operand.value * scale, operand.value),
+                                "loosen or tighten this level",
+                            )
+                        )
+                for name, value in operand.params.items():
+                    for scale, why in SPEEDS:
+                        changes.append(
+                            Change(
+                                f"{section}.{index}.{side}.params.{name}",
+                                _round_like(value * scale, value),
+                                why,
+                            )
+                        )
+    for index, condition in enumerate(entry.conditions):
+        if condition.value:
+            for scale in (0.8, 1.1, 0.9, 1.4):
+                changes.append(
+                    Change(
+                        f"entry.conditions.{index}.value",
+                        _round_like(condition.value * scale, condition.value),
+                        "move this threshold",
+                    )
+                )
+    if entry.max_trades_per_day:
+        for value in (entry.max_trades_per_day - 1, entry.max_trades_per_day + 1):
+            if value >= 1:
+                changes.append(
+                    Change("entry.max_trades_per_day", value, "trade more or less often")
+                )
+    if exits.exit_dte > 1:
+        changes.append(Change("exits.exit_dte", exits.exit_dte - 2, "hold two days longer"))
+    changes.append(Change("exits.exit_dte", exits.exit_dte + 1, "close a day sooner"))
     return changes
 
 
@@ -513,6 +607,41 @@ def tried_history(session: dict) -> list[dict]:
     ]
 
 
+@dataclass
+class Picker:
+    """Turns suggested changes into untried child versions, up to a round's count."""
+
+    parent: StrategySpec
+    root_name: str
+    depth: int
+    seen: set[str]
+    count: int
+
+    def take(
+        self,
+        changes: list[Change],
+        children: list[tuple[Change, StrategySpec]],
+        skipped: list[str] | None,
+    ) -> None:
+        """Add valid, untried changes to `children`; note refused ones in `skipped` if given."""
+        for change in changes:
+            if len(children) == self.count:
+                return
+            changed, label = apply_change(self.parent, change)
+            if changed is None:
+                if skipped is not None:
+                    skipped.append(label)
+                continue
+            child = make_child(self.parent, self.root_name, self.depth, label, changed)
+            mark = signature(child)
+            if mark in self.seen:
+                if skipped is not None:
+                    skipped.append(f"{label}: already tried")
+                continue
+            self.seen.add(mark)
+            children.append((change, child))
+
+
 def grow(
     session: dict,
     scorer: Scorer,
@@ -527,7 +656,6 @@ def grow(
     nodes = session["nodes"]
     parent = nodes[from_id]
     seen = {signature(StrategySpec.model_validate(n["spec"])) for n in nodes.values()}
-    misses = 0
     for _ in range(rounds):
         number = len(session["rounds"]) + 1
         parent_spec = StrategySpec.model_validate(parent["spec"])
@@ -545,25 +673,33 @@ def grow(
             "kept": [],
         }
         session["rounds"].append(record)
-        children = []
-        for change in suggestions.changes:
-            changed, label = apply_change(parent_spec, change)
-            if changed is None:
-                record["skipped"].append(label)
-                continue
-            child = make_child(
-                parent_spec, session["root_name"], parent["depth"] + 1, label, changed
+        children: list[tuple[Change, StrategySpec]] = []
+        pick = Picker(parent_spec, session["root_name"], parent["depth"] + 1, seen, per_round)
+        pick.take(suggestions.changes, children, record["skipped"])
+        asks = 0
+        while len(children) < per_round and suggestions.source == "ai" and asks < EXTRA_ASKS:
+            asks += 1
+            short = per_round - len(children)
+            note(f"Round {number}: asking the AI model for {short} more changes")
+            pending = [
+                {"change": child.step, "kept": None, "design_trades": None, "design_net_pnl": None}
+                for _, child in children
+            ]
+            suggestions = suggest(
+                parent_spec, design_feedback(parent), tried_history(session) + pending, short
             )
-            mark = signature(child)
-            if mark in seen:
-                record["skipped"].append(f"{label}: already tried")
-                continue
-            seen.add(mark)
-            children.append((change, child))
-            if len(children) == per_round:
-                break
+            record["skipped"].extend(suggestions.notes)
+            pick.take(suggestions.changes, children, record["skipped"])
+        if len(children) < per_round:
+            before = len(children)
+            pick.take(built_in_changes(parent_spec) + more_changes(parent_spec), children, None)
+            record["built_in_added"] = len(children) - before
+        if len(children) < per_round:
+            record["skipped"].append(
+                f"Only {len(children)} untried changes were left for this version"
+            )
         if not children:
-            note(f"Round {number}: no new valid change to test, so tuning stops here")
+            note(f"Round {number}: no untried change is left, so tuning stops here")
             break
         note(f"Round {number}: testing {len(children)} one-setting changes")
         scored = scorer.score([child for _, child in children])
@@ -579,13 +715,10 @@ def grow(
         kept.sort(key=lambda n: n["validate"].get("sharpe") or float("-inf"), reverse=True)
         record["kept"] = [n["id"] for n in kept]
         if kept:
-            parent, misses = kept[0], 0
+            parent = kept[0]
             session["best_id"] = parent["id"]
         else:
-            misses += 1
-            note(f"Round {number}: no change was kept")
-            if misses >= PATIENCE:
-                break
+            note(f"Round {number}: no change was kept, so the next round tries others on it")
     session["trials"] = session.get("trials", 0) + scorer.trials
     scorer.trials = 0
     return session

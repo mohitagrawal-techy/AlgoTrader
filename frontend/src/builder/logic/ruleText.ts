@@ -29,6 +29,8 @@ export function operandText(
 
 /** A rule as a sentence: "Daily: Close above EMA (20)". */
 export function ruleText(catalog: TechCatalog, rule: TechRule): string {
+  if (rule.type === "signal")
+    return `${rule.name} is ${rule.present ? "true" : "false"}`;
   let frame =
     catalog.timeframes
       .find((t) => t.value === rule.timeframe)
@@ -117,6 +119,11 @@ export function ruleProblems(
     }
   };
   rules.forEach((rule, index) => {
+    if (rule.type === "signal") {
+      if (!rule.name.trim())
+        problems[`${prefix}-${index}-left`] = "Choose a signal.";
+      return;
+    }
     if (rule.type === "pattern") {
       if (
         !Number.isInteger(rule.within) ||

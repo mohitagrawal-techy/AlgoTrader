@@ -5,11 +5,13 @@ const SUMMARY_KEY = "algoverse.builder.summary";
 
 export const SECTION_TITLES = [
   "Start from",
-  "Basics",
+  "Strategy",
   "Indicators",
+  "Features",
   "Cases",
-  "Entry filters",
-  "Exits and stops",
+  "Targets",
+  "Expiry and timing",
+  "Market filters",
   "Sizing and risk",
 ];
 

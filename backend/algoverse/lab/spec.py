@@ -20,8 +20,10 @@ from algoverse.evaluation.context import MarketContext
 from algoverse.lab.technical import (
     INDICATORS,
     PATTERNS,
+    BaseRule,
     CandleType,
     Frames,
+    SignalRule,
     TechRule,
     Timeframe,
     last_minute_day,
@@ -213,6 +215,9 @@ class ExitRules(BaseModel):
     # Trailing stop: once in profit, the stop follows the best P&L at this distance.
     trail: float | None = None
     trail_unit: ExitUnit = "premium"
+    # Stepped trailing stop: with a step, the stop instead rises by `trail` for every full
+    # `trail_step` of gain, from where it started ("every 10 points, raise it 2"). Same unit.
+    trail_step: float | None = None
     # Move-to-cost: once the gain reaches this, the stop moves up to the entry price.
     breakeven_at: float | None = None
     breakeven_unit: ExitUnit = "premium"
@@ -229,6 +234,9 @@ class ExitRules(BaseModel):
         _check_amount("target", self.target_frac, self.target_unit)
         _check_amount("stop", self.stop_frac, self.stop_unit)
         _check_amount("trail", self.trail, self.trail_unit)
+        _check_amount("trail_step", self.trail_step, self.trail_unit)
+        if self.trail_step is not None and self.trail is None:
+            raise ValueError("a trailing step needs the amount the stop moves by")
         _check_amount("breakeven_at", self.breakeven_at, self.breakeven_unit)
         return self
 
@@ -306,6 +314,15 @@ class IndicatorPick(BaseModel):
         return self
 
 
+class NamedSignal(BaseModel):
+    """A named set of conditions joined by and/or, such as "Sell signal 1": the 15-minute
+    opening range closed green and the 5-minute low broke its open. Entry and exit conditions
+    read it as true or false."""
+
+    name: str = Field(min_length=1, max_length=40)
+    rules: list[BaseRule] = Field(min_length=1, max_length=8)
+
+
 class EntryCase(BaseModel):
     """Another way into the same strategy: its own legs, indicator rules and, optionally, exit
     rules. The time window, expiry window, market filters, day limits, stop and target are the
@@ -345,6 +362,32 @@ class StrategySpec(BaseModel):
     budget: Budget = Field(default_factory=Budget)
     # The indicators the strategy's rules choose from. Not part of the signature.
     indicators: list[IndicatorPick] = Field(default_factory=list, max_length=24)
+    # Named signals the entry and exit conditions read as true or false. Their conditions are
+    # copied into each condition that reads them, so the signature follows what is traded.
+    signals: list[NamedSignal] = Field(default_factory=list, max_length=12)
+
+    @model_validator(mode="after")
+    def _fill_signals(self) -> StrategySpec:
+        found = {signal.name.strip().lower(): signal for signal in self.signals}
+        if len(found) != len(self.signals):
+            raise ValueError("two signals have the same name")
+        lists = [
+            self.entry.rules,
+            self.entry.any_rules,
+            self.exits.rules,
+            *[case.rules for case in self.cases],
+            *[case.any_rules for case in self.cases],
+            *[case.exit_rules or [] for case in self.cases],
+        ]
+        for rules in lists:
+            for rule in rules:
+                if isinstance(rule, SignalRule):
+                    signal = found.get(rule.name.strip().lower())
+                    if signal is None:
+                        raise ValueError(f"no signal is named {rule.name!r}")
+                    rule.name = signal.name
+                    rule.rules = [inner.model_copy(deep=True) for inner in signal.rules]
+        return self
 
     @model_validator(mode="after")
     def _check_exit_window(self) -> StrategySpec:
@@ -423,6 +466,7 @@ LATER_SETTINGS = (
     ("exits", "stop_unit", "premium"),
     ("exits", "trail", None),
     ("exits", "trail_unit", "premium"),
+    ("exits", "trail_step", None),
     ("exits", "breakeven_at", None),
     ("exits", "breakeven_unit", "premium"),
     ("exits", "rules", []),

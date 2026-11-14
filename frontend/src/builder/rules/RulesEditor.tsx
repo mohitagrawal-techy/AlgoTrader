@@ -4,7 +4,14 @@ import type { IndicatorPick, RuleJoin, TechCatalog, TechRule } from "../../api";
 import { MAX_RULES, MINUTE_FRAMES } from "../logic/picks";
 import { ruleHelpers } from "../logic/ruleDefaults";
 import { ruleProblems, ruleText } from "../logic/ruleText";
-import { Button, cx, Dialog, Select } from "../../components/ui";
+import {
+  Button,
+  cx,
+  Dialog,
+  Field,
+  Select,
+  TextInput,
+} from "../../components/ui";
 import { ConditionRow, ROW_GRID } from "./ConditionRow";
 
 /** A signal: its conditions as sentences, and one pop-up that edits them all, a condition
@@ -21,6 +28,9 @@ export function RulesEditor({
   title = "Signal",
   joins = false,
   onAddPick,
+  signals,
+  label,
+  tone = "entry",
 }: {
   catalog: TechCatalog;
   rules: TechRule[];
@@ -37,6 +47,11 @@ export function RulesEditor({
   joins?: boolean;
   /** Adds an indicator a condition reads to the strategy's Indicators. */
   onAddPick?: (pick: IndicatorPick) => void;
+  /** The strategy's named signals, which a condition may read as true or false. */
+  signals?: string[];
+  /** The row's name, such as "Entry when"; the pop-up's title otherwise. */
+  label?: string;
+  tone?: "entry" | "exit";
 }) {
   const [draft, setDraft] = useState<TechRule[] | null>(null);
   const hasProblem = (index: number) =>
@@ -50,34 +65,64 @@ export function RulesEditor({
     setDraft(
       rules.length
         ? structuredClone(rules)
-        : [ruleHelpers(catalog, picked).newCompare({ timeframe: "1d" })],
+        : [
+            // A new signal starts from the strategy's first named one, when it has any.
+            signals?.length
+              ? { type: "signal", name: signals[0], present: true }
+              : ruleHelpers(catalog, picked).newCompare({ timeframe: "1d" }),
+          ],
     );
+  const exit = tone === "exit";
 
   return (
     <div className="flex flex-col gap-2">
-      {rules.length > 0 ? (
-        <ol className="flex flex-col gap-1.5">
-          {rules.map((rule, index) => (
-            <li
-              key={index}
-              id={`${prefix}-${index}`}
-              data-problem={hasProblem(index) || undefined}
-              className="flex items-baseline gap-2 text-[13px]"
-            >
-              {index > 0 && <JoinWord word={word(index)} />}
-              <span className={hasProblem(index) ? "text-down" : "text-ink"}>
-                {ruleText(catalog, rule)}
-                {hasProblem(index) && " (needs fixing)"}
-              </span>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p className="text-[13px] text-ink-3">No conditions yet.</p>
-      )}
-      <div>
-        <Button icon={rules.length ? Pencil : Plus} onClick={open}>
-          {rules.length ? "Edit signal" : "Add signal"}
+      <div
+        className={cx(
+          "flex flex-col gap-2 rounded-md border border-l-[3px] bg-surface px-3 py-2.5 sm:flex-row sm:items-center",
+          exit ? "border-line border-l-down/70" : "border-line border-l-up/70",
+        )}
+      >
+        <span
+          className={cx(
+            "shrink-0 text-[13px] font-semibold sm:w-24",
+            exit ? "text-down" : "text-up",
+          )}
+        >
+          {label ?? title}
+        </span>
+        {rules.length > 0 ? (
+          <ol className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
+            {rules.map((rule, index) => (
+              <li
+                key={index}
+                id={`${prefix}-${index}`}
+                data-problem={hasProblem(index) || undefined}
+                className="flex items-center gap-2 text-[13px]"
+              >
+                {index > 0 && <JoinWord word={word(index)} />}
+                <span
+                  className={cx(
+                    "rounded-sm px-2 py-0.5",
+                    hasProblem(index)
+                      ? "bg-down/10 text-down"
+                      : "bg-surface-2 text-ink",
+                  )}
+                >
+                  {ruleText(catalog, rule)}
+                  {hasProblem(index) && " (needs fixing)"}
+                </span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <span className="flex-1 text-[13px] text-ink-3">Is empty</span>
+        )}
+        <Button
+          icon={rules.length ? Pencil : Plus}
+          className="self-start sm:self-auto"
+          onClick={open}
+        >
+          {rules.length ? "Edit" : "Add"}
         </Button>
       </div>
       {draft && (
@@ -91,6 +136,7 @@ export function RulesEditor({
           initial={draft}
           hadRules={rules.length > 0}
           onAddPick={onAddPick}
+          signals={signals}
           onSave={(next) => {
             onChange(next);
             setDraft(null);
@@ -102,8 +148,9 @@ export function RulesEditor({
   );
 }
 
-/** Every condition of a signal as rows, edited together and saved at once. */
-function SignalDialog({
+/** Every condition of a signal as rows, edited together and saved at once. With `named`,
+ * it edits one of the strategy's named signals, its name first. */
+export function SignalDialog({
   title,
   catalog,
   picked,
@@ -113,6 +160,8 @@ function SignalDialog({
   initial,
   hadRules,
   onAddPick,
+  signals,
+  named,
   onSave,
   onClose,
 }: {
@@ -125,13 +174,28 @@ function SignalDialog({
   initial: TechRule[];
   hadRules: boolean;
   onAddPick?: (pick: IndicatorPick) => void;
-  onSave: (rules: TechRule[]) => void;
+  signals?: string[];
+  /** A named signal: its name now, and the names other signals already use. */
+  named?: { initial: string; taken: string[] };
+  onSave: (rules: TechRule[], name: string) => void;
   onClose: () => void;
 }) {
   const [rows, setRows] = useState(initial);
+  const [name, setName] = useState(named?.initial ?? "");
+  const nameProblem = !named
+    ? undefined
+    : !name.trim()
+      ? "Name the signal."
+      : named.taken.some(
+            (other) => other.trim().toLowerCase() === name.trim().toLowerCase(),
+          )
+        ? "Another signal has this name."
+        : !rows.length
+          ? "Add at least one condition."
+          : undefined;
   const helpers = ruleHelpers(catalog, picked);
   const problems = ruleProblems(catalog, rows, prefix);
-  const blocked = Object.keys(problems).length > 0;
+  const blocked = Object.keys(problems).length > 0 || !!nameProblem;
   const offered = helpers.presets.filter(
     (preset) => intraday || !MINUTE_FRAMES.includes(preset.rule.timeframe),
   );
@@ -157,7 +221,7 @@ function SignalDialog({
       size="xl"
       as="form"
       onSubmit={() => {
-        if (!blocked) onSave(rows);
+        if (!blocked) onSave(rows, name.trim());
       }}
       onClose={onClose}
       footer={
@@ -166,7 +230,7 @@ function SignalDialog({
             <Button
               variant="danger"
               className="mr-auto"
-              onClick={() => onSave([])}
+              onClick={() => onSave([], name.trim())}
             >
               Delete signal
             </Button>
@@ -179,6 +243,22 @@ function SignalDialog({
       }
     >
       <div className="flex flex-col gap-3">
+        {named && (
+          <Field
+            id={`${prefix}-name`}
+            label="Signal name"
+            problem={nameProblem}
+            className="max-w-sm"
+          >
+            <TextInput
+              id={`${prefix}-name`}
+              value={name}
+              maxLength={40}
+              placeholder="For example, Sell signal 1"
+              onChange={(event) => setName(event.target.value)}
+            />
+          </Field>
+        )}
         {rows.length > 0 && (
           <div
             aria-hidden
@@ -217,6 +297,7 @@ function SignalDialog({
               onChange={(next) => set(index, next)}
               onRemove={() => remove(index)}
               onAddPick={onAddPick}
+              signals={signals}
             />
           </Fragment>
         ))}

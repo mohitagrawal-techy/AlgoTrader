@@ -134,9 +134,10 @@ def _exit_levels(trade: dict, exits: ExitRules | None) -> dict:
     were recorded have only the target, so the rest is worked out from the strategy's exit
     settings: amounts in premium are fractions of the same basis the target used."""
     if "stop_pnl" in trade:
-        return {key: trade.get(key) for key in ("stop_pnl", "trail_pnl", "breakeven_pnl")}
+        keys = ("stop_pnl", "trail_pnl", "breakeven_pnl", "trail_step_pnl")
+        return {key: trade.get(key) for key in keys}
     if exits is None:
-        return {"stop_pnl": None, "trail_pnl": None, "breakeven_pnl": None}
+        return {"stop_pnl": None, "trail_pnl": None, "breakeven_pnl": None, "trail_step_pnl": None}
     units = trade["legs"][0]["units"] if trade["legs"] else 0
     lot_units = units / max(trade["lots"], 1)
     basis = trade["target_pnl"] / exits.target_frac if exits.target_unit == "premium" else None
@@ -155,6 +156,7 @@ def _exit_levels(trade: dict, exits: ExitRules | None) -> dict:
         "stop_pnl": None if stop is None else -stop,
         "trail_pnl": rupees(exits.trail, exits.trail_unit),
         "breakeven_pnl": rupees(exits.breakeven_at, exits.breakeven_unit),
+        "trail_step_pnl": rupees(exits.trail_step, exits.trail_unit),
     }
 
 

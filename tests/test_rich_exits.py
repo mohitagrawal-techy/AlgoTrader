@@ -167,3 +167,24 @@ def test_trailing_stop_in_a_backtest(intraday_dirs):  # noqa: F811
         "end_of_test",
     }
 
+
+def test_stepped_trailing_stop_rises_by_y_for_each_x_gained():
+    # Stop 20 points under entry; every 10 points of gain raise it 2 (one lot of 75).
+    plan = plan_for(trail=2, trail_unit="points", trail_step=10)
+    assert (plan.trail, plan.trail_step) == (150, 750)
+    stepped = dict(stop_pnl=-1500, trail_pnl=150, trail_step_pnl=750)
+    assert effective_stop(position(**stepped, peak_pnl=700)) == (-1500, "stop")
+    assert effective_stop(position(**stepped, peak_pnl=750)) == (-1350, "trailing_stop")
+    # 25 points gained: two full steps, so the stop is 16 points under entry, not 2 under
+    # the best price as a distance trail would put it.
+    assert effective_stop(position(**stepped, peak_pnl=1875)) == (-1200, "trailing_stop")
+    # It reaches cost after 100 points, and keeps rising.
+    assert effective_stop(position(**stepped, peak_pnl=7500)) == (0, "trailing_stop")
+    assert effective_stop(position(**stepped, peak_pnl=15000)) == (1500, "trailing_stop")
+
+
+def test_a_trailing_step_needs_its_amount_and_keeps_old_signatures():
+    with pytest.raises(ValueError):
+        spec(exits={**SPREAD["exits"], "trail_step": 10})
+    stepped = spec(exits={**SPREAD["exits"], "trail": 2, "trail_step": 10, "trail_unit": "points"})
+    assert signature(stepped) != signature(spec())
