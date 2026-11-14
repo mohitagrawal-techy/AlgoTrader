@@ -21,10 +21,10 @@ from algoverse.backtest.s3_history import (
 from botocore.exceptions import ClientError, NoCredentialsError
 from botocore.response import StreamingBody
 from botocore.stub import Stubber
+from conftest import CONFIG_DIR
 from test_backtest import UDIFF_HEADER, UDIFF_ROW
 
 CONFIG = S3Config(bucket="data-bucket", prefix="fo/")
-CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
 SYMBOLS = ["NIFTY"]
 UDIFF = (UDIFF_HEADER + UDIFF_ROW).encode()
 DAY = date(2026, 11, 3)

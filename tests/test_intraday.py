@@ -1,5 +1,4 @@
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -9,9 +8,9 @@ from algoverse.data.calendar import MarketCalendar
 from algoverse.data.store import SnapshotStore
 from algoverse.market.assistant import AssistantService
 from algoverse.market.overview import OverviewService
+from conftest import CONFIG_DIR
 
 IST = ZoneInfo("Asia/Kolkata")
-CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
 TODAY = date(2026, 11, 11)  # A Wednesday.
 HOLIDAY = date(2026, 11, 10)
 CALENDAR = MarketCalendar({HOLIDAY})

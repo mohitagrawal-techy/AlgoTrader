@@ -6,7 +6,7 @@ import logging
 import secrets
 import threading
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -29,6 +29,12 @@ from algoverse.execution.ledger import CANCELLED, CLOSED, EXITING, LIVE_STATUSES
 from algoverse.lab.chart import ChartRequest
 from algoverse.lab.service import LabBusy, LabError
 from algoverse.market.assistant import AssistantError, UnknownTarget
+from algoverse.market.calendar_events import (
+    CalendarError,
+    NewEvent,
+    OwnerEvents,
+    calendar_view,
+)
 from algoverse.market.index_details import save_constituents
 from algoverse.market.sectors import SectorListError, parse_sector_csv, save_sector_list
 from algoverse.market.strike import strike_history
@@ -141,6 +147,10 @@ class LabTuneRequest(BaseModel):
     per_round: int | None = Field(default=None, ge=1, le=10)
     guidance: str = Field(default="", max_length=500)
     use_ai: bool = True
+
+
+class ReviewedRequest(BaseModel):
+    through: date | None = None
 
 
 class ResearchMlRequest(BaseModel):
@@ -566,6 +576,53 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _require_dashboard(x_algoverse_client)
         saved = _lab(lambda: runtime.lab.save_tuned(session_id, body.node_id, datetime.now(IST)))
         return {"id": saved}
+
+    def _calendar(action):
+        try:
+            return action()
+        except CalendarError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    def _calendar_symbols() -> list[str]:
+        return list(runtime.universe.underlyings)
+
+    @app.get("/api/calendar")
+    def calendar(start: date | None = None, end: date | None = None) -> dict:
+        """Owner, configured and AI events, holidays and expiries between two dates."""
+        today = datetime.now(IST).date()
+        first = start or today.replace(day=1)
+        last = end or first + timedelta(days=62)
+        return clean(
+            _calendar(
+                lambda: calendar_view(
+                    config.config_dir, config.data_dir, _calendar_symbols(), first, last, today
+                )
+            )
+        )
+
+    @app.post("/api/calendar/events")
+    def calendar_add(body: NewEvent, x_algoverse_client: str | None = Header(default=None)) -> dict:
+        _require_dashboard(x_algoverse_client)
+        added = _calendar(lambda: OwnerEvents(config.data_dir).add(body, _calendar_symbols()))
+        return added.model_dump(mode="json")
+
+    @app.delete("/api/calendar/events/{event_id}")
+    def calendar_delete(
+        event_id: str, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        _require_dashboard(x_algoverse_client)
+        _calendar(lambda: OwnerEvents(config.data_dir).delete(event_id))
+        return {"deleted": event_id}
+
+    @app.put("/api/calendar/reviewed")
+    def calendar_reviewed(
+        body: ReviewedRequest, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        """The owner confirms the calendar is complete through a date. Short premium may then
+        be held up to it, outside high-severity events."""
+        _require_dashboard(x_algoverse_client)
+        OwnerEvents(config.data_dir).set_reviewed(body.through)
+        return {"reviewed_through": body.through}
 
     def _research(action):
         try:

@@ -31,11 +31,13 @@ from algoverse.lab.technical import (
 IST_SECONDS = 19_800
 # Hand-added studies plus the ones a strategy's rules read.
 MAX_STUDIES = 24
-# Daily candles since 2000 are about 6,700; a year of 5-minute candles is about 19,000.
-MAX_CANDLES = 20_000
+# Daily candles since 2000 are about 6,700; five years of 5-minute candles about 94,000.
+MAX_CANDLES = 120_000
 # Sessions shown by default on minute charts, and the most that can be asked for.
 DEFAULT_SESSIONS = {"1m": 3, "5m": 10, "15m": 30, "1h": 90}
-MAX_SESSIONS = 500
+MAX_SESSIONS = 1500
+# One-minute charts stop at six months, about 47,000 candles.
+MAX_SESSIONS_BY_TIMEFRAME = {"1m": 125}
 # Extra sessions read before the first one shown, so indicators are warmed up: a 400-candle
 # average on hourly candles needs about 60 sessions.
 WARMUP_SESSIONS = 60
@@ -238,8 +240,12 @@ def _recent_minutes(minutes: pd.DataFrame, sessions: int) -> pd.DataFrame:
 
 def chart(daily: pd.DataFrame, minutes: pd.DataFrame, request: ChartRequest) -> dict:
     intraday = request.timeframe in INTRADAY_MINUTES
+    wanted = min(
+        request.sessions or DEFAULT_SESSIONS.get(request.timeframe, MAX_SESSIONS),
+        MAX_SESSIONS_BY_TIMEFRAME.get(request.timeframe, MAX_SESSIONS),
+    )
     if intraday:
-        minutes = _recent_minutes(minutes, request.sessions or DEFAULT_SESSIONS[request.timeframe])
+        minutes = _recent_minutes(minutes, wanted)
     frames = Frames(daily, minutes)
     frame = frames.frame(request.timeframe, request.candles)
     if frame.empty:
@@ -251,7 +257,6 @@ def chart(daily: pd.DataFrame, minutes: pd.DataFrame, request: ChartRequest) -> 
         }
     if intraday:
         days = pd.to_datetime(frame["ts"]).dt.date
-        wanted = request.sessions or DEFAULT_SESSIONS[request.timeframe]
         distinct = days.drop_duplicates()
         first_day = distinct.iloc[max(0, len(distinct) - wanted)]
         start = int(np.flatnonzero((days >= first_day).to_numpy())[0])

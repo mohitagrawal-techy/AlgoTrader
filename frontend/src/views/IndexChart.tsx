@@ -78,6 +78,10 @@ const TIMEFRAMES: { value: TechTimeframe; label: string }[] = [
   { value: "1mo", label: "1M" },
 ];
 const MINUTES = new Set<TechTimeframe>(["1m", "5m", "15m", "1h"]);
+// The longest range each minute timeframe offers; the server caps it the same way.
+const RANGE_LIMIT: Partial<Record<TechTimeframe, number>> = { "1m": 125 };
+const rangesFor = (timeframe: TechTimeframe) =>
+  RANGES.filter((r) => r.sessions <= (RANGE_LIMIT[timeframe] ?? Infinity));
 const RANGES = [
   { sessions: 5, label: "1W" },
   { sessions: 10, label: "2W" },
@@ -86,6 +90,8 @@ const RANGES = [
   { sessions: 125, label: "6M" },
   { sessions: 250, label: "1Y" },
   { sessions: 500, label: "2Y" },
+  { sessions: 750, label: "3Y" },
+  { sessions: 1500, label: "All" },
 ];
 const DEFAULT_RANGE: Partial<Record<TechTimeframe, number>> = {
   "1m": 2,
@@ -1274,7 +1280,8 @@ export function IndexChart({
       const loaded = saved.sessions?.[target] ?? DEFAULT_RANGE[target] ?? 21;
       if (MINUTES.has(target) && loaded < needed) {
         const fitting =
-          RANGES.find((r) => r.sessions >= needed) ?? RANGES[RANGES.length - 1];
+          rangesFor(target).find((r) => r.sessions >= needed) ??
+          rangesFor(target)[rangesFor(target).length - 1];
         change.sessions = { ...saved.sessions, [target]: fitting.sessions };
       }
       if (Object.keys(change).length) update(change);
@@ -1306,7 +1313,9 @@ export function IndexChart({
       return;
     const first = Date.parse(`${replay.start}T00:00:00Z`) / 1000;
     if (MINUTES.has(timeframe) && times[0] > first) {
-      const longer = RANGES.find((r) => r.sessions > (sessions ?? 0));
+      const longer = rangesFor(timeframe).find(
+        (r) => r.sessions > (sessions ?? 0),
+      );
       if (longer) {
         update({
           sessions: { ...saved.sessions, [timeframe]: longer.sessions },
@@ -1648,7 +1657,7 @@ export function IndexChart({
                 })
               }
             >
-              {RANGES.map((r) => (
+              {rangesFor(timeframe).map((r) => (
                 <option key={r.sessions} value={r.sessions}>
                   {r.label}
                 </option>

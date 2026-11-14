@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   Table2,
   Microscope,
+  CalendarDays,
 } from "lucide-react";
 import { Alert, Button, ButtonLink, Empty } from "./components/ui";
 import { AssistantProvider } from "./assistant";
@@ -45,6 +46,7 @@ import { StrategyEditor, type EditorRoute } from "./builder/StrategyBuilder";
 import { readStrikeRoute, StrikePage } from "./views/StrikeChart";
 import { TunerView } from "./views/Tuner";
 import { ResearchPage } from "./components/research/ResearchPage";
+import { CalendarPage } from "./components/calendar/CalendarPage";
 
 const NAV_GROUPS = [
   {
@@ -64,6 +66,11 @@ const NAV_GROUPS = [
         id: "ideas",
         label: "Ideas",
         icon: Lightbulb,
+      },
+      {
+        id: "calendar",
+        label: "Calendar",
+        icon: CalendarDays,
       },
     ],
   },
@@ -117,6 +124,8 @@ const PAGE_SUBS: Record<string, string> = {
   overview: "The paper desk as it stands, and the market around it.",
   market: "Chain analytics for one underlying and expiry.",
   ideas: "Trades ranked from the latest option chains.",
+  calendar:
+    "Events, holidays and expiries, and how far the event list has been checked.",
   lab: "Build your own strategies, then test and tune them.",
   research:
     "How the indices behave: time of day, volatility, correlations, gaps, pairs and an ML signal.",
@@ -479,6 +488,7 @@ export function App() {
               tab !== "overview" &&
               tab !== "history" &&
               tab !== "research" &&
+              tab !== "calendar" &&
               !(tab === "market" && (shownMarket || strikeRoute)) && (
                 <Empty title="Loading…" />
               )}
@@ -492,6 +502,7 @@ export function App() {
             )}
             {tab === "history" && <TestHistoryView />}
             {tab === "research" && <ResearchPage />}
+            {tab === "calendar" && <CalendarPage />}
             {data && tab === "ideas" && <IdeasView ideas={data.ideas.ideas} />}
             {/* Options also falls back to the chains this browser saved, so it works offline. */}
             {tab === "market" && strikeRoute && (

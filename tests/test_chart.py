@@ -189,3 +189,13 @@ def test_each_case_of_a_strategy_is_marked_separately():
     assert body["signals"]["hits"] == []
     put = body["signals"]["cases"][0]
     assert put["name"] == "Put" and put["bias"] == "bearish" and len(put["hits"]) == 30
+
+
+def test_long_minute_ranges_reach_back_and_one_minute_is_capped():
+    data = minutes(days=200)
+    five = chart(pd.DataFrame(), data, ChartRequest(symbol="NIFTY", timeframe="5m", sessions=1500))
+    first_day = str(pd.to_datetime(data["ts"]).dt.tz_convert(IST).dt.date.min())
+    assert five["first"] == first_day
+    one = chart(pd.DataFrame(), data, ChartRequest(symbol="NIFTY", timeframe="1m", sessions=1500))
+    days = pd.Series([datetime.fromtimestamp(t, IST).date() for t in one["time"]]).nunique()
+    assert days == 125

@@ -5,11 +5,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from algoverse.data.archive import ArchiveConfig, archive, load_archive_config
+from conftest import CONFIG_DIR
 
 IST = ZoneInfo("Asia/Kolkata")
 EVENING = datetime(2026, 11, 11, 17, 0, tzinfo=IST)
 MORNING = datetime(2026, 11, 11, 11, 0, tzinfo=IST)
-CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
 
 
 class FakeS3:

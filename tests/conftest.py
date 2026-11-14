@@ -1,4 +1,7 @@
+import atexit
 import os
+import shutil
+import tempfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -9,6 +12,7 @@ os.environ["LANGSMITH_TRACING"] = "false"
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 from algoverse.analytics.chain import years_to_expiry
 from algoverse.analytics.pricing import black76_price
 from algoverse.evaluation.config import load_scoring_config
@@ -16,7 +20,27 @@ from algoverse.risk.config import load_risk_config
 from algoverse.risk.costs import load_cost_model
 
 IST = ZoneInfo("Asia/Kolkata")
-CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
+LIVE_CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
+# Settings the tests were written against. The owner tunes config/ for trading (capital, for
+# one), and that must never change what a test expects, so tests read a copy with these pinned.
+TEST_SETTINGS = {"risk.yaml": {"capital": 500000}}
+
+
+def _pinned_config() -> Path:
+    folder = Path(tempfile.mkdtemp(prefix="algoverse-test-config-"))
+    atexit.register(shutil.rmtree, folder, True)
+    shutil.copytree(LIVE_CONFIG_DIR, folder, dirs_exist_ok=True)
+    for name, values in TEST_SETTINGS.items():
+        path = folder / name
+        data = yaml.safe_load(path.read_text())
+        data.update(values)
+        path.write_text(yaml.safe_dump(data, sort_keys=False))
+    return folder
+
+
+CONFIG_DIR = _pinned_config()
+# Settings() reads its config folder from here, so apps built in tests use the copy too.
+os.environ["ALGOVERSE_CONFIG_DIR"] = str(CONFIG_DIR)
 NOW = datetime(2026, 11, 12, 10, 0, tzinfo=IST)
 EXPIRIES = (date(2026, 11, 17), date(2026, 11, 24), date(2026, 12, 29))
 

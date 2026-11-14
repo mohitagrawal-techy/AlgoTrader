@@ -1385,6 +1385,36 @@ export interface ResearchPayload {
   ml: MlStudy | null;
 }
 
+export type CalendarKind = "owner" | "config" | "ai" | "holiday" | "special" | "expiry";
+
+export interface CalendarItem {
+  date: string;
+  kind: CalendarKind;
+  name: string;
+  severity: "high" | "medium" | null;
+  symbols: string[];
+  id?: string;
+  note?: string;
+}
+
+export interface CalendarPayload {
+  start: string;
+  end: string;
+  today: string;
+  symbols: string[];
+  items: CalendarItem[];
+  reviewed_through: string | null;
+  reviewed_sources: { config: string | null; dashboard: string | null };
+}
+
+export interface NewCalendarEvent {
+  date: string;
+  name: string;
+  severity: "high" | "medium";
+  symbols: string[];
+  note: string;
+}
+
 export interface Dossier {
   sections: DossierSection[];
   notes_written_at: string | null;
@@ -1709,6 +1739,14 @@ export const api = {
     sendJson<ReplayData>("/api/lab/replay", "POST", body),
   labAutopilot: (body: AutopilotSettings) => sendJson<unknown>("/api/lab/autopilot", "POST", body),
   labAutopilotStop: () => sendJson<unknown>("/api/lab/autopilot/stop", "POST"),
+  calendar: (start: string, end: string) =>
+    getJson<CalendarPayload>(`/api/calendar?${new URLSearchParams({ start, end })}`),
+  calendarAdd: (event: NewCalendarEvent) =>
+    sendJson<CalendarItem>("/api/calendar/events", "POST", event),
+  calendarDelete: (id: string) =>
+    sendJson<unknown>(`/api/calendar/events/${encodeURIComponent(id)}`, "DELETE"),
+  calendarReviewed: (through: string | null) =>
+    sendJson<{ reviewed_through: string | null }>("/api/calendar/reviewed", "PUT", { through }),
   research: (symbol: string) =>
     getJson<ResearchPayload>(`/api/research?symbol=${encodeURIComponent(symbol)}`),
   researchJob: () => getJson<{ job: JobInfo | null }>("/api/research/job"),

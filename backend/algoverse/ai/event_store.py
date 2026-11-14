@@ -7,7 +7,7 @@ import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from algoverse.evaluation.config import Event, EventCalendar, load_event_calendar
+from algoverse.evaluation.config import Event, EventCalendar
 
 DATE_FORMATS = ("%Y-%m-%d", "%d %b %Y", "%d %B %Y", "%b %d, %Y", "%B %d, %Y")
 SEVERITIES = {"high", "medium"}
@@ -66,7 +66,8 @@ class AiEventStore:
 
 
 def load_live_calendar(config_dir: Path, data_dir: Path, today: date) -> EventCalendar:
-    """The owner's calendar plus AI-found events. Only the owner can set reviewed_through."""
-    calendar = load_event_calendar(config_dir)
-    extra = AiEventStore(data_dir).load(today)
-    return calendar.model_copy(update={"events": [*calendar.events, *extra]})
+    """events.yaml, the events the owner adds from the dashboard, and AI-found events. Only the
+    owner can set reviewed_through, in events.yaml or on the dashboard's calendar."""
+    from algoverse.market.calendar_events import live_calendar
+
+    return live_calendar(config_dir, data_dir, today)

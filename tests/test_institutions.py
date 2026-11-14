@@ -1,5 +1,4 @@
 from datetime import date, datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -18,11 +17,11 @@ from algoverse.market.institutions import (
 )
 from algoverse.market.overview import OverviewService
 from algoverse.settings import Settings
+from conftest import CONFIG_DIR
 from fastapi.testclient import TestClient
 
 IST = ZoneInfo("Asia/Kolkata")
 NOW = datetime(2026, 11, 10, 16, 0, tzinfo=IST)
-CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
 
 
 def stamp(day: date) -> int:
