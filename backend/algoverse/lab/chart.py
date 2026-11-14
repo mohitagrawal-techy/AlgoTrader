@@ -26,6 +26,8 @@ from algoverse.lab.technical import (
     Operand,
     PatternRule,
     TechRule,
+    Timeframe,
+    aligned,
     compares,
     rule_text,
 )
@@ -46,9 +48,13 @@ WARMUP_SESSIONS = 60
 
 
 class Study(BaseModel):
-    id: str = Field(min_length=1, max_length=40)
+    id: str = Field(min_length=1, max_length=80)
     name: str
     params: dict[str, float] = Field(default_factory=dict)
+    # The candles it is worked out on. None is the chart's own; others are drawn on the chart's
+    # candles as their value was known then.
+    timeframe: Timeframe | None = None
+    candles: CandleType | None = None
 
 
 class ChartCase(BaseModel):
@@ -90,8 +96,7 @@ def _operand_series(frames: Frames, timeframe: str, operand: Operand, candles: s
     index = frames.frame(timeframe, candles).index
     if operand.kind == "value":
         return pd.Series(operand.value, index=index, dtype=float)
-    series = frames.series(timeframe, operand, candles).astype(float)
-    return series.shift(operand.bars_ago)
+    return frames.on(timeframe, operand, candles)
 
 
 def rule_series(rule: CompareRule | PatternRule, frames: Frames) -> pd.Series:
@@ -123,7 +128,10 @@ def _study(frames: Frames, request: ChartRequest, study: Study, keep: slice) -> 
     base = {"id": study.id, "name": study.name}
     if indicator is None:
         return base | {"error": "Unknown indicator", "lines": []}
-    if indicator.intraday_only and request.timeframe not in INTRADAY_MINUTES:
+    timeframe = study.timeframe or request.timeframe
+    candles = study.candles or request.candles
+    own = timeframe == request.timeframe and candles == request.candles
+    if indicator.intraday_only and timeframe not in INTRADAY_MINUTES:
         return base | {
             "label": indicator.label,
             "error": f"{indicator.label} needs minute or hourly candles",
@@ -142,9 +150,22 @@ def _study(frames: Frames, request: ChartRequest, study: Study, keep: slice) -> 
             "lines": [],
         }
     short = ", ".join(f"{v:g}" for v in params.values())
+    # Drawn from other candles, the label says which.
+    where = (
+        ""
+        if own
+        else f", {TIMEFRAMES[timeframe]}" + (" Heikin-Ashi" if candles == "heikin_ashi" else "")
+    )
     lines = []
     for operand in operands:
-        values = frames.series(request.timeframe, operand, request.candles).astype(float)
+        values = frames.series(timeframe, operand, candles).astype(float)
+        if not own:
+            placed = aligned(
+                values,
+                frames.ends(timeframe, candles),
+                frames.ends(request.timeframe, request.candles),
+            )
+            values = pd.Series(placed, index=frames.frame(request.timeframe, request.candles).index)
         overlay = (
             study.name in CHART_OVERLAY and (study.name, operand.field) not in CHART_SEPARATE_FIELDS
         )
@@ -159,7 +180,7 @@ def _study(frames: Frames, request: ChartRequest, study: Study, keep: slice) -> 
             }
         )
     return base | {
-        "label": indicator.label + (f" ({short})" if short else ""),
+        "label": indicator.label + (f" ({short})" if short else "") + where,
         "unit": indicator.unit,
         "params": params,
         "lines": lines,

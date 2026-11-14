@@ -154,12 +154,43 @@ export function operandPick(
   operand: TechOperand,
   rule: { timeframe: TechTimeframe; candles?: CandleType },
 ): IndicatorPick {
+  // A side read on other candles than the rule's says which.
   return {
     name: operand.name ?? "",
     params: operand.params ?? {},
-    timeframe: rule.timeframe,
-    candles: rule.candles ?? "normal",
+    timeframe: operand.timeframe ?? rule.timeframe,
+    candles: operand.candles ?? rule.candles ?? "normal",
   };
+}
+
+type Frame = { timeframe: TechTimeframe; candles?: CandleType };
+
+/** An operand without candles of its own: it reads the rule's. */
+export function onRuleCandles(operand: TechOperand): TechOperand {
+  const { timeframe: _t, candles: _c, ...rest } = operand;
+  return rest;
+}
+
+/** An operand read on `frame`, inside a rule read on `rule`: it names its candles only when
+ * they differ from the rule's. Prices and numbers always read the rule's. */
+export function readOn(
+  operand: TechOperand,
+  frame: Frame,
+  rule: Frame,
+): TechOperand {
+  const plain = onRuleCandles(operand);
+  if (operand.kind !== "indicator" || PRICE_NAMES.includes(operand.name ?? ""))
+    return plain;
+  const same =
+    frame.timeframe === rule.timeframe &&
+    (frame.candles ?? "normal") === (rule.candles ?? "normal");
+  return same
+    ? plain
+    : {
+        ...plain,
+        timeframe: frame.timeframe,
+        candles: frame.candles ?? "normal",
+      };
 }
 
 const FRAME_SHORT: Record<string, string> = {

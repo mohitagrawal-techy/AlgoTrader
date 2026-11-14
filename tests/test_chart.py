@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from algoverse.lab.chart import ChartRequest, chart, rule_series
-from algoverse.lab.technical import CompareRule, Frames, PatternRule, rule_failure
+from algoverse.lab.technical import CompareRule, Frames, PatternRule, rule_failure, rule_text
 from conftest import IST, make_bars
 
 
@@ -235,3 +235,113 @@ def test_signal_hits_join_rules_by_and_then_or_as_the_backtest_does():
         )
     }
     assert hits == expected and 0 < len(hits) < shown
+
+
+def test_studies_from_other_candles_show_only_finished_values():
+    daily, mins = make_bars(count=60), minutes(days=12)
+    # make_bars dates do not line up with the minute days, so daily candles come from minutes.
+    days = pd.to_datetime(mins["ts"]).dt.tz_convert(IST).dt.date
+    daily = (
+        mins.assign(day=days)
+        .groupby("day")
+        .agg(
+            open=("open", "first"),
+            high=("high", "max"),
+            low=("low", "min"),
+            close=("close", "last"),
+        )
+        .reset_index()
+        .rename(columns={"day": "ts"})
+    )
+    daily["ts"] = pd.to_datetime(daily["ts"])
+    study = {"id": "a", "name": "sma", "params": {"period": 3}, "timeframe": "1d"}
+    body = chart(daily, mins, request(timeframe="15m", sessions=5, studies=[study]))
+    values = body["studies"][0]["lines"][0]["values"]
+    assert body["studies"][0]["label"].endswith(", Daily")
+    closes = daily["close"].rolling(3).mean().round(4).tolist()
+    shown_days = sorted({datetime.utcfromtimestamp(t).date() for t in body["time"]})
+    by_day = {d.date(): i for i, d in enumerate(daily["ts"])}
+    for t, value in zip(body["time"], values, strict=True):
+        when = datetime.utcfromtimestamp(t)
+        i = by_day[when.date()]
+        # The day's own average is known only once its last candle finishes.
+        expected = closes[i] if (when.hour, when.minute) == (15, 15) else closes[i - 1]
+        assert value == pytest.approx(expected), when
+    assert len(shown_days) == 5
+
+    # The chart's own candles give the same line as before.
+    same = chart(
+        daily, mins, request(timeframe="15m", sessions=5, studies=[{**study, "timeframe": "15m"}])
+    )
+    plain = chart(
+        daily, mins, request(timeframe="15m", sessions=5, studies=[{**study, "timeframe": None}])
+    )
+    assert same["studies"][0]["lines"] == plain["studies"][0]["lines"]
+
+
+@pytest.mark.parametrize("other", ["15m", "1h", "1d"])
+def test_a_side_read_on_other_candles_matches_the_backtest_and_never_looks_ahead(other):
+    mins = minutes(days=8)
+    days = pd.to_datetime(mins["ts"]).dt.tz_convert(IST).dt.date
+    daily = (
+        mins.assign(day=days)
+        .groupby("day")
+        .agg(
+            open=("open", "first"),
+            high=("high", "max"),
+            low=("low", "min"),
+            close=("close", "last"),
+        )
+        .reset_index()
+        .rename(columns={"day": "ts"})
+    )
+    daily["ts"] = pd.to_datetime(daily["ts"])
+    rules = [
+        CompareRule(
+            timeframe="5m",
+            left={"name": "close"},
+            op="above",
+            right={"name": "ema", "params": {"period": 3}, "timeframe": other},
+        ),
+        CompareRule(
+            timeframe="5m",
+            left={"name": "close"},
+            op="crosses_below",
+            right={"name": "sma", "params": {"period": 2}, "timeframe": other, "bars_ago": 1},
+        ),
+    ]
+    full = Frames(daily, mins)
+    series = [rule_series(rule, full).reset_index(drop=True) for rule in rules]
+    stamps = full.frame("5m")["ts"]
+    checked = 0
+    for end in range(30, len(stamps) + 1, 7):
+        cutoff = stamps.iloc[end - 1] + pd.Timedelta(minutes=5)
+        # What was known then: finished minutes, and only daily candles of earlier sessions.
+        day = cutoff.tz_convert(IST).date()
+        known_daily = daily[daily["ts"].dt.date < day].reset_index(drop=True)
+        if (cutoff.tz_convert(IST).hour, cutoff.tz_convert(IST).minute) == (15, 30):
+            known_daily = daily[daily["ts"].dt.date <= day].reset_index(drop=True)
+        frames = Frames(known_daily, mins[mins["ts"] < cutoff])
+        if len(frames.frame("5m")) != end:
+            continue
+        for rule, held in zip(rules, series, strict=True):
+            assert (rule_failure(rule, frames) is None) == bool(held.iloc[end - 1]), (rule, end)
+        checked += 1
+    assert checked > 20
+
+
+def test_a_side_on_other_candles_says_so_and_keeps_old_signatures():
+    rule = CompareRule(
+        timeframe="5m",
+        left={"name": "close"},
+        op="above",
+        right={
+            "name": "opening_range_body",
+            "params": {"minutes": 15},
+            "field": "high",
+            "timeframe": "15m",
+        },
+    )
+    assert "(15-minute)" in rule_text(rule)
+    assert "timeframe" not in rule.model_dump()["left"]
+    assert rule.model_dump()["right"]["timeframe"] == "15m"

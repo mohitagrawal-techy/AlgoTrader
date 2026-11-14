@@ -20,6 +20,7 @@ export function RulesEditor({
   prefix = "rule",
   title = "Signal",
   joins = false,
+  onAddPick,
 }: {
   catalog: TechCatalog;
   rules: TechRule[];
@@ -34,6 +35,8 @@ export function RulesEditor({
   title?: string;
   /** AND or OR between rows. Otherwise the signal holds when any one condition does. */
   joins?: boolean;
+  /** Adds an indicator a condition reads to the strategy's Indicators. */
+  onAddPick?: (pick: IndicatorPick) => void;
 }) {
   const [draft, setDraft] = useState<TechRule[] | null>(null);
   const hasProblem = (index: number) =>
@@ -87,6 +90,7 @@ export function RulesEditor({
           prefix={`${prefix}-draft`}
           initial={draft}
           hadRules={rules.length > 0}
+          onAddPick={onAddPick}
           onSave={(next) => {
             onChange(next);
             setDraft(null);
@@ -108,6 +112,7 @@ function SignalDialog({
   prefix,
   initial,
   hadRules,
+  onAddPick,
   onSave,
   onClose,
 }: {
@@ -119,6 +124,7 @@ function SignalDialog({
   prefix: string;
   initial: TechRule[];
   hadRules: boolean;
+  onAddPick?: (pick: IndicatorPick) => void;
   onSave: (rules: TechRule[]) => void;
   onClose: () => void;
 }) {
@@ -210,6 +216,7 @@ function SignalDialog({
               problems={problems}
               onChange={(next) => set(index, next)}
               onRemove={() => remove(index)}
+              onAddPick={onAddPick}
             />
           </Fragment>
         ))}

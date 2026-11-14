@@ -65,7 +65,7 @@ from algoverse.lab.spec import (
     structure_problems,
 )
 from algoverse.lab.stages import STAGES, grade
-from algoverse.lab.technical import INTRADAY_MINUTES
+from algoverse.lab.technical import INTRADAY_MINUTES, rule_frames
 from algoverse.lab.technical import catalog as technical_catalog
 from algoverse.lab.tuner import (
     Scorer,
@@ -1046,10 +1046,22 @@ class LabService:
         if request.symbol not in allowed:
             raise LabError(f"Choose one of {', '.join(allowed)}.")
         store = SnapshotStore(self.data_dir)
-        intraday = request.timeframe in INTRADAY_MINUTES
-        # Index candles: daily ones from 2000 and one-minute ones from 2022 once backfilled.
-        daily = pd.DataFrame() if intraday else store.read_candles(request.symbol)
-        minutes = store.read_candles(request.symbol, MINUTE) if intraday else pd.DataFrame()
+        # Index candles: daily ones from 2000 and one-minute ones from 2022 once backfilled. Only
+        # the kinds the chart and its studies read are loaded.
+        rules = [
+            *request.rules,
+            *request.any_rules,
+            *(rule for case in request.cases for rule in [*case.rules, *case.any_rules]),
+        ]
+        frames = (
+            {request.timeframe}
+            | {s.timeframe for s in request.studies if s.timeframe}
+            | {frame for rule in rules for frame in rule_frames(rule)}
+        )
+        needs_minutes = any(frame in INTRADAY_MINUTES for frame in frames)
+        needs_daily = any(frame not in INTRADAY_MINUTES for frame in frames)
+        daily = store.read_candles(request.symbol) if needs_daily else pd.DataFrame()
+        minutes = store.read_candles(request.symbol, MINUTE) if needs_minutes else pd.DataFrame()
         return clean(chart(daily, minutes, request))
 
     def replay(self, payload: dict, symbol: str, sessions: int) -> dict:

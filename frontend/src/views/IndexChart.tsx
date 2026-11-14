@@ -56,6 +56,10 @@ interface StudyState {
   hidden?: boolean;
   /** Drawn because the strategy's rules read it, not added by hand. */
   strategy?: boolean;
+  /** The candles it is worked out on; unset is the chart's own. Others are drawn on the
+   * chart's candles as their value was known then. */
+  timeframe?: TechTimeframe;
+  candles?: CandleType;
 }
 
 interface Saved {
@@ -425,11 +429,31 @@ interface StrategyLines {
   otherPicks: IndicatorPick[];
 }
 
-function studyKey(name: string, params: Record<string, number>): string {
+function studyKey(
+  name: string,
+  params: Record<string, number>,
+  frame?: { timeframe?: TechTimeframe; candles?: CandleType },
+): string {
+  const where = frame?.timeframe
+    ? `@${frame.timeframe}/${frame.candles ?? "normal"}`
+    : "";
   return `${name}:${Object.keys(params)
     .sort()
     .map((key) => `${key}=${params[key]}`)
-    .join(",")}`;
+    .join(",")}${where}`;
+}
+
+/** The candles a strategy indicator is read on, unset when they are the chart's own. */
+function frameOn(
+  read: { timeframe?: TechTimeframe; candles?: CandleType },
+  timeframe: TechTimeframe,
+  candles: CandleType,
+): { timeframe?: TechTimeframe; candles?: CandleType } {
+  const own = (read.timeframe ?? "1d") === timeframe;
+  const kind = read.candles ?? "normal";
+  return own && kind === candles
+    ? {}
+    : { timeframe: read.timeframe ?? "1d", candles: kind };
 }
 
 /** What the strategy's rules read on this chart's candles: their indicators, at their
@@ -459,31 +483,35 @@ function strategyLines(
     ]),
   ];
   const userKeys = new Set(
-    user.map((study) => studyKey(study.name, study.params)),
+    user.map((study) => studyKey(study.name, study.params, study)),
   );
   const added = new Set<string>();
   for (const rule of all) {
     if (rule.type !== "compare") continue;
-    if (
-      rule.timeframe !== timeframe ||
-      (rule.candles ?? "normal") !== candles
-    ) {
-      found.elsewhere += 1;
-      continue;
-    }
+    // Indicators read on other candles are drawn too, as their value was known at each candle.
+    if (frameOn(rule, timeframe, candles).timeframe) found.elsewhere += 1;
     const sides = [rule.left, rule.right];
     const fixed = sides.find((side) => side.kind === "value")?.value;
     for (const side of sides) {
       if (side.kind !== "indicator" || !side.name) continue;
+      // A side may name candles of its own, such as a 15-minute range in a 5-minute rule.
+      const frame = frameOn(
+        {
+          timeframe: side.timeframe ?? rule.timeframe,
+          candles: side.candles ?? rule.candles,
+        },
+        timeframe,
+        candles,
+      );
       if (PRICE_OPERANDS.has(side.name)) {
-        if (fixed !== undefined && fixed !== null)
+        if (!frame.timeframe && fixed !== undefined && fixed !== null)
           found.priceLevels.push(fixed);
         continue;
       }
       const indicator = indicators.get(side.name);
       if (!indicator) continue;
       const params = { ...defaults(indicator), ...(side.params ?? {}) };
-      const key = studyKey(side.name, params);
+      const key = studyKey(side.name, params, frame);
       if (fixed !== undefined && fixed !== null) {
         found.levels.set(key, [
           ...(found.levels.get(key) ?? []),
@@ -497,6 +525,7 @@ function strategyLines(
         name: side.name,
         params,
         strategy: true,
+        ...frame,
       });
     }
   }
@@ -505,16 +534,10 @@ function strategyLines(
   for (const pick of draft.indicators ?? []) {
     const indicator = indicators.get(pick.name);
     if (!indicator || PRICE_OPERANDS.has(pick.name)) continue;
-    if (
-      (pick.timeframe ?? "1d") !== timeframe ||
-      (pick.candles ?? "normal") !== candles
-    ) {
-      found.elsewhere += 1;
-      found.otherPicks.push(pick);
-      continue;
-    }
+    const frame = frameOn(pick, timeframe, candles);
+    if (frame.timeframe) found.otherPicks.push(pick);
     const params = { ...defaults(indicator), ...(pick.params ?? {}) };
-    const key = studyKey(pick.name, params);
+    const key = studyKey(pick.name, params, frame);
     if (userKeys.has(key) || added.has(key)) continue;
     added.add(key);
     found.studies.push({
@@ -522,6 +545,7 @@ function strategyLines(
       name: pick.name,
       params,
       strategy: true,
+      ...frame,
     });
   }
   return found;
@@ -784,7 +808,13 @@ export function IndexChart({
     timeframe,
     candles,
     sessions,
-    studies: shown.map(({ id, name, params }) => ({ id, name, params })),
+    studies: shown.map(({ id, name, params, timeframe, candles }) => ({
+      id,
+      name,
+      params,
+      timeframe,
+      candles,
+    })),
     rules: signals ? rules : [],
     anyRules: signals ? anyRules : [],
     cases: signals
@@ -1008,7 +1038,7 @@ export function IndexChart({
       if (!state || state.hidden || study.error) continue;
       const colour = css(colours.get(study.id) ?? PALETTE[0]);
       const ruleLevels =
-        strategy?.levels.get(studyKey(state.name, state.params)) ?? [];
+        strategy?.levels.get(studyKey(state.name, state.params, state)) ?? [];
       if (SESSION_BOXES.has(study.name)) {
         // A line series would join one day's range to the next; the box breaks each session.
         const field = (name: string) =>
@@ -1597,6 +1627,10 @@ export function IndexChart({
         <span className="chart-legend-name" title={indicator?.label}>
           {SHORT[state.name] ?? indicator?.label ?? state.name}
           {short ? ` ${short}` : ""}
+          {state.timeframe &&
+            ` · ${TIMEFRAMES.find((t) => t.value === state.timeframe)?.label}${
+              state.candles === "heikin_ashi" ? " HA" : ""
+            }`}
         </span>
         {state.strategy && <span className="chart-legend-tag">strategy</span>}
         {study?.error ? (
@@ -1629,7 +1663,7 @@ export function IndexChart({
                 <Eye size={14} aria-hidden />
               )}
             </button>
-            {indicator && indicator.params.length > 0 && (
+            {indicator && !state.strategy && (
               <button
                 type="button"
                 className="chart-tool"
@@ -1650,7 +1684,14 @@ export function IndexChart({
                 aria-label={`Add an entry rule using ${indicator.label}`}
                 title="Add as an entry rule"
                 onClick={() =>
-                  onAddRule(ruleFor(state, indicator, timeframe, candles))
+                  onAddRule(
+                    ruleFor(
+                      state,
+                      indicator,
+                      state.timeframe ?? timeframe,
+                      state.candles ?? candles,
+                    ),
+                  )
                 }
               >
                 <Plus size={14} aria-hidden />
@@ -1959,6 +2000,27 @@ export function IndexChart({
           aria-label={`${editingIndicator.label} settings`}
         >
           <strong>{editingIndicator.label}</strong>
+          <label>
+            Interval
+            <select
+              value={editingStudy.timeframe ?? ""}
+              onChange={(e) =>
+                setStudy(editingStudy.id, {
+                  timeframe: (e.target.value || undefined) as
+                    TechTimeframe | undefined,
+                })
+              }
+            >
+              <option value="">
+                Chart's ({TIMEFRAMES.find((t) => t.value === timeframe)?.label})
+              </option>
+              {TIMEFRAMES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
           {editingIndicator.params.map((param) => (
             <label key={param.name}>
               {param.label}
@@ -2053,7 +2115,7 @@ export function IndexChart({
       <div className="chart-foot">
         {strategyPreview && (strategy?.otherPicks.length ?? 0) > 0 && (
           <span className="chart-other-picks">
-            On other candles:{" "}
+            Drawn from other candles; show them:{" "}
             {strategy?.otherPicks.map((pick, index) => (
               <ChartChip
                 key={index}

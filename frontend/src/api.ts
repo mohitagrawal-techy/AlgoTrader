@@ -792,6 +792,9 @@ export interface TechOperand {
   field?: string | null;
   /** 0 is the latest candle. */
   bars_ago?: number;
+  /** The candles this side is read on, when not the rule's own; bars_ago counts these. */
+  timeframe?: TechTimeframe;
+  candles?: CandleType;
 }
 
 export type RuleJoin = "and" | "or";

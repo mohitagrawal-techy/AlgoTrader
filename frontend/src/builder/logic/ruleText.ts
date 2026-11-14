@@ -18,6 +18,12 @@ export function operandText(
   const field = indicator.fields.find((f) => f.value === operand.field);
   if (field) text += ` ${field.label}`;
   if (operand.bars_ago) text += `, ${operand.bars_ago} candles ago`;
+  if (operand.timeframe) {
+    const frame =
+      catalog.timeframes.find((t) => t.value === operand.timeframe)?.label ??
+      operand.timeframe;
+    text += ` (${frame.toLowerCase()}${operand.candles === "heikin_ashi" ? " Heikin-Ashi" : ""})`;
+  }
   return text;
 }
 

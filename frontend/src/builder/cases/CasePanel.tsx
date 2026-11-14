@@ -95,6 +95,7 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
           rules={c.rules}
           problems={visible}
           intraday={intraday}
+          onAddPick={b.picks.addPick}
           prefix={`${prefix}rule`}
           title="Entry signal"
           onChange={c.setRules}
@@ -113,6 +114,7 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
               rules={c.anyRules}
               problems={visible}
               intraday={intraday}
+              onAddPick={b.picks.addPick}
               prefix={`${prefix}any-rule`}
               title="Any one of these"
               onChange={c.setAnyRules}
@@ -159,6 +161,7 @@ export function CasePanel({ b }: { b: ReadyBuilder }) {
             rules={c.exitRules}
             problems={visible}
             intraday={intraday}
+            onAddPick={b.picks.addPick}
             prefix={`${prefix}exit-rule`}
             title="Exit signal"
             onChange={c.setExitRules}

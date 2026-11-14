@@ -25,7 +25,7 @@ from typing import Annotated, Literal
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_serializer, model_validator
 
 from algoverse.analytics.regime import rsi
 
@@ -1632,6 +1632,10 @@ PATTERNS: dict[str, Pattern] = {
 # ---- Rules ---------------------------------------------------------------------------------
 
 
+CandleType = Literal["normal", "heikin_ashi"]
+CANDLE_TYPES = {"normal": "Normal", "heikin_ashi": "Heikin-Ashi"}
+
+
 class Operand(BaseModel):
     """A number, or an indicator read `bars_ago` candles back (0 is the latest)."""
 
@@ -1641,6 +1645,19 @@ class Operand(BaseModel):
     params: dict[str, float] = Field(default_factory=dict)
     field: str | None = None
     bars_ago: int = Field(default=0, ge=0, le=MAX_BARS_AGO)
+    # The candles this side is read on, when not the rule's own: "5-minute close above the
+    # 15-minute opening range". `bars_ago` counts these candles.
+    timeframe: Timeframe | None = None
+    candles: CandleType | None = None
+
+    @model_serializer(mode="wrap")
+    def _dump(self, handler):
+        # Left out when unset, so strategies saved before keep the same signature.
+        data = handler(self)
+        for key in ("timeframe", "candles"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        return data
 
     @model_validator(mode="after")
     def _check(self) -> Operand:
@@ -1671,10 +1688,6 @@ class Operand(BaseModel):
         return self
 
 
-CandleType = Literal["normal", "heikin_ashi"]
-CANDLE_TYPES = {"normal": "Normal", "heikin_ashi": "Heikin-Ashi"}
-
-
 # How a rule joins the one before it in an entry list. "and" binds before "or", so
 # "A and B or C" holds when A and B both hold, or when C does. The first rule's is ignored.
 Join = Literal["and", "or"]
@@ -1697,7 +1710,8 @@ class CompareRule(BaseModel):
             raise ValueError("a rule needs at least one indicator")
         for operand in (self.left, self.right):
             indicator = INDICATORS.get(operand.name or "")
-            if indicator and indicator.intraday_only and self.timeframe not in INTRADAY_MINUTES:
+            frame = operand.timeframe or self.timeframe
+            if indicator and indicator.intraday_only and frame not in INTRADAY_MINUTES:
                 raise ValueError(f"{indicator.label} needs minute or hourly candles")
         return self
 
@@ -1725,8 +1739,16 @@ TechRule = Annotated[CompareRule | PatternRule, Field(discriminator="type")]
 # ---- Evaluation ----------------------------------------------------------------------------
 
 
+def rule_frames(rule) -> set[str]:
+    """Every timeframe a rule reads: its own, and any a side of it is read on."""
+    frames = {rule.timeframe}
+    if isinstance(rule, CompareRule):
+        frames |= {o.timeframe for o in (rule.left, rule.right) if o.timeframe}
+    return frames
+
+
 def needs_minutes(rules) -> bool:
-    return any(rule.timeframe in INTRADAY_MINUTES for rule in rules)
+    return any(frame in INTRADAY_MINUTES for rule in rules for frame in rule_frames(rule))
 
 
 IST_OFFSET_MS = 19_800_000
@@ -1806,6 +1828,31 @@ def resample(daily: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     )
 
 
+def bar_ends(frame: pd.DataFrame, timeframe: str) -> np.ndarray:
+    """When each candle finishes, in minutes on the Indian wall clock: a minute candle after its
+    length, or at the session close if that is sooner; a daily, weekly or monthly candle at the
+    close of its last session (weekly and monthly candles are stamped with that session)."""
+    if frame.empty:
+        return np.array([], dtype=np.int64)
+    wall = _wall_minutes(frame["ts"])
+    close = wall // 1440 * 1440 + SESSION_END_MIN
+    if timeframe in INTRADAY_MINUTES:
+        return np.minimum(wall + INTRADAY_MINUTES[timeframe], close)
+    return close
+
+
+def aligned(values: pd.Series, source_ends: np.ndarray, target_ends: np.ndarray) -> np.ndarray:
+    """Values from other candles placed on a target's: at each target candle, the value of the
+    latest source candle finished by the time that target candle finishes. A daily average
+    read on 15-minute candles therefore steps once a day, after the close."""
+    if len(source_ends) == 0:
+        return np.full(len(target_ends), np.nan)
+    order = np.argsort(source_ends, kind="stable")
+    at = np.searchsorted(source_ends[order], target_ends, side="right") - 1
+    picked = values.to_numpy(float)[order][np.maximum(at, 0)]
+    return np.where(at >= 0, picked, np.nan)
+
+
 class Frames:
     """Candles per timeframe and indicator series, computed once per decision."""
 
@@ -1814,6 +1861,7 @@ class Frames:
         self.minutes = minutes if minutes is not None else pd.DataFrame()
         self._frames: dict[tuple[str, str], pd.DataFrame] = {}
         self._series: dict[tuple, pd.Series] = {}
+        self._ends: dict[tuple[str, str], np.ndarray] = {}
 
     def frame(self, timeframe: str, candles: str = "normal") -> pd.DataFrame:
         key = (timeframe, candles)
@@ -1842,11 +1890,41 @@ class Frames:
                 self._series[key] = result
         return self._series[(*key, operand.field)] if operand.field else self._series[key]
 
+    def ends(self, timeframe: str, candles: str = "normal") -> np.ndarray:
+        key = (timeframe, candles)
+        if key not in self._ends:
+            self._ends[key] = bar_ends(self.frame(timeframe, candles), timeframe)
+        return self._ends[key]
+
+    def on(self, timeframe: str, operand: Operand, candles: str = "normal") -> pd.Series:
+        """An indicator operand at every candle of a rule's timeframe, read `bars_ago` back on
+        its own candles, as known when each rule candle finished."""
+        own = (operand.timeframe or timeframe, operand.candles or candles)
+        values = self.series(own[0], operand, own[1]).astype(float).shift(operand.bars_ago)
+        if own == (timeframe, candles):
+            return values
+        placed = aligned(values, self.ends(*own), self.ends(timeframe, candles))
+        return pd.Series(placed, index=self.frame(timeframe, candles).index)
+
     def value(
         self, timeframe: str, operand: Operand, extra_back: int = 0, candles: str = "normal"
     ) -> float | None:
         if operand.kind == "value":
             return operand.value
+        own = (operand.timeframe or timeframe, operand.candles or candles)
+        if own != (timeframe, candles):
+            # Read on other candles: the latest of those finished when the rule's candle did.
+            target = self.ends(timeframe, candles)
+            position = len(target) - 1 - extra_back
+            if position < 0:
+                return None
+            source = self.ends(*own)
+            at = int(np.searchsorted(source, target[position], side="right")) - 1
+            at -= operand.bars_ago
+            if at < 0:
+                return None
+            found = self.series(own[0], operand, own[1]).iloc[at]
+            return None if pd.isna(found) else float(found)
         values = self.series(timeframe, operand, candles)
         position = len(values) - 1 - operand.bars_ago - extra_back
         if position < 0:
@@ -1867,6 +1945,9 @@ def operand_text(operand: Operand) -> str:
         text += f" {indicator.fields[operand.field]}"
     if operand.bars_ago:
         text += f" {operand.bars_ago} candles ago"
+    if operand.timeframe:
+        kind = " Heikin-Ashi" if operand.candles == "heikin_ashi" else ""
+        text += f" ({TIMEFRAMES[operand.timeframe].lower()}{kind})"
     return text
 
 
@@ -1924,10 +2005,12 @@ def _stale_session(rule: CompareRule, frames: Frames) -> bool:
     today = last_minute_day(frames)
     if not session or today is None:
         return False
-    candles = frames.frame(rule.timeframe, rule.candles)
-    back = max(operand.bars_ago for operand in session)
-    started = _candle_time(candles, back)
-    return started is None or date(1970, 1, 1) + timedelta(days=started // 86400) != today
+    for operand in session:
+        candles = frames.frame(operand.timeframe or rule.timeframe, operand.candles or rule.candles)
+        started = _candle_time(candles, operand.bars_ago)
+        if started is None or date(1970, 1, 1) + timedelta(days=started // 86400) != today:
+            return True
+    return False
 
 
 def rule_groups(rules: list) -> list[list]:
@@ -1968,10 +2051,10 @@ def rule_failure(rule: CompareRule | PatternRule, frames: Frames) -> str | None:
     """Why the rule does not hold now, or None when it holds."""
     label = f"entry rule: {rule_text(rule)}"
     kind = rule.candles
-    if rule.timeframe in INTRADAY_MINUTES:
-        if frames.minutes.empty:
-            return f"{label} needs one-minute candles"
-    elif frames.daily.empty:
+    used = rule_frames(rule)
+    if any(frame in INTRADAY_MINUTES for frame in used) and frames.minutes.empty:
+        return f"{label} needs one-minute candles"
+    if any(frame not in INTRADAY_MINUTES for frame in used) and frames.daily.empty:
         return f"{label} has no price history"
     if isinstance(rule, PatternRule):
         candles = frames.frame(rule.timeframe, kind)

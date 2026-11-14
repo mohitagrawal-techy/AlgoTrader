@@ -5,7 +5,15 @@ import type {
   TechOperand,
   TechRule,
 } from "../../api";
-import { operandPick, pickStandardText } from "../logic/picks";
+import {
+  normalPick,
+  onRuleCandles,
+  operandPick,
+  pickKey,
+  pickStandardText,
+  pickText,
+  readOn,
+} from "../logic/picks";
 import { patternOperand, type RuleHelpers } from "../logic/ruleDefaults";
 import { Button, Select } from "../../components/ui";
 import { OperandPicker } from "./OperandPicker";
@@ -27,6 +35,7 @@ export function ConditionRow({
   problems,
   onChange,
   onRemove,
+  onAddPick,
 }: {
   id: string;
   index: number;
@@ -37,6 +46,9 @@ export function ConditionRow({
   problems: Record<string, string>;
   onChange: (rule: TechRule) => void;
   onRemove: () => void;
+  /** Adds an indicator to the strategy's Indicators, for one a condition reads but is not
+   * there yet. */
+  onAddPick?: (pick: IndicatorPick) => void;
 }) {
   const strays = helpers.strays(rule);
   const frameOf = (chosen?: IndicatorPick) =>
@@ -46,8 +58,34 @@ export function ConditionRow({
           candles: chosen.candles ?? "normal",
         }
       : {};
-  const withPick = (next: Partial<TechRule>, chosen?: IndicatorPick) =>
-    onChange({ ...rule, ...next, ...frameOf(chosen) } as TechRule);
+  type Compare = Extract<TechRule, { type: "compare" }>;
+  const ruleFrame = { timeframe: rule.timeframe, candles: rule.candles };
+  // The Value's candles are the rule's: the condition is checked as each of them finishes.
+  // Compared with may read other candles, such as a 15-minute opening range under a 5-minute
+  // close; it keeps its own when the Value moves to other candles.
+  const setLeft = (left: TechOperand, chosen?: IndicatorPick) => {
+    if (rule.type !== "compare") return;
+    const frame = chosen ? frameOf(chosen) : ruleFrame;
+    const rightOn = {
+      timeframe: rule.right.timeframe ?? rule.timeframe,
+      candles: rule.right.candles ?? rule.candles,
+    };
+    onChange({
+      ...rule,
+      ...frame,
+      left: onRuleCandles(left),
+      right: readOn(rule.right, rightOn, frame as typeof ruleFrame),
+    } as Compare);
+  };
+  const setRight = (right: TechOperand, chosen?: IndicatorPick) => {
+    if (rule.type !== "compare") return;
+    onChange({
+      ...rule,
+      right: chosen
+        ? readOn(right, frameOf(chosen) as typeof ruleFrame, ruleFrame)
+        : onRuleCandles(right),
+    });
+  };
   // A pattern picked as the value makes a pattern condition; anything else, a comparison.
   const toPattern = (chosen: IndicatorPick) =>
     onChange({
@@ -91,7 +129,7 @@ export function ConditionRow({
               problems={problems}
               picked={picked}
               frame={rule}
-              onChange={(left, chosen) => withPick({ left }, chosen)}
+              onChange={setLeft}
               onPattern={toPattern}
             />
             <Select
@@ -119,7 +157,7 @@ export function ConditionRow({
               problems={problems}
               picked={picked}
               frame={rule}
-              onChange={(right, chosen) => withPick({ right }, chosen)}
+              onChange={setRight}
             />
           </>
         ) : (
@@ -159,18 +197,53 @@ export function ConditionRow({
           onClick={onRemove}
         />
       </div>
-      {strays.length > 0 && (
-        <p className="text-[12.5px] text-accent-ink">
-          {strays
-            .map((operand) =>
-              pickStandardText(catalog, operandPick(operand, rule)),
-            )
-            .join(" and ")}{" "}
-          {strays.length === 1 ? "is" : "are"} not among the strategy's
-          indicators on these candles. Choose one from the list, or add it under
-          Indicators.
-        </p>
-      )}
+      {strays.map((operand) => {
+        const wanted = normalPick(
+          catalog,
+          operand.name ?? "",
+          operand.params,
+          operandPick(operand, rule),
+        );
+        // The same indicator, with the same settings, picked on other candles.
+        const elsewhere = picked.filter(
+          (pick) =>
+            pickKey(catalog, {
+              ...pick,
+              timeframe: rule.timeframe,
+              candles: rule.candles ?? "normal",
+            }) === pickKey(catalog, wanted),
+        );
+        return (
+          <div
+            key={pickKey(catalog, wanted)}
+            className="flex flex-wrap items-center gap-2 text-[12.5px] text-accent-ink"
+          >
+            <span>
+              {pickStandardText(catalog, wanted)} is not in Indicators.
+            </span>
+            {elsewhere.map((pick) => (
+              <Button
+                key={pickKey(catalog, pick)}
+                size="sm"
+                onClick={() =>
+                  rule.type === "compare" && operand === rule.right
+                    ? setRight(rule.right, pick)
+                    : rule.type === "compare"
+                      ? setLeft(rule.left, pick)
+                      : onChange({ ...rule, ...frameOf(pick) } as TechRule)
+                }
+              >
+                Use {pickText(catalog, pick)}
+              </Button>
+            ))}
+            {onAddPick && (
+              <Button size="sm" onClick={() => onAddPick(wanted)}>
+                Add it to Indicators
+              </Button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

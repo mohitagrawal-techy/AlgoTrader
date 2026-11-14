@@ -107,10 +107,23 @@ export function usePicks(
       operand.kind === "indicator" &&
       operand.name === old.name &&
       keyOf(operandPick(operand, rule)) === oldKey;
+    // A side that names its own candles moves to the new ones; one on the rule's candles moves
+    // the rule.
     const swap = (operand: TechOperand, rule: TechRule): TechOperand =>
       reads(operand, rule)
-        ? { ...operand, params: { ...next.params } }
+        ? {
+            ...operand,
+            params: { ...next.params },
+            ...(operand.timeframe
+              ? {
+                  timeframe: next.timeframe ?? "1d",
+                  candles: next.candles ?? "normal",
+                }
+              : {}),
+          }
         : operand;
+    const movesRule = (operand: TechOperand, rule: TechRule) =>
+      reads(operand, rule) && !operand.timeframe;
     const move = (rule: TechRule): TechRule =>
       rule.type === "pattern"
         ? keyOf(patternPick(rule)) === oldKey
@@ -127,8 +140,12 @@ export function usePicks(
               ...rule,
               left: swap(rule.left, rule),
               right: swap(rule.right, rule),
-              timeframe: next.timeframe ?? "1d",
-              candles: next.candles ?? "normal",
+              ...(movesRule(rule.left, rule) || movesRule(rule.right, rule)
+                ? {
+                    timeframe: next.timeframe ?? "1d",
+                    candles: next.candles ?? "normal",
+                  }
+                : {}),
             }
           : rule;
     setSpec((current) => ({
