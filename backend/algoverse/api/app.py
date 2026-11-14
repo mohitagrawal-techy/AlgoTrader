@@ -33,6 +33,7 @@ from algoverse.market.index_details import save_constituents
 from algoverse.market.sectors import SectorListError, parse_sector_csv, save_sector_list
 from algoverse.market.strike import strike_history
 from algoverse.market.underlying import underlying_view
+from algoverse.research.service import ResearchError
 from algoverse.risk.monitor import exposure_by_symbol, portfolio_stress
 from algoverse.runtime import Runtime
 from algoverse.settings import REPO_ROOT, Settings, get_settings
@@ -140,6 +141,11 @@ class LabTuneRequest(BaseModel):
     per_round: int | None = Field(default=None, ge=1, le=10)
     guidance: str = Field(default="", max_length=500)
     use_ai: bool = True
+
+
+class ResearchMlRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=20)
+    horizon: int = Field(default=1, ge=1, le=20)
 
 
 class LabSearchRequest(BaseModel):
@@ -560,6 +566,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _require_dashboard(x_algoverse_client)
         saved = _lab(lambda: runtime.lab.save_tuned(session_id, body.node_id, datetime.now(IST)))
         return {"id": saved}
+
+    def _research(action):
+        try:
+            return action()
+        except ResearchError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/research")
+    def research(symbol: str = "NIFTY") -> dict:
+        """Read-only market studies from stored candles."""
+        return _research(lambda: runtime.research.studies(symbol))
+
+    @app.get("/api/research/job")
+    def research_job() -> dict:
+        return {"job": runtime.research.job}
+
+    @app.post("/api/research/ml")
+    def research_ml(
+        body: ResearchMlRequest, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        _require_dashboard(x_algoverse_client)
+        return _research(
+            lambda: runtime.research.start_ml(body.symbol, body.horizon, datetime.now(IST))
+        )
 
     @app.get("/api/lab/job")
     def lab_job() -> dict:

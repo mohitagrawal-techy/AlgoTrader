@@ -34,11 +34,13 @@ class CostModel:
             raise ValueError(f"No cost schedule covers {on}")
         return eligible[-1]
 
-    def order(self, is_buy: bool, price: float, units: float, on: date) -> float:
-        """Total charges for one executed option order."""
+    def order(self, is_buy: bool, price: float, units: float, on: date, orders: int = 1) -> float:
+        """Total charges for executing `units` of one option, split into `orders` orders.
+
+        Brokerage is per order; the other charges follow the premium, however it is split."""
         rates = self.rates(on)
         premium = price * units
-        brokerage = rates.brokerage_per_order
+        brokerage = rates.brokerage_per_order * max(orders, 1)
         exchange = premium * rates.exchange_pct / 100
         sebi = premium * rates.sebi_pct / 100
         gst = (brokerage + exchange + sebi) * rates.gst_pct / 100

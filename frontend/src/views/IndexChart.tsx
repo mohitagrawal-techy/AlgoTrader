@@ -69,6 +69,7 @@ interface Saved {
 
 const STORAGE_KEY = "algoverse.chart.v1";
 const TIMEFRAMES: { value: TechTimeframe; label: string }[] = [
+  { value: "1m", label: "1m" },
   { value: "5m", label: "5m" },
   { value: "15m", label: "15m" },
   { value: "1h", label: "1h" },
@@ -76,7 +77,7 @@ const TIMEFRAMES: { value: TechTimeframe; label: string }[] = [
   { value: "1w", label: "1W" },
   { value: "1mo", label: "1M" },
 ];
-const MINUTES = new Set<TechTimeframe>(["5m", "15m", "1h"]);
+const MINUTES = new Set<TechTimeframe>(["1m", "5m", "15m", "1h"]);
 const RANGES = [
   { sessions: 5, label: "1W" },
   { sessions: 10, label: "2W" },
@@ -87,6 +88,7 @@ const RANGES = [
   { sessions: 500, label: "2Y" },
 ];
 const DEFAULT_RANGE: Partial<Record<TechTimeframe, number>> = {
+  "1m": 2,
   "5m": 10,
   "15m": 21,
   "1h": 63,

@@ -29,6 +29,7 @@ from algoverse.forward.runs import ForwardManager
 from algoverse.lab.service import LabService
 from algoverse.market.assistant import AssistantService
 from algoverse.market.overview import OverviewService, load_market_config
+from algoverse.research.service import ResearchService
 from algoverse.risk.config import load_risk_config
 from algoverse.risk.costs import load_cost_model
 from algoverse.settings import Settings, get_settings, load_calendar_config, load_universe
@@ -48,9 +49,7 @@ def organise_storage(settings: Settings | None = None) -> None:
     compact_chains(settings.data_dir, datetime.now(IST))
     universe = load_universe(settings.config_dir)
     store = SnapshotStore(settings.data_dir, universe.reference_indices)
-    result = migrate_flat_layout(
-        settings.data_dir, lambda name: resolve_name(name, store.aliases)
-    )
+    result = migrate_flat_layout(settings.data_dir, lambda name: resolve_name(name, store.aliases))
     if result.moved:
         log.info("Moved %s candle files into the organised layout", result.moved)
 
@@ -112,6 +111,10 @@ class Runtime:
         return LabService(
             self.settings.data_dir, self.settings.config_dir, self.settings.ai_enabled
         )
+
+    @cached_property
+    def research(self) -> ResearchService:
+        return ResearchService(self.settings.data_dir, self.settings.config_dir)
 
     @cached_property
     def forward(self) -> ForwardManager:

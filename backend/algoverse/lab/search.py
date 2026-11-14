@@ -355,7 +355,8 @@ def run_search(
         batch = [study.ask(distributions) for _ in range(min(batch_size, total - len(trials)))]
         candidates = []
         for trial in batch:
-            values = {path: trial.params[path] for path in distributions}
+            by_path = {param.path: param for param in params}
+            values = {path: by_path[path].clip(trial.params[path]) for path in distributions}
             candidates.append((trial, values, apply_values(spec, values)))
         valid = [child for _, _, child in candidates if child is not None]
         scores = iter(searcher.design_scores(valid))

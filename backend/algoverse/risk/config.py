@@ -74,6 +74,11 @@ class RiskConfig(BaseModel):
     # Structures with no bounded loss, such as a naked short straddle or strangle. Off unless
     # risk.yaml switches them on.
     allow_unlimited_risk: bool = False
+    # Units one exchange order may hold, per underlying. Bigger orders are split into slices,
+    # each a separate order with its own brokerage. An underlying not listed is never split.
+    freeze_quantity: dict[str, int] = Field(default_factory=dict)
+    # The most slices one leg may be split into; lots are capped to fit.
+    max_order_slices: int = Field(default=10, ge=1, le=100)
     stop_gap_buffer: float = Field(ge=1)
     stress: StressConfig
     margin: MarginConfig
@@ -82,6 +87,13 @@ class RiskConfig(BaseModel):
 
     def amount(self, pct: float) -> float:
         return self.capital * pct / 100
+
+    def order_slices(self, symbol: str, units: int) -> int:
+        """Orders needed to trade `units` of one contract, within the freeze quantity."""
+        limit = self.freeze_quantity.get(symbol)
+        if not limit or units <= 0:
+            return 1
+        return -(-int(units) // int(limit))
 
 
 def load_risk_config(config_dir: Path) -> RiskConfig:

@@ -27,6 +27,7 @@ from algoverse.lab.technical import (
     rule_failure,
     rule_text,
 )
+from algoverse.research.ml import probability as ml_probability
 from algoverse.risk.config import ExitRule
 from algoverse.strategies.base import BUY, SELL, Candidate, ExpiryView, make_leg
 
@@ -54,6 +55,7 @@ SignalName = Literal[
     "adx",
     "gap_pct",
     "range_pct",
+    "ml_prob_up",
 ]
 SIGNALS = {
     "iv_rank": "IV rank (0 to 100)",
@@ -68,6 +70,7 @@ SIGNALS = {
     "adx": "ADX trend strength",
     "gap_pct": "Latest session's opening gap, %",
     "range_pct": "Latest session's range, %",
+    "ml_prob_up": "ML chance the index closes up next (0 to 1), walk-forward",
 }
 DecideEvery = Literal["day", "5m", "15m", "1h"]
 DECIDE_MINUTES = {"5m": 5, "15m": 15, "1h": 60}
@@ -667,6 +670,9 @@ def signal_value(name: str, ctx: MarketContext, front_expiry: date | None) -> fl
         return ctx.term_slope
     if name in ("adx", "gap_pct", "range_pct"):
         return getattr(regime, name) if regime else None
+    if name == "ml_prob_up":
+        # Saved walk-forward probabilities: each from a model that never saw that session.
+        return ml_probability(ctx.symbol, ctx.now.date(), ctx.now.time() >= SESSION_LAST)
     if stats is None:
         return None
     if name == "iv_minus_rv":
@@ -986,7 +992,7 @@ class CustomSet:
             if spec.symbols and ctx.symbol not in spec.symbols:
                 continue
             limits = self.limit_failures(spec, ctx.now.date())
-            scale = volatility_scale(spec.budget, ctx.bars)
+            scale = volatility_scale(spec.budget, getattr(ctx, "bars", pd.DataFrame()))
             for case, variant in enumerate(variants(spec)):
                 key = (spec.id, ctx.symbol, case)
                 wait = self.waiting.get(key)

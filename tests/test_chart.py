@@ -97,7 +97,7 @@ def test_studies_split_into_price_overlays_and_their_own_panes():
     overlays = {line["field"]: line["overlay"] for line in bands["lines"]}
     assert overlays == {"upper": True, "middle": True, "lower": True}
     assert not rsi["lines"][0]["overlay"]
-    assert "needs 5-minute" in orb["error"] and "between 2 and 400" in bad["error"]
+    assert "needs minute" in orb["error"] and "between 2 and 400" in bad["error"]
 
 
 def test_minute_charts_show_recent_sessions_in_ist_wall_time():

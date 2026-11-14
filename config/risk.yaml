@@ -1,4 +1,4 @@
-capital: 500000
+capital: 100000
 
 # Limits, as percent of capital.
 max_loss_per_trade_pct: 1.0
@@ -18,6 +18,14 @@ max_open_positions: 5
 # are rejected by the risk engine, in paper trading and in every backtest.
 allow_unlimited_risk: false
 max_lots_per_trade: 10
+# Exchange freeze quantity: the most units one order may hold, from the Upstox instrument
+# master on 2026-11-11. A bigger order is split into slices, each charged brokerage, and lots
+# are capped so no leg needs more than max_order_slices slices.
+freeze_quantity:
+  NIFTY: 1755
+  BANKNIFTY: 900
+  FINNIFTY: 1800
+max_order_slices: 10
 
 # Multiplier on the stop distance, because stops can fill worse than planned.
 stop_gap_buffer: 1.25

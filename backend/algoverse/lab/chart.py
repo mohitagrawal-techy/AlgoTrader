@@ -34,7 +34,7 @@ MAX_STUDIES = 24
 # Daily candles since 2000 are about 6,700; a year of 5-minute candles is about 19,000.
 MAX_CANDLES = 20_000
 # Sessions shown by default on minute charts, and the most that can be asked for.
-DEFAULT_SESSIONS = {"5m": 10, "15m": 30, "1h": 90}
+DEFAULT_SESSIONS = {"1m": 3, "5m": 10, "15m": 30, "1h": 90}
 MAX_SESSIONS = 500
 # Extra sessions read before the first one shown, so indicators are warmed up: a 400-candle
 # average on hourly candles needs about 60 sessions.
@@ -56,7 +56,7 @@ class ChartCase(BaseModel):
 
 class ChartRequest(BaseModel):
     symbol: str = Field(min_length=1, max_length=20)
-    timeframe: Literal["5m", "15m", "1h", "1d", "1w", "1mo"] = "1d"
+    timeframe: Literal["1m", "5m", "15m", "1h", "1d", "1w", "1mo"] = "1d"
     candles: CandleType = "normal"
     sessions: int | None = Field(default=None, ge=1, le=MAX_SESSIONS)
     studies: list[Study] = Field(default_factory=list, max_length=MAX_STUDIES)
@@ -124,7 +124,7 @@ def _study(frames: Frames, request: ChartRequest, study: Study, keep: slice) -> 
     if indicator.intraday_only and request.timeframe not in INTRADAY_MINUTES:
         return base | {
             "label": indicator.label,
-            "error": f"{indicator.label} needs 5-minute, 15-minute or hourly candles",
+            "error": f"{indicator.label} needs minute or hourly candles",
             "lines": [],
         }
     params = {p.name: study.params.get(p.name, p.default) for p in indicator.params}

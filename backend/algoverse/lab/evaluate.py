@@ -34,6 +34,7 @@ from algoverse.lab.spec import (
     signature,
     with_budget,
 )
+from algoverse.research.ml import activate as activate_ml
 
 HELD_UP = "held_up"
 UNPROVEN = "unproven"
@@ -107,6 +108,9 @@ def _run(task: tuple) -> dict:
     days: set = set()
     history, base, reference = _load(data_dir, config_dir)
     spec = StrategySpec.model_validate_json(spec_json)
+    if any(c.signal == "ml_prob_up" for c in spec.entry.conditions):
+        # Read fresh each run, so a new ML study applies without a restart.
+        activate_ml(Path(data_dir), base.backtest.symbols)
     services = with_budget(apply_specs(base, [spec]), spec)
     custom = CustomSet([spec])
     outcomes: Counter = Counter()

@@ -27,8 +27,9 @@ from pydantic import BaseModel, Field, model_validator
 
 from algoverse.analytics.regime import rsi
 
-Timeframe = Literal["5m", "15m", "1h", "1d", "1w", "1mo"]
+Timeframe = Literal["1m", "5m", "15m", "1h", "1d", "1w", "1mo"]
 TIMEFRAMES: dict[str, str] = {
+    "1m": "1-minute",
     "5m": "5-minute",
     "15m": "15-minute",
     "1h": "Hourly",
@@ -37,7 +38,10 @@ TIMEFRAMES: dict[str, str] = {
     "1mo": "Monthly",
 }
 # Intraday candles start at the 09:15 open, so an hourly candle runs 09:15 to 10:15.
-INTRADAY_MINUTES = {"5m": 5, "15m": 15, "1h": 60}
+# One-minute rules read the index's own one-minute candles. Decisions still come at most
+# every 5 minutes, because option prices are 5-minute bars: a decision between bars would
+# trade at a price from before the signal.
+INTRADAY_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
 SESSION_START = pd.Timedelta(hours=9, minutes=15)
 MAX_BARS_AGO = 50
 
@@ -1684,7 +1688,7 @@ class CompareRule(BaseModel):
         for operand in (self.left, self.right):
             indicator = INDICATORS.get(operand.name or "")
             if indicator and indicator.intraday_only and self.timeframe not in INTRADAY_MINUTES:
-                raise ValueError(f"{indicator.label} needs 5-minute, 15-minute or hourly candles")
+                raise ValueError(f"{indicator.label} needs minute or hourly candles")
         return self
 
 

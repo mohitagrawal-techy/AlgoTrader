@@ -779,7 +779,7 @@ export interface LabCondition {
   value: number;
 }
 
-export type TechTimeframe = "5m" | "15m" | "1h" | "1d" | "1w" | "1mo";
+export type TechTimeframe = "1m" | "5m" | "15m" | "1h" | "1d" | "1w" | "1mo";
 export type DecideEvery = "day" | "5m" | "15m" | "1h";
 export type ExitUnit = "premium" | "rupees" | "points";
 export type CandleType = "normal" | "heikin_ashi";
@@ -1284,6 +1284,107 @@ export interface DossierSection {
   table?: { columns: string[]; rows: string[][] } | null;
 }
 
+type PairWindow = {
+  sessions: number;
+  trades?: number;
+  total_return_pct?: number;
+  sharpe?: number | null;
+  max_drawdown_pct?: number;
+  win_share?: number | null;
+  time_in_market?: number;
+  start?: string;
+};
+
+export interface PairStudy {
+  names: string[];
+  sessions: number;
+  error?: string;
+  start?: string;
+  end?: string;
+  hedge_ratio?: number;
+  adf_t?: number | null;
+  cointegrated_at?: string | null;
+  half_life_sessions?: number | null;
+  latest_z?: number | null;
+  rules?: { lookback: number; z_window: number; entry_z: number; exit_z: number; cost_bps: number };
+  train?: PairWindow;
+  test?: PairWindow;
+  equity?: { day: string; value: number }[];
+  test_start?: string;
+}
+
+type MlWindow = {
+  sessions: number;
+  total_return_pct: number;
+  sharpe: number | null;
+  psr: number | null;
+  max_drawdown_pct: number;
+  hit_rate: number | null;
+  time_in_market: number;
+};
+
+export interface MlStudy {
+  symbol: string;
+  run_at: string;
+  horizon: number;
+  features: string[];
+  folds: { train_end: string; test_start: string; test_end: string; train_sessions: number }[];
+  sessions_tested: number;
+  start: string;
+  end: string;
+  ml: MlWindow & { accuracy: number; auc: number | null; log_loss: number; base_rate: number };
+  rules: (MlWindow & { name: string })[];
+  best_rule: string;
+  prob_better_than_best: number;
+  adopted: boolean;
+  importance: { feature: string; importance: number }[];
+  latest: { day: string; prob_up: number };
+  rules_note: string;
+  equity: { day: string; ml: number; best_rule: number }[];
+}
+
+type IvStudy = {
+  points: { month: string; implied: number; trailing: number; following: number | null }[];
+  sessions: number;
+  start?: string;
+  end?: string;
+  mean_premium?: number | null;
+  premium_positive_share?: number | null;
+  latest?: { implied: number; trailing: number } | null;
+  window?: number;
+};
+
+export interface ResearchPayload {
+  symbol: string;
+  symbols: string[];
+  time_of_day: {
+    rows: { slot: string; mean_pct: number; up_share: number; abs_pct: number; sessions: number }[];
+    sessions: number;
+    start: string | null;
+    end: string | null;
+  };
+  vix_vs_rv: IvStudy | null;
+  atm_iv_vs_rv: IvStudy | null;
+  atm_iv_sessions: number;
+  correlations: { names: string[]; matrix: number[][]; sessions: number; start?: string; end?: string };
+  rolling_correlation: { other: string; points: { week: string; corr: number }[] } | null;
+  gaps: {
+    rows: {
+      label: string;
+      sessions: number;
+      filled_share?: number;
+      held_share?: number;
+      mean_gap_pct?: number;
+      median_fill_minutes?: number | null;
+    }[];
+    sessions: number;
+    start?: string;
+    end?: string;
+  };
+  pairs: PairStudy[];
+  ml: MlStudy | null;
+}
+
 export interface Dossier {
   sections: DossierSection[];
   notes_written_at: string | null;
@@ -1608,6 +1709,11 @@ export const api = {
     sendJson<ReplayData>("/api/lab/replay", "POST", body),
   labAutopilot: (body: AutopilotSettings) => sendJson<unknown>("/api/lab/autopilot", "POST", body),
   labAutopilotStop: () => sendJson<unknown>("/api/lab/autopilot/stop", "POST"),
+  research: (symbol: string) =>
+    getJson<ResearchPayload>(`/api/research?symbol=${encodeURIComponent(symbol)}`),
+  researchJob: () => getJson<{ job: JobInfo | null }>("/api/research/job"),
+  researchMl: (symbol: string, horizon: number) =>
+    sendJson<JobInfo>("/api/research/ml", "POST", { symbol, horizon }),
   labJob: () => getJson<{ job: (JobInfo & { kind?: string; search_id?: string; spec_id?: string }) | null }>("/api/lab/job"),
   labSearchSpace: (id: string) =>
     getJson<SearchSpace>(`/api/lab/strategies/${encodeURIComponent(id)}/search`),

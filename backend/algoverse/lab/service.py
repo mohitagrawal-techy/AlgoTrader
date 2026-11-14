@@ -65,6 +65,7 @@ from algoverse.lab.spec import (
     structure_problems,
 )
 from algoverse.lab.stages import STAGES, grade
+from algoverse.lab.technical import INTRADAY_MINUTES
 from algoverse.lab.technical import catalog as technical_catalog
 from algoverse.lab.tuner import (
     Scorer,
@@ -1045,7 +1046,7 @@ class LabService:
         if request.symbol not in allowed:
             raise LabError(f"Choose one of {', '.join(allowed)}.")
         store = SnapshotStore(self.data_dir)
-        intraday = request.timeframe in ("5m", "15m", "1h")
+        intraday = request.timeframe in INTRADAY_MINUTES
         # Index candles: daily ones from 2000 and one-minute ones from 2022 once backfilled.
         daily = pd.DataFrame() if intraday else store.read_candles(request.symbol)
         minutes = store.read_candles(request.symbol, MINUTE) if intraday else pd.DataFrame()

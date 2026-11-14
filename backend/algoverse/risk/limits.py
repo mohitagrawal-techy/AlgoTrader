@@ -91,6 +91,15 @@ def _reject(reason: str, plan: ExitPlan, structure: StructureMetrics) -> RiskDec
     return RiskDecision(False, 0, plan.planned_loss, structure.margin, (reason,))
 
 
+def slice_room(candidate: Candidate, config: RiskConfig) -> float:
+    """Most lots whose largest leg still fits in `max_order_slices` orders."""
+    limit = config.freeze_quantity.get(candidate.symbol)
+    per_lot = max((leg.ratio * leg.lot_size for leg in candidate.legs), default=0)
+    if not limit or per_lot <= 0:
+        return float("inf")
+    return config.max_order_slices * limit / per_lot
+
+
 def _size_by_budget(
     candidate: Candidate,
     structure: StructureMetrics,
@@ -106,7 +115,11 @@ def _size_by_budget(
     if candidate.size_scale < 1:
         # A volatility-sized trade spends a smaller share of the budget.
         left = min(left, config.amount(config.max_margin_use_pct) * candidate.size_scale)
-    lots = min(math.floor(left / structure.margin), config.max_lots_per_trade)
+    lots = min(
+        math.floor(left / structure.margin),
+        config.max_lots_per_trade,
+        math.floor(slice_room(candidate, config)),
+    )
     if lots <= 0:
         return _reject(
             f"budget: one lot needs {structure.margin:,.0f} and {max(left, 0):,.0f} is free",
@@ -157,6 +170,9 @@ def evaluate_risk(
         / plan.planned_loss,
         "maximum lots": float(config.max_lots_per_trade),
     }
+    slices = slice_room(candidate, config)
+    if math.isfinite(slices):
+        rooms["order slice limit"] = slices
     if structure.margin > 0:
         rooms["margin limit"] = (
             config.amount(config.max_margin_use_pct) - state.margin_used

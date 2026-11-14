@@ -27,6 +27,7 @@ import {
   RefreshCw,
   ShieldAlert,
   Table2,
+  Microscope,
 } from "lucide-react";
 import { Alert, Button, ButtonLink, Empty } from "./components/ui";
 import { AssistantProvider } from "./assistant";
@@ -43,6 +44,7 @@ import { RiskView } from "./views/Risk";
 import { StrategyEditor, type EditorRoute } from "./builder/StrategyBuilder";
 import { readStrikeRoute, StrikePage } from "./views/StrikeChart";
 import { TunerView } from "./views/Tuner";
+import { ResearchPage } from "./components/research/ResearchPage";
 
 const NAV_GROUPS = [
   {
@@ -72,6 +74,11 @@ const NAV_GROUPS = [
         id: "lab",
         label: "Strategy lab",
         icon: FlaskConical,
+      },
+      {
+        id: "research",
+        label: "Research",
+        icon: Microscope,
       },
       {
         id: "backtests",
@@ -111,6 +118,8 @@ const PAGE_SUBS: Record<string, string> = {
   market: "Chain analytics for one underlying and expiry.",
   ideas: "Trades ranked from the latest option chains.",
   lab: "Build your own strategies, then test and tune them.",
+  research:
+    "How the indices behave: time of day, volatility, correlations, gaps, pairs and an ML signal.",
   backtests: "How the idea engine would have traded past sessions.",
   history: "Every test, tuner check and ladder step run so far, newest first.",
   forward: "Locked configurations paper-trading on live data.",
@@ -469,6 +478,7 @@ export function App() {
               !loadError &&
               tab !== "overview" &&
               tab !== "history" &&
+              tab !== "research" &&
               !(tab === "market" && (shownMarket || strikeRoute)) && (
                 <Empty title="Loading…" />
               )}
@@ -481,6 +491,7 @@ export function App() {
               />
             )}
             {tab === "history" && <TestHistoryView />}
+            {tab === "research" && <ResearchPage />}
             {data && tab === "ideas" && <IdeasView ideas={data.ideas.ideas} />}
             {/* Options also falls back to the chains this browser saved, so it works offline. */}
             {tab === "market" && strikeRoute && (

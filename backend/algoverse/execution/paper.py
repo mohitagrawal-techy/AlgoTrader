@@ -333,12 +333,17 @@ class PaperBroker:
             leg.entry_price = price
             leg.mark = price
             leg.stop_price, leg.target_price = _leg_levels(leg)
-            position.entry_costs += self.costs.order(leg.side > 0, price, leg.units, now.date())
+            position.entry_costs += self._order_cost(position, leg, leg.side > 0, price, now)
         position.status = OPEN
         position.opened_at = now.isoformat()
         self.ledger.save(position)
         self.ledger.log(now, position.id, "opened", f"net debit {debit:.2f}")
         report.opened.append(position.id)
+
+    def _order_cost(self, position, leg: PaperLeg, is_buy: bool, price: float, now) -> float:
+        """Charges for one leg's order, split into slices at the freeze quantity."""
+        slices = self.risk.order_slices(position.symbol, leg.units)
+        return self.costs.order(is_buy, price, leg.units, now.date(), slices)
 
     def _exit_quote(self, leg: PaperLeg, quotes: dict) -> float | None:
         quote = quotes.get(leg.instrument_key)
@@ -358,7 +363,7 @@ class PaperBroker:
         if any(price is None for price in prices):
             return
         costs = sum(
-            self.costs.order(leg.side < 0, price, leg.units, now.date())
+            self._order_cost(position, leg, leg.side < 0, price, now)
             for leg, price in zip(position.legs, prices, strict=True)
             if not leg.closed
         )
@@ -386,7 +391,7 @@ class PaperBroker:
             if price is None:
                 return
             prices.append(price)
-            costs += self.costs.order(leg.side < 0, price, leg.units, now.date())
+            costs += self._order_cost(position, leg, leg.side < 0, price, now)
         position.settlement_estimated = estimated
         if position.exit_reason is None:
             position.exit_reason = "expiry_settlement"
@@ -450,7 +455,7 @@ class PaperBroker:
             leg.exit_price = price
             leg.mark = price
             leg.closed_at = now.isoformat()
-            position.exit_costs += self.costs.order(leg.side < 0, price, leg.units, now.date())
+            position.exit_costs += self._order_cost(position, leg, leg.side < 0, price, now)
             self.ledger.log(now, position.id, "leg_closed", f"{leg.exit_reason} at {price:.2f}")
         if all(leg.closed for leg in position.legs):
             position.exit_reason = max(

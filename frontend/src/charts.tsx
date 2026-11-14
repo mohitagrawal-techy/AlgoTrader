@@ -43,7 +43,11 @@ export function niceTicks(min: number, max: number, count = 5): number[] {
 }
 
 const IST_OFFSET_MS = 5.5 * 3600000;
-const TIME_STEPS_MINUTES = [1, 5, 10, 15, 30, 60, 120, 240, 1440, 2880, 7200, 10080, 43200];
+// Up to a month for intraday and recent charts, then quarters to five years for long histories.
+const TIME_STEPS_MINUTES = [
+  1, 5, 10, 15, 30, 60, 120, 240, 1440, 2880, 7200, 10080, 43200, 131400, 262800, 525600, 1051200,
+  2628000,
+];
 
 /** Ticks on round minutes and days of the IST clock. */
 export function timeTicks(min: number, max: number, count = 5): number[] {

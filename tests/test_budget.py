@@ -1,6 +1,13 @@
 import pytest
 from algoverse.backtest.walkforward import load_services
-from algoverse.lab.spec import Budget, StrategySpec, apply_specs, signature, with_budget
+from algoverse.lab.spec import (
+    Budget,
+    StrategySpec,
+    apply_specs,
+    budget_key,
+    signature,
+    with_budget,
+)
 from conftest import CONFIG_DIR
 from pydantic import ValidationError
 from test_lab import NOW, SPREAD, fresh, lab_dirs  # noqa: F401
@@ -52,7 +59,8 @@ def test_a_result_from_another_budget_is_stale(lab_dirs, tmp_path):  # noqa: F81
     lab = fresh(lab_dirs, tmp_path)
     saved = lab.save(SPREAD, NOW)
     result = lab.run_backtest([saved.id], NOW)[0]
-    assert result["budget"] == saved.budget.model_dump()
+    # New budget settings at their defaults are left out, so older results still match.
+    assert result["budget"] == budget_key(saved.budget)
     assert lab.result(saved) is not None
     smaller = lab.save(
         {**saved.model_dump(mode="json"), "budget": {"capital": 50_000, "risk_per_trade_pct": 5}},

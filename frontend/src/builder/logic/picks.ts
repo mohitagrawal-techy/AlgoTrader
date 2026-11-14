@@ -9,7 +9,7 @@ import type {
 export type Indicator = TechCatalog["indicators"][number];
 
 export const MAX_RULES = 8;
-export const MINUTE_FRAMES = ["5m", "15m", "1h"];
+export const MINUTE_FRAMES = ["1m", "5m", "15m", "1h"];
 /** The Current and Previous candle indicators: the candle itself, on the interval picked. */
 export const CANDLE_NAMES = ["candle", "prev_candle"];
 /** The candle's own prices. Every rule may use them; other indicators are picked first. */
@@ -104,6 +104,7 @@ export function operandPick(
 }
 
 const FRAME_SHORT: Record<string, string> = {
+  "1m": "1m",
   "5m": "5m",
   "15m": "15m",
   "1h": "1h",
