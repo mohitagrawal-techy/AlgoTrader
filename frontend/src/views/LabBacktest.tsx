@@ -1,7 +1,20 @@
 import { Pencil } from "lucide-react";
 import { TimingGrid, timingFromTrades } from "./TimingGrid";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type LabBacktestPage, type LabTrade } from "../api";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  api,
+  type LabBacktestPage,
+  type LabTrade,
+  type ReplayTrade,
+} from "../api";
+import { TradeChart as StrikeChart } from "./TradeChart";
 import {
   LineChart,
   TradeChart,
@@ -110,6 +123,226 @@ function periodKey(day: string, period: Period): string {
 
 function periodLabel(key: string, period: Period): string {
   return period === "month" ? monthLabel(key) : shortDate(key);
+}
+
+/** IST wall-clock seconds, the trade chart's time axis, from a fill time or a session date. */
+function wallSeconds(stamp: string | undefined, day: string, fallback: string) {
+  const text = stamp ? stamp.slice(0, 19) : `${day}T${fallback}`;
+  return Date.parse(`${text}Z`) / 1000;
+}
+
+/** A backtest trade in the shape the replay's strike chart reads. A finished trade has no
+ * P&L path here, so the chart shows its first stop rather than how a trail moved it. */
+function asReplayTrade(trade: LabTrade): ReplayTrade {
+  const levels = trade as LabTrade & {
+    stop_pnl?: number | null;
+    trail_pnl?: number | null;
+    trail_step_pnl?: number | null;
+    breakeven_pnl?: number | null;
+  };
+  return {
+    symbol: trade.symbol,
+    opened_at: trade.opened_at ?? trade.opened,
+    closed_at: trade.closed_at ?? trade.closed,
+    open_time: wallSeconds(trade.opened_at, trade.opened, "09:15:00"),
+    close_time: wallSeconds(trade.closed_at, trade.closed, "15:30:00"),
+    lots: trade.lots,
+    exit_reason: trade.exit_reason,
+    net_pnl: trade.net_pnl,
+    costs: trade.costs,
+    planned_loss: trade.planned_loss,
+    target_pnl: trade.target_pnl,
+    stop_pnl: levels.stop_pnl ?? null,
+    trail_pnl: levels.trail_pnl ?? null,
+    trail_step_pnl: levels.trail_step_pnl ?? null,
+    breakeven_pnl: levels.breakeven_pnl ?? null,
+    legs: trade.legs.map((leg) => ({
+      side: leg.side,
+      option_type: leg.option_type,
+      strike: leg.strike,
+      expiry: leg.expiry,
+      units: leg.units,
+      entry_price: leg.entry_price ?? 0,
+      exit_price: leg.exit_price,
+      stop_price: leg.stop_price ?? null,
+      target_price: leg.target_price ?? null,
+    })),
+    path: [],
+  };
+}
+
+/** The end of the trade's last day, so the strike chart shows its whole session. */
+function dayAfter(trade: LabTrade): number {
+  return wallSeconds(undefined, trade.closed, "00:00:00") + 86400;
+}
+
+// ---- Filtering the trade list --------------------------------------------------------------
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+interface TradeFilters {
+  result: "" | "won" | "lost";
+  exit: string;
+  weekday: string;
+  hour: string;
+  trend: string;
+  iv: string;
+  option: string;
+}
+
+const NO_FILTERS: TradeFilters = {
+  result: "",
+  exit: "",
+  weekday: "",
+  hour: "",
+  trend: "",
+  iv: "",
+  option: "",
+};
+
+/** The weekday (0 is Monday) and IST hour a trade was entered; -1 hour for daily ones. */
+function entryWhen(trade: LabTrade): { weekday: number; hour: number } {
+  const day = trade.opened_at?.slice(0, 10) ?? trade.opened;
+  const weekday = (new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7;
+  const hour = trade.opened_at ? Number(trade.opened_at.slice(11, 13)) : -1;
+  return { weekday, hour };
+}
+
+function hourText(hour: number): string {
+  if (hour < 0) return "No time (daily)";
+  const start = hour === 9 ? "09:15" : `${String(hour).padStart(2, "0")}:00`;
+  return `${start}–${String(hour + 1).padStart(2, "0")}:00`;
+}
+
+function optionTypes(trade: LabTrade): string {
+  return [...new Set(trade.legs.map((leg) => leg.option_type))]
+    .sort()
+    .join("+");
+}
+
+function matches(trade: LabTrade, f: TradeFilters): boolean {
+  const { weekday, hour } = entryWhen(trade);
+  return (
+    (!f.result ||
+      (f.result === "won" ? trade.net_pnl > 0 : trade.net_pnl <= 0)) &&
+    (!f.exit || (trade.exit_reason ?? "") === f.exit) &&
+    (!f.weekday || String(weekday) === f.weekday) &&
+    (!f.hour || String(hour) === f.hour) &&
+    (!f.trend || trade.trend === f.trend) &&
+    (!f.iv || trade.iv_regime === f.iv) &&
+    (!f.option || optionTypes(trade) === f.option)
+  );
+}
+
+/** The values each filter can take, from the trades shown, with how many trades have each. */
+function tradeFilterOptions(trades: LabTrade[]) {
+  const count = (key: (t: LabTrade) => string | number) => {
+    const found = new Map<string, number>();
+    for (const t of trades) {
+      const value = String(key(t));
+      found.set(value, (found.get(value) ?? 0) + 1);
+    }
+    return found;
+  };
+  return {
+    exit: count((t) => t.exit_reason ?? ""),
+    weekday: count((t) => entryWhen(t).weekday),
+    hour: count((t) => entryWhen(t).hour),
+    trend: count((t) => t.trend),
+    iv: count((t) => t.iv_regime),
+    option: count(optionTypes),
+  };
+}
+
+function TradeFilterBar({
+  filters,
+  options,
+  onChange,
+  shown,
+  total,
+  net,
+}: {
+  filters: TradeFilters;
+  options: ReturnType<typeof tradeFilterOptions>;
+  onChange: (filters: TradeFilters) => void;
+  shown: number;
+  total: number;
+  net: number;
+}) {
+  const set = (change: Partial<TradeFilters>) =>
+    onChange({ ...filters, ...change });
+  const sorted = (found: Map<string, number>, numeric = false) =>
+    [...found.entries()].sort(([a], [b]) =>
+      numeric ? Number(a) - Number(b) : a.localeCompare(b),
+    );
+  const choice = (
+    label: string,
+    key: keyof TradeFilters,
+    found: Map<string, number>,
+    name: (value: string) => string,
+    numeric = false,
+  ) =>
+    found.size > 1 && (
+      <LabeledSelect
+        label={label}
+        value={filters[key]}
+        onChange={(value) => set({ [key]: value } as Partial<TradeFilters>)}
+        options={[
+          { value: "", label: "All" },
+          ...sorted(found, numeric).map(([value, n]) => ({
+            value,
+            label: `${name(value)} (${n})`,
+          })),
+        ]}
+      />
+    );
+  const active = Object.values(filters).some(Boolean);
+  return (
+    <div className="trade-filters">
+      <LabeledSelect
+        label="Result"
+        value={filters.result}
+        onChange={(result) => set({ result: result as TradeFilters["result"] })}
+        options={[
+          { value: "", label: "All" },
+          { value: "won", label: "Won" },
+          { value: "lost", label: "Lost" },
+        ]}
+      />
+      {choice(
+        "Exit",
+        "exit",
+        options.exit,
+        (v) => EXIT_REASONS[v] ?? (v || "–"),
+      )}
+      {choice(
+        "Weekday",
+        "weekday",
+        options.weekday,
+        (v) => WEEKDAYS[Number(v)],
+        true,
+      )}
+      {choice(
+        "Entered",
+        "hour",
+        options.hour,
+        (v) => hourText(Number(v)),
+        true,
+      )}
+      {choice("Trend", "trend", options.trend, (v) => v)}
+      {choice("IV rank", "iv", options.iv, (v) => v)}
+      {choice("Option", "option", options.option, (v) => v)}
+      {active && (
+        <Button variant="link" onClick={() => onChange(NO_FILTERS)}>
+          Clear filters
+        </Button>
+      )}
+      <span className="trade-filters-total">
+        {active ? `${shown} of ${total} trades, net ` : `${total} trades, net `}
+        <Pnl value={net}>{signedInr(net)}</Pnl>
+      </span>
+    </div>
+  );
 }
 
 function legText(trade: LabTrade): string {
@@ -328,6 +561,8 @@ export function LabBacktestView({
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
   const [symbol, setSymbol] = useState("");
   const [highlight, setHighlight] = useState<number | null>(null);
+  // The trade whose strike chart is open under its row, by its place in the run.
+  const [charted, setCharted] = useState<number | null>(null);
 
   const result = data?.result ?? null;
   const detail = result?.detail;
@@ -380,13 +615,27 @@ export function LabBacktestView({
   }, [daily, trades, period]);
 
   // Newest first, keeping each trade's place in the run for highlighting it on the chart.
+  const [filters, setFilters] = useState<TradeFilters>(NO_FILTERS);
+  const filterOptions = useMemo(() => tradeFilterOptions(trades), [trades]);
   const newestFirst = useMemo(
-    () => trades.map((trade, i) => ({ trade, i })).reverse(),
-    [trades],
+    () =>
+      trades
+        .map((trade, i) => ({ trade, i }))
+        .filter(({ trade }) => matches(trade, filters))
+        .reverse(),
+    [trades, filters],
+  );
+  const filteredNet = newestFirst.reduce(
+    (sum, { trade }) => sum + trade.net_pnl,
+    0,
   );
   const tradePage = pageOf(newestFirst, page, pageSize);
-  // Another window or test brings other trades: start again from the newest.
-  useEffect(() => setPage(0), [trades]);
+  // Another window or test brings other trades: start again from the newest, unfiltered.
+  useEffect(() => {
+    setPage(0);
+    setFilters(NO_FILTERS);
+  }, [trades]);
+  useEffect(() => setPage(0), [filters]);
 
   const symbols = Object.keys(data?.bars ?? {});
   const shownSymbol = symbols.includes(symbol) ? symbol : symbols[0];
@@ -858,6 +1107,14 @@ export function LabBacktestView({
                 </span>
               }
             >
+              <TradeFilterBar
+                filters={filters}
+                options={filterOptions}
+                onChange={setFilters}
+                shown={newestFirst.length}
+                total={trades.length}
+                net={filteredNet}
+              />
               <Table>
                 <thead>
                   <tr>
@@ -869,40 +1126,64 @@ export function LabBacktestView({
                     <th className="right">Lots</th>
                     <th>Exit</th>
                     <th className="right">Net P&amp;L</th>
+                    <th>
+                      <span className="sr-only">Strike chart</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {tradePage.shown.map(({ trade, i }) => (
-                    <tr
-                      key={i}
-                      className={highlight === i ? "row-active" : ""}
-                      onMouseEnter={() =>
-                        trade.symbol === shownSymbol && setHighlight(i)
-                      }
-                      onMouseLeave={() => setHighlight(null)}
-                    >
-                      <td>{when(trade, "opened", intraday)}</td>
-                      <td>{when(trade, "closed", intraday)}</td>
-                      <td className="right">
-                        {daysBetween(trade.opened, trade.closed)}
-                      </td>
-                      <td className="right">
-                        {num(closeOn.get(trade.opened), 0)} →{" "}
-                        {num(closeOn.get(trade.closed), 0)}
-                      </td>
-                      <td className="secondary">{priceText(trade)}</td>
-                      <td className="right">{trade.lots}</td>
-                      <td>
-                        {EXIT_REASONS[trade.exit_reason ?? ""] ??
-                          trade.exit_reason}
-                        {trade.settlement_estimated ? " (intrinsic)" : ""}
-                      </td>
-                      <td className="right">
-                        <Pnl value={trade.net_pnl}>
-                          {signedInr(trade.net_pnl)}
-                        </Pnl>
-                      </td>
-                    </tr>
+                    <Fragment key={i}>
+                      <tr
+                        className={highlight === i ? "row-active" : ""}
+                        onMouseEnter={() =>
+                          trade.symbol === shownSymbol && setHighlight(i)
+                        }
+                        onMouseLeave={() => setHighlight(null)}
+                      >
+                        <td>{when(trade, "opened", intraday)}</td>
+                        <td>{when(trade, "closed", intraday)}</td>
+                        <td className="right">
+                          {daysBetween(trade.opened, trade.closed)}
+                        </td>
+                        <td className="right">
+                          {num(closeOn.get(trade.opened), 0)} →{" "}
+                          {num(closeOn.get(trade.closed), 0)}
+                        </td>
+                        <td className="secondary">{priceText(trade)}</td>
+                        <td className="right">{trade.lots}</td>
+                        <td>
+                          {EXIT_REASONS[trade.exit_reason ?? ""] ??
+                            trade.exit_reason}
+                          {trade.settlement_estimated ? " (intrinsic)" : ""}
+                        </td>
+                        <td className="right">
+                          <Pnl value={trade.net_pnl}>
+                            {signedInr(trade.net_pnl)}
+                          </Pnl>
+                        </td>
+                        <td>
+                          <Button
+                            variant="link"
+                            aria-expanded={charted === i}
+                            aria-label={`${charted === i ? "Hide" : "Show"} the strike chart for the trade opened ${when(trade, "opened", intraday)}`}
+                            onClick={() => setCharted(charted === i ? null : i)}
+                          >
+                            {charted === i ? "Hide" : "Chart"}
+                          </Button>
+                        </td>
+                      </tr>
+                      {charted === i && (
+                        <tr className="trade-chart-row">
+                          <td colSpan={9}>
+                            <StrikeChart
+                              trade={asReplayTrade(trade)}
+                              until={dayAfter(trade)}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                 </tbody>
               </Table>
@@ -911,7 +1192,7 @@ export function LabBacktestView({
                 page={tradePage.page}
                 pages={tradePage.pages}
                 size={pageSize}
-                total={trades.length}
+                total={newestFirst.length}
                 noun="trade"
                 onPage={setPage}
                 onSize={(size) => {

@@ -76,7 +76,7 @@ function Cell({
   unit: string;
 }) {
   if (!cell || cell.trades === 0) {
-    return <td className="timing-cell empty">·</td>;
+    return <td className="timing-cell no-trades">·</td>;
   }
   const strength = Math.min(Math.abs(cell.pnl) / scale, 1);
   const style = {
@@ -142,7 +142,17 @@ export function TimingGrid({
           <tbody>
             {days.map((d, i) => (
               <tr key={d}>
-                <th scope="row">{DAYS[d]}</th>
+                <th
+                  scope="row"
+                  title={
+                    d >= 5
+                      ? "A special weekend session, such as Budget day"
+                      : undefined
+                  }
+                >
+                  {DAYS[d]}
+                  {d >= 5 && "*"}
+                </th>
                 {showHours &&
                   hours.map((h) => (
                     <Cell key={h} cell={at(d, h)} scale={scale} unit={unit} />
@@ -194,6 +204,8 @@ export function TimingGrid({
           </>
         )}{" "}
         Small counts are noise; look for whole rows or columns.
+        {days.some((d) => d >= 5) &&
+          " *Weekend rows are special sessions, such as Budget day."}
       </p>
     </div>
   );

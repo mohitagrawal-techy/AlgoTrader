@@ -123,8 +123,15 @@ function Calendar({ daily }: { daily: [string, number][] }) {
                   date.setUTCDate(date.getUTCDate() + d);
                   const key = iso(date);
                   const value = values.get(key);
-                  if (value === undefined) {
-                    return <td key={key} className="pnl-day none" />;
+                  // A day with no P&L had no trade: shown as empty, not as a zero result.
+                  if (value === undefined || value === 0) {
+                    return (
+                      <td
+                        key={key}
+                        className="pnl-day none"
+                        title={value === 0 ? `${key}: no trades` : undefined}
+                      />
+                    );
                   }
                   const label = `${date.toLocaleDateString("en-IN", {
                     day: "numeric",
@@ -161,7 +168,13 @@ function Cell({
   scale: number;
   title: string;
 }) {
-  if (value === undefined) return <td className="pnl-cell none">·</td>;
+  if (value === undefined || value === 0) {
+    return (
+      <td className="pnl-cell none" title={value === 0 ? "No trades" : ""}>
+        ·
+      </td>
+    );
+  }
   return (
     <td
       className={`pnl-cell ${tone(value)}`}

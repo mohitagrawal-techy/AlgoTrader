@@ -1138,6 +1138,27 @@ main {
 }
 
 /* Two panels in a row on wide screens, one under the other when either would be cramped. */
+.trade-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.trade-filters-total {
+  margin-left: auto;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-chart-row > td {
+  padding: 8px 12px 14px;
+  background: var(--surface-2);
+}
+
 .panel-pair {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
@@ -1147,6 +1168,68 @@ main {
 
 .panel-pair > * {
   min-width: 0;
+}
+
+/* Side by side, both panels take the row's full height and their grids fill them; a grid
+   larger than its panel scrolls inside it. */
+.panel-pair {
+  grid-auto-rows: clamp(440px, 64vh, 720px);
+  align-items: stretch;
+}
+
+.panel-pair > .panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel-pair > .panel > .pnl-heat,
+.panel-pair > .panel > .timing {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 14px 12px;
+}
+
+.panel-pair .pnl-heat-scroll,
+.panel-pair .timing-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.panel-pair .pnl-grid,
+.panel-pair .pnl-calendar,
+.panel-pair .timing-table {
+  width: 100%;
+  height: 100%;
+}
+
+.panel-pair .pnl-calendar .pnl-day {
+  width: auto;
+  height: auto;
+  min-height: 14px;
+}
+
+/* Bars, and anything else a panel shows here, scroll rather than spill. */
+.panel-pair > .panel > :not(.panel-header, .pnl-heat, .timing) {
+  flex-shrink: 0;
+}
+
+.panel-pair > .panel:has(> :not(.panel-header, .pnl-heat, .timing)) {
+  overflow: auto;
+}
+
+/* The title and its controls stay in view while a panel's content scrolls. */
+.panel-pair > .panel > .panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-shrink: 0;
+  background: var(--surface);
 }
 
 .grid-3 {
@@ -3153,6 +3236,8 @@ main {
 .timing-cell {
   min-width: 58px;
   padding: 4px 6px;
+  /* Table cells can shrink below their minimum width; wrapping made some rows tall. */
+  white-space: nowrap;
   border-radius: 2px;
   text-align: right;
   vertical-align: top;
@@ -3170,7 +3255,8 @@ main {
   outline: 1px solid var(--border);
 }
 
-.timing-cell.empty {
+/* Not ".empty": that is the app's empty-state panel, a padded grid. */
+.timing-cell.no-trades {
   color: var(--ink-3);
   text-align: center;
 }
@@ -4845,11 +4931,11 @@ main > .empty {
   border-top: 1px solid var(--border);
 }
 
-.index-chart .trade-chart {
+.trade-chart {
   margin-top: 8px;
 }
 
-.index-chart .trade-chart-head {
+.trade-chart-head {
   display: flex;
   gap: 8px;
   align-items: baseline;
@@ -4857,16 +4943,16 @@ main > .empty {
   font-size: 12.5px;
 }
 
-.index-chart .trade-chart-canvas {
+.trade-chart-canvas {
   position: relative;
 }
 
-.index-chart .trade-chart-box {
+.trade-chart-box {
   position: absolute;
   inset: 0;
 }
 
-.index-chart .trade-chart-note {
+.trade-chart-note {
   position: absolute;
   inset: 0;
   display: grid;
@@ -4875,14 +4961,14 @@ main > .empty {
   font-size: 12.5px;
 }
 
-.index-chart .trade-chart-legs {
+.trade-chart-legs {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 6px;
 }
 
-.index-chart .trade-chart-legs button {
+.trade-chart-legs button {
   padding: 2px 8px;
   border: 1px solid var(--border);
   border-radius: var(--r-sm, 4px);
@@ -4893,7 +4979,7 @@ main > .empty {
   cursor: pointer;
 }
 
-.index-chart .trade-chart-legs button.is-on {
+.trade-chart-legs button.is-on {
   border-color: var(--accent);
   color: var(--ink);
 }
