@@ -2975,6 +2975,135 @@ main {
   gap: 6px 12px;
 }
 
+.period-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.pnl-heat {
+  display: grid;
+  gap: 8px;
+  padding: 4px 14px 12px;
+}
+
+.pnl-heat-scroll {
+  overflow-x: auto;
+}
+
+.pnl-calendar {
+  border-collapse: separate;
+  border-spacing: 3px;
+  font-size: 11px;
+}
+
+.pnl-calendar th {
+  padding: 0 4px 0 0;
+  color: var(--ink-3);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.pnl-calendar thead th {
+  height: 16px;
+  padding: 0;
+  overflow: visible;
+  max-width: 14px;
+}
+
+.pnl-day {
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 2px;
+  background: var(--surface-2);
+}
+
+.pnl-day.none {
+  background: transparent;
+  outline: 1px solid var(--grid);
+  outline-offset: -1px;
+}
+
+.pnl-grid {
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pnl-grid th {
+  padding: 4px 8px;
+  color: var(--ink-2);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.pnl-grid thead th {
+  font-size: 11px;
+  text-align: right;
+}
+
+.pnl-grid thead th:first-child {
+  text-align: left;
+}
+
+.pnl-cell {
+  min-width: 64px;
+  padding: 6px 8px;
+  border-radius: 2px;
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pnl-cell.none {
+  color: var(--ink-3);
+  font-weight: 400;
+  text-align: center;
+}
+
+.pnl-day.up,
+.pnl-cell.up,
+.pnl-heat-swatch.up {
+  background: color-mix(in srgb, var(--pnl-up) var(--heat-strength), transparent);
+}
+
+.pnl-day.down,
+.pnl-cell.down,
+.pnl-heat-swatch.down {
+  background: color-mix(in srgb, var(--pnl-down) var(--heat-strength), transparent);
+}
+
+.pnl-day.flat {
+  background: var(--axis);
+}
+
+.pnl-heat-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.pnl-heat-legend span {
+  margin: 0 4px;
+}
+
+.pnl-heat-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+}
+
 .tune-timing {
   display: grid;
   gap: 8px;

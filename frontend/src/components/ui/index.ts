@@ -17,6 +17,7 @@ export {
   TextInput,
 } from "./inputs";
 export { JobStatus } from "./JobStatus";
+export { PAGE_SIZES, Pager, pageOf } from "./Pager";
 export { Panel } from "./Panel";
 export { Badge, Block, FoldContext, Section, sectionId } from "./Section";
 export { ChartSkeleton, Empty, LoadFailed } from "./states";

@@ -28,7 +28,12 @@ import {
   Tiles,
   BackLink,
   ButtonLink,
+  PAGE_SIZES,
+  Pager,
+  pageOf,
+  Segmented,
 } from "../components/ui";
+import { PnlHeatmap } from "./PnlHeatmap";
 import { IndexChart } from "./IndexChart";
 import {
   MetricsGrid,
@@ -70,7 +75,6 @@ type WindowKey = keyof typeof WINDOWS;
 const PERIODS = { day: "Daily", week: "Weekly", month: "Monthly" } as const;
 const PERIOD_PLURAL = { day: "days", week: "weeks", month: "months" } as const;
 type Period = keyof typeof PERIODS;
-const MAX_TABLE_ROWS = 200;
 
 function monthLabel(key: string): string {
   return new Date(`${key}-01T00:00:00+05:30`).toLocaleDateString("en-IN", {
@@ -242,6 +246,9 @@ export function LabBacktestView({ id }: { id: string }) {
   const { data, error, reload } = usePage(id);
   const [windowKey, setWindowKey] = useState<WindowKey>("test");
   const [period, setPeriod] = useState<Period>("week");
+  const [periodView, setPeriodView] = useState<"heat" | "bars">("heat");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
   const [symbol, setSymbol] = useState("");
   const [highlight, setHighlight] = useState<number | null>(null);
 
@@ -294,6 +301,15 @@ export function LabBacktestView({ id }: { id: string }) {
       note: `${tradeCounts.get(key) ?? 0} trades closed`,
     }));
   }, [daily, trades, period]);
+
+  // Newest first, keeping each trade's place in the run for highlighting it on the chart.
+  const newestFirst = useMemo(
+    () => trades.map((trade, i) => ({ trade, i })).reverse(),
+    [trades],
+  );
+  const tradePage = pageOf(newestFirst, page, pageSize);
+  // Another window or test brings other trades: start again from the newest.
+  useEffect(() => setPage(0), [trades]);
 
   const symbols = Object.keys(data?.bars ?? {});
   const shownSymbol = symbols.includes(symbol) ? symbol : symbols[0];
@@ -621,19 +637,32 @@ export function LabBacktestView({ id }: { id: string }) {
           <Panel
             title="Profit and loss by period"
             aside={
-              <LabeledSelect
-                label="Period"
-                value={period}
-                onChange={setPeriod}
-                options={Object.entries(PERIODS).map(([value, label]) => ({
-                  value: value as Period,
-                  label,
-                }))}
-              />
+              <div className="period-controls">
+                <Segmented
+                  label="Show as"
+                  value={periodView}
+                  onChange={setPeriodView}
+                  options={[
+                    { value: "heat", label: "Heat map" },
+                    { value: "bars", label: "Bars" },
+                  ]}
+                />
+                <LabeledSelect
+                  label="Period"
+                  value={period}
+                  onChange={setPeriod}
+                  options={Object.entries(PERIODS).map(([value, label]) => ({
+                    value: value as Period,
+                    label,
+                  }))}
+                />
+              </div>
             }
           >
             {periods.length === 0 ? (
               <Empty title="No P&L in this window" />
+            ) : periodView === "heat" ? (
+              <PnlHeatmap daily={daily} period={period} />
             ) : (
               <ValueColumns
                 data={periods}
@@ -644,32 +673,34 @@ export function LabBacktestView({ id }: { id: string }) {
                 formatTip={(value) => signedInr(value)}
               />
             )}
-            {period !== "day" && periods.length > 0 && (
-              <Table>
-                <thead>
-                  <tr>
-                    <th>{period === "week" ? "Week of" : "Month"}</th>
-                    <th className="right">Trades closed</th>
-                    <th className="right">P&amp;L</th>
-                    <th className="right">Running total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {runningRows(periods).map((p) => (
-                    <tr key={p.key}>
-                      <td>{periodLabel(p.key, period)}</td>
-                      <td className="right">{p.trades}</td>
-                      <td className="right">
-                        <Pnl value={p.value}>{signedInr(p.value)}</Pnl>
-                      </td>
-                      <td className="right">
-                        <Pnl value={p.total}>{signedInr(p.total)}</Pnl>
-                      </td>
+            {periodView === "bars" &&
+              period !== "day" &&
+              periods.length > 0 && (
+                <Table>
+                  <thead>
+                    <tr>
+                      <th>{period === "week" ? "Week of" : "Month"}</th>
+                      <th className="right">Trades closed</th>
+                      <th className="right">P&amp;L</th>
+                      <th className="right">Running total</th>
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            )}
+                  </thead>
+                  <tbody>
+                    {runningRows(periods).map((p) => (
+                      <tr key={p.key}>
+                        <td>{periodLabel(p.key, period)}</td>
+                        <td className="right">{p.trades}</td>
+                        <td className="right">
+                          <Pnl value={p.value}>{signedInr(p.value)}</Pnl>
+                        </td>
+                        <td className="right">
+                          <Pnl value={p.total}>{signedInr(p.total)}</Pnl>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
           </Panel>
 
           <h3 className="section-title">
@@ -734,50 +765,54 @@ export function LabBacktestView({ id }: { id: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {trades
-                    .map((trade, i) => ({ trade, i }))
-                    .reverse()
-                    .slice(0, MAX_TABLE_ROWS)
-                    .map(({ trade, i }) => (
-                      <tr
-                        key={i}
-                        className={highlight === i ? "row-active" : ""}
-                        onMouseEnter={() =>
-                          trade.symbol === shownSymbol && setHighlight(i)
-                        }
-                        onMouseLeave={() => setHighlight(null)}
-                      >
-                        <td>{when(trade, "opened", intraday)}</td>
-                        <td>{when(trade, "closed", intraday)}</td>
-                        <td className="right">
-                          {daysBetween(trade.opened, trade.closed)}
-                        </td>
-                        <td className="right">
-                          {num(closeOn.get(trade.opened), 0)} →{" "}
-                          {num(closeOn.get(trade.closed), 0)}
-                        </td>
-                        <td className="secondary">{priceText(trade)}</td>
-                        <td className="right">{trade.lots}</td>
-                        <td>
-                          {EXIT_REASONS[trade.exit_reason ?? ""] ??
-                            trade.exit_reason}
-                          {trade.settlement_estimated ? " (intrinsic)" : ""}
-                        </td>
-                        <td className="right">
-                          <Pnl value={trade.net_pnl}>
-                            {signedInr(trade.net_pnl)}
-                          </Pnl>
-                        </td>
-                      </tr>
-                    ))}
+                  {tradePage.shown.map(({ trade, i }) => (
+                    <tr
+                      key={i}
+                      className={highlight === i ? "row-active" : ""}
+                      onMouseEnter={() =>
+                        trade.symbol === shownSymbol && setHighlight(i)
+                      }
+                      onMouseLeave={() => setHighlight(null)}
+                    >
+                      <td>{when(trade, "opened", intraday)}</td>
+                      <td>{when(trade, "closed", intraday)}</td>
+                      <td className="right">
+                        {daysBetween(trade.opened, trade.closed)}
+                      </td>
+                      <td className="right">
+                        {num(closeOn.get(trade.opened), 0)} →{" "}
+                        {num(closeOn.get(trade.closed), 0)}
+                      </td>
+                      <td className="secondary">{priceText(trade)}</td>
+                      <td className="right">{trade.lots}</td>
+                      <td>
+                        {EXIT_REASONS[trade.exit_reason ?? ""] ??
+                          trade.exit_reason}
+                        {trade.settlement_estimated ? " (intrinsic)" : ""}
+                      </td>
+                      <td className="right">
+                        <Pnl value={trade.net_pnl}>
+                          {signedInr(trade.net_pnl)}
+                        </Pnl>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </Table>
 
-              {trades.length > MAX_TABLE_ROWS && (
-                <p className="panel-note">
-                  Showing the latest {MAX_TABLE_ROWS} of {trades.length} trades.
-                </p>
-              )}
+              <Pager
+                page={tradePage.page}
+                pages={tradePage.pages}
+                size={pageSize}
+                total={trades.length}
+                noun="trade"
+                onPage={setPage}
+                onSize={(size) => {
+                  // Keep the first trade on screen in view at the new size.
+                  setPage(Math.floor((tradePage.page * pageSize) / size));
+                  setPageSize(size);
+                }}
+              />
             </Panel>
           )}
           <Panel
