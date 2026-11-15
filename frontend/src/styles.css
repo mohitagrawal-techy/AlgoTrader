@@ -2746,6 +2746,398 @@ main {
   color: var(--ink-3);
 }
 
+.tune-charts {
+  display: grid;
+  gap: 18px;
+  padding: 4px 14px 14px;
+}
+
+.tune-charts-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.tune-charts-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 18px;
+}
+
+.tune-chart-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tune-chart-title small {
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.tune-chart-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+
+.tune-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.tune-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tune-legend-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.tune-legend-dot.kept {
+  background: var(--good);
+}
+
+.tune-legend-dot.dropped {
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  transform: rotate(45deg);
+  background: var(--ink-3);
+}
+
+.tune-legend-dot.start {
+  border: 2px solid var(--accent-ink);
+}
+
+.tune-legend-line {
+  display: inline-block;
+  width: 16px;
+  border-top: 2px solid var(--accent-ink);
+}
+
+.tune-plot-grid {
+  stroke: var(--grid);
+}
+
+.tune-plot-zero {
+  stroke: var(--axis);
+}
+
+.tune-plot-tick,
+.tune-plot-title {
+  fill: var(--tick);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tune-plot-start {
+  stroke: var(--ink-3);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.tune-plot-best {
+  fill: none;
+  stroke: var(--accent-ink);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.tune-plot-sens {
+  fill: none;
+  stroke: var(--accent-ink);
+  stroke-width: 1.5;
+  opacity: 0.6;
+}
+
+.tune-dot {
+  cursor: pointer;
+  outline: none;
+}
+
+.tune-dot.kept circle {
+  fill: var(--good);
+}
+
+.tune-dot.dropped rect {
+  fill: var(--ink-3);
+}
+
+.tune-dot.start circle {
+  fill: var(--surface);
+  stroke: var(--accent-ink);
+  stroke-width: 2.5;
+}
+
+.tune-dot:hover > *,
+.tune-dot:focus-visible > *,
+.tune-dot.selected > * {
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+
+.tune-plot-readout,
+.tune-plot-empty {
+  margin: 2px 0 0;
+  min-height: 1.4em;
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.tune-summary {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px 4px;
+}
+
+.tune-summary-table td {
+  vertical-align: top;
+}
+
+.tune-summary-name {
+  font-weight: 600;
+}
+
+.tune-summary-name {
+  display: block;
+  min-width: 160px;
+}
+
+.tune-summary-advice {
+  max-width: 220px;
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.tune-tries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tune-try {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.tune-try small {
+  font-size: 11px;
+}
+
+.tune-try.up small {
+  color: var(--pnl-up);
+}
+
+.tune-try.down small {
+  color: var(--pnl-down);
+}
+
+.tune-try.flat small {
+  color: var(--ink-3);
+}
+
+.tune-try.kept {
+  border-color: var(--good);
+}
+
+.tune-try.selected,
+.tune-try:hover {
+  border-color: var(--accent-ink);
+}
+
+.tune-summary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.tune-timing {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px 4px;
+}
+
+.timing {
+  display: grid;
+  gap: 6px;
+}
+
+.timing-scroll {
+  overflow-x: auto;
+}
+
+.timing-table {
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.timing-table th {
+  padding: 4px 8px;
+  color: var(--ink-2);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.timing-table thead th {
+  font-size: 11px;
+}
+
+.timing-cell {
+  min-width: 78px;
+  padding: 5px 8px;
+  border-radius: 2px;
+  text-align: right;
+  vertical-align: top;
+}
+
+.timing-cell.up {
+  background: color-mix(in srgb, var(--pnl-up) var(--timing-strength), transparent);
+}
+
+.timing-cell.down {
+  background: color-mix(in srgb, var(--pnl-down) var(--timing-strength), transparent);
+}
+
+.timing-cell.total {
+  outline: 1px solid var(--border);
+}
+
+.timing-cell.empty {
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.timing-pnl {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.timing-count {
+  display: block;
+  color: var(--ink-2);
+  font-size: 11px;
+}
+
+.timing-note {
+  margin: 0;
+  font-size: 12px;
+}
+
+.tune-params {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+
+.tune-params > legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.tune-params-bar,
+.tune-params-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.tune-params-group {
+  display: grid;
+  gap: 6px;
+}
+
+.tune-param-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+
+.tune-param-rows > li + li {
+  border-top: 1px solid var(--border);
+}
+
+.tune-param-rows.inside {
+  margin: 0 0 4px 30px;
+  border: 0;
+  border-left: 1px solid var(--axis);
+  border-radius: 0;
+}
+
+.tune-param-rows.inside > li + li {
+  border-top: 0;
+}
+
+.tune-param-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tune-param-row:hover {
+  background: var(--hover-wash);
+}
+
+.tune-param-row.chosen .tune-param-name {
+  color: var(--ink);
+}
+
+.tune-param-name {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.tune-param-now {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.tune-param-rows.inside .tune-param-row {
+  padding-block: 4px;
+  font-size: 12px;
+}
+
+
 .tune-dropped > summary {
   cursor: pointer;
   color: var(--ink-3);

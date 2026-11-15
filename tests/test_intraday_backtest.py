@@ -74,7 +74,7 @@ def intraday_dirs(tmp_path_factory):
     text = (
         text.replace("symbols: [NIFTY, BANKNIFTY, FINNIFTY]", "symbols: [NIFTY]")
         .replace("warmup_sessions: 60", "warmup_sessions: 30")
-        .replace("workers: 6", "workers: 1")
+        .replace("workers: 10", "workers: 1")
         .replace("min_sessions: 60", "min_sessions: 20")
         .replace("min_test_trades: 15", "min_test_trades: 1")
     )

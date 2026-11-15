@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ValidationError
 
@@ -49,8 +50,10 @@ from algoverse.lab.spec import (
     make_id,
     signature,
 )
+from algoverse.lab.tune_params import allows, sweep_changes, tunable_params
 
 log = logging.getLogger(__name__)
+IST = ZoneInfo("Asia/Kolkata")
 MAX_GUIDANCE = 500
 MAX_HISTORY = 30
 # Lists a change may add one item to, with a path ending in ".+".
@@ -362,6 +365,10 @@ Allowed values: entry.trend is a list of "up", "down" and "range" (empty means a
 decide_every is "day", "5m", "15m" or "1h"; units are "premium", "rupees" or "points"; times \
 are "HH:MM" between 09:15 and 15:25. Indicator names and their settings are listed below.
 
+When only_change is given, the owner chose which settings may change: suggest changes only to \
+those paths, or to a part inside one (a chosen rule may be changed in any part or removed). A \
+path ending in ".+" there allows adding one new item to that list.
+
 Rules: one setting per suggestion; never repeat a change already tried; small samples are \
 noise, so prefer changes with a clear reason over chasing one result; keep the strategy's loss \
 at the stop within the account's loss limit. Exit amounts are in the unit beside them: premium \
@@ -446,10 +453,21 @@ def ai_changes(
     account: dict,
     guidance: str,
     rules_help: str,
+    chosen: list[str] | None = None,
 ) -> Suggestions:
+    only = (
+        [
+            {"path": item["path"], "setting": item["label"], "now": item["value"]}
+            for item in tunable_params(spec)
+            if allows(item["path"], chosen)
+        ]
+        if chosen
+        else None
+    )
     user = json.dumps(
         {
             "suggest": count,
+            "only_change": only,
             "account": account,
             "owner_guidance": guidance[:MAX_GUIDANCE] or None,
             "strategy": spec.model_dump(
@@ -514,6 +532,34 @@ def design_feedback(node: dict) -> dict:
     }
 
 
+def trade_timing(trades: list[dict]) -> list[dict]:
+    """Trades, wins and net P&L by weekday (0 is Monday) and the IST hour of entry.
+
+    Small enough to keep for every version a tuning run tests, unlike the trades."""
+    cells: dict[tuple[int, int], dict] = {}
+    for trade in trades:
+        stamp = trade.get("opened_at") or trade.get("opened")
+        if not stamp:
+            continue
+        try:
+            opened = datetime.fromisoformat(str(stamp))
+        except ValueError:
+            continue
+        if opened.tzinfo is not None:
+            opened = opened.astimezone(IST)
+        # A daily decision has no time of day; -1 keeps it apart from real hours.
+        hour = opened.hour if "T" in str(stamp) else -1
+        cell = cells.setdefault(
+            (opened.weekday(), hour),
+            {"day": opened.weekday(), "hour": hour, "trades": 0, "wins": 0, "pnl": 0.0},
+        )
+        pnl = float(trade.get("net_pnl") or 0.0)
+        cell["trades"] += 1
+        cell["wins"] += int(pnl > 0)
+        cell["pnl"] = round(cell["pnl"] + pnl, 2)
+    return sorted(cells.values(), key=lambda c: (c["day"], c["hour"]))
+
+
 def _exit_reasons(trades: list[dict]) -> dict[str, int]:
     counts = Counter(
         (trade.get("exit_reason") or "unknown").split(":")[0].split(" for ")[0] for trade in trades
@@ -571,6 +617,8 @@ class Scorer:
                 "design_exits": _exit_reasons(design_run["trades"]),
                 "validate": validate,
                 "validate_daily": validate_run["daily"],
+                "design_timing": trade_timing(design_run["trades"]),
+                "validate_timing": trade_timing(validate_run["trades"]),
             }
         return scored
 
@@ -616,6 +664,8 @@ class Picker:
     depth: int
     seen: set[str]
     count: int
+    # The settings the owner chose to tune; None allows every setting.
+    chosen: list[str] | None = None
 
     def take(
         self,
@@ -627,6 +677,10 @@ class Picker:
         for change in changes:
             if len(children) == self.count:
                 return
+            if not allows(change.path, self.chosen):
+                if skipped is not None:
+                    skipped.append(f"{change.path}: not among the settings chosen to tune")
+                continue
             changed, label = apply_change(self.parent, change)
             if changed is None:
                 if skipped is not None:
@@ -674,7 +728,10 @@ def grow(
         }
         session["rounds"].append(record)
         children: list[tuple[Change, StrategySpec]] = []
-        pick = Picker(parent_spec, session["root_name"], parent["depth"] + 1, seen, per_round)
+        chosen = session.get("params") or None
+        pick = Picker(
+            parent_spec, session["root_name"], parent["depth"] + 1, seen, per_round, chosen
+        )
         pick.take(suggestions.changes, children, record["skipped"])
         asks = 0
         while len(children) < per_round and suggestions.source == "ai" and asks < EXTRA_ASKS:
@@ -692,7 +749,12 @@ def grow(
             pick.take(suggestions.changes, children, record["skipped"])
         if len(children) < per_round:
             before = len(children)
-            pick.take(built_in_changes(parent_spec) + more_changes(parent_spec), children, None)
+            sweep = [
+                Change(path, value, "try another value of a chosen setting")
+                for path, value in sweep_changes(parent_spec, chosen)
+            ]
+            fill = built_in_changes(parent_spec) + more_changes(parent_spec) + sweep
+            pick.take(fill, children, None)
             record["built_in_added"] = len(children) - before
         if len(children) < per_round:
             record["skipped"].append(

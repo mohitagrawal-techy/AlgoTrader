@@ -8,7 +8,8 @@ from algoverse.api.app import create_app
 from algoverse.lab.ladder import ROOTS
 from algoverse.lab.service import LabError
 from algoverse.lab.spec import StrategySpec
-from algoverse.lab.tuner import Change, apply_change, built_in_changes, public
+from algoverse.lab.tune_params import allows, tunable_params
+from algoverse.lab.tuner import Change, apply_change, built_in_changes, public, trade_timing
 from algoverse.settings import Settings
 from fastapi.testclient import TestClient
 from test_lab import HEADER, NOW
@@ -330,3 +331,97 @@ def test_rounds_go_on_when_nothing_is_kept(ladder_dirs, tmp_path):  # noqa: F811
     for record in session["rounds"]:
         for node_id in record["tried"]:
             assert session["nodes"][node_id]["parent_id"] == record["parent_id"]
+
+
+# ---- Choosing which settings to tune --------------------------------------------------------
+
+
+def test_tunable_settings_list_the_strategy_numbers_and_rules():
+    spec = apply_change(CALL, Change("entry.rules.+", EMA_RULE))[0]
+    items = {item["path"]: item for item in tunable_params(spec)}
+    assert items["exits.stop_frac"]["current"] == 0.4
+    assert items["legs.0.value"]["group"] == "Legs"
+    assert items["entry.rules.0"]["kind"] == "rule"
+    # An indicator setting left at its default can still be chosen.
+    assert items["entry.rules.0.right.params.period"]["current"] == 20
+    assert "entry.rules.+" in items
+    assert allows("entry.rules.0.right.params.period", ["entry.rules.0"])
+    assert not allows("entry.rules.1", ["entry.rules.0"])
+    assert allows("anything", None)
+
+
+def test_tuning_changes_only_the_chosen_settings(ladder_dirs, tmp_path):  # noqa: F811
+    lab = fresh(ladder_dirs, tmp_path)
+    session = lab.run_tuning(
+        "tpl_long_call",
+        NOW,
+        rounds=2,
+        per_round=4,
+        use_ai=False,
+        new_id="t6",
+        params=["exits.stop_frac"],
+    )
+    tried = [session["nodes"][i] for r in session["rounds"] for i in r["tried"]]
+    assert len(tried) == 8 and session["params"] == ["exits.stop_frac"]
+    assert {node["path"] for node in tried} == {"exits.stop_frac"}
+
+
+def test_the_ai_is_told_the_chosen_settings(ladder_dirs, tmp_path):  # noqa: F811
+    lab = fresh(ladder_dirs, tmp_path)
+    ai = Tuner(reply(("legs.0.value", 0.3), ("exits.stop_frac", 0.3)))
+    lab._client = ai
+    session = lab.run_tuning(
+        "tpl_long_call", NOW, rounds=1, per_round=1, new_id="t7", params=["exits.stop_frac"]
+    )
+    only = ai.prompts[0][1]["only_change"]
+    assert [item["path"] for item in only] == ["exits.stop_frac"]
+    first = session["rounds"][0]
+    assert any("not among the settings chosen" in text for text in first["skipped"])
+    assert session["nodes"][first["tried"][0]]["path"] == "exits.stop_frac"
+    with pytest.raises(LabError):
+        lab.start_tuning("tpl_long_call", NOW, use_ai=False, params=[])
+
+
+def test_tuning_again_changes_only_the_newly_chosen_settings(ladder_dirs, tmp_path):  # noqa: F811
+    lab = fresh(ladder_dirs, tmp_path)
+    first = lab.run_tuning("tpl_long_call", NOW, rounds=1, per_round=2, use_ai=False, new_id="t8")
+    assert first["params"] is None
+    again = lab.run_tuning(
+        None,
+        NOW,
+        session_id="t8",
+        node_id=first["best_id"],
+        rounds=1,
+        per_round=3,
+        use_ai=False,
+        params=["exits.target_frac"],
+    )
+    latest = again["rounds"][-1]
+    assert again["params"] == ["exits.target_frac"] and len(latest["tried"]) == 3
+    assert {again["nodes"][i]["path"] for i in latest["tried"]} == {"exits.target_frac"}
+
+
+def test_trade_timing_groups_by_weekday_and_entry_hour():
+    cells = trade_timing(
+        [
+            {"opened_at": "2026-04-20T09:50:00+05:30", "net_pnl": -100.0},
+            {"opened_at": "2026-04-20T09:55:00+05:30", "net_pnl": 300.0},
+            {"opened_at": "2026-04-21T04:30:00+00:00", "net_pnl": 50.0},
+            {"opened": "2026-04-24", "net_pnl": -20.0},
+        ]
+    )
+    assert cells == [
+        {"day": 0, "hour": 9, "trades": 2, "wins": 1, "pnl": 200.0},
+        # 04:30 UTC is 10:00 in India.
+        {"day": 1, "hour": 10, "trades": 1, "wins": 1, "pnl": 50.0},
+        {"day": 4, "hour": -1, "trades": 1, "wins": 0, "pnl": -20.0},
+    ]
+
+
+def test_each_tested_version_keeps_its_timing(tuned):
+    _, session, _, _ = tuned
+    for node in session["nodes"].values():
+        for key in ("design_timing", "validate_timing"):
+            cells = node[key]
+            assert isinstance(cells, list)
+            assert sum(c["trades"] for c in cells) == node[key.split("_")[0]]["trades"]

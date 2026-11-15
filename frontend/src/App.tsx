@@ -26,6 +26,7 @@ import {
   Radio,
   RefreshCw,
   ShieldAlert,
+  SlidersHorizontal,
   Table2,
   Microscope,
   CalendarDays,
@@ -90,6 +91,11 @@ const NAV_GROUPS = [
         icon: FlaskConical,
       },
       {
+        id: "tune",
+        label: "Tuner",
+        icon: SlidersHorizontal,
+      },
+      {
         id: "research",
         label: "Research",
         icon: Microscope,
@@ -134,7 +140,8 @@ const PAGE_SUBS: Record<string, string> = {
   calendar:
     "Events, holidays and expiries, and how far the event list has been checked.",
   data: "What market data is stored, and loaders that fetch more from Upstox.",
-  lab: "Build your own strategies, then test and tune them.",
+  lab: "Build your own strategies, then test them.",
+  tune: "Change one setting at a time, and keep only what holds up on unseen sessions.",
   research:
     "How the indices behave: time of day, volatility, correlations, gaps, pairs and an ML signal.",
   backtests: "How the idea engine would have traded past sessions.",
@@ -147,14 +154,26 @@ const PAGE_SUBS: Record<string, string> = {
 const POLL_MS = 30000;
 const STALE_MS = 15 * 60000;
 
+/** Tuner links used to live under the lab; send them to the tuner's own section. */
+function moveOldTuneLink(): void {
+  const hash = window.location.hash;
+  if (hash === "#lab/tune" || hash.startsWith("#lab/tune/")) {
+    window.history.replaceState(null, "", `#${hash.slice("#lab/".length)}`);
+  }
+}
+
 function tabFromHash(): TabId {
+  moveOldTuneLink();
   const first = window.location.hash.slice(1).split("/")[0];
   return TABS.some((tab) => tab.id === first) ? (first as TabId) : "overview";
 }
 
 function labPath(): string[] {
+  moveOldTuneLink();
   const [first, ...rest] = window.location.hash.slice(1).split("/");
-  return first === "lab" ? rest.map(decodeURIComponent) : [];
+  return first === "lab" || first === "tune"
+    ? rest.map(decodeURIComponent)
+    : [];
 }
 
 function editorRoute(path: string[]): EditorRoute | null {
@@ -289,11 +308,9 @@ export function App() {
         : "New strategy"
       : tab === "lab" && path[0] === "backtest"
         ? "Strategy backtest"
-        : tab === "lab" && path[0] === "tune"
-          ? "Strategy tuner"
-          : tab === "market" && strikeRoute
-            ? "Strike chart"
-            : TABS.find((item) => item.id === tab)?.label;
+        : tab === "market" && strikeRoute
+          ? "Strike chart"
+          : TABS.find((item) => item.id === tab)?.label;
   // Sub-pages (the editor, a backtest, a strike chart) carry their own heading.
   const topLevel = !(
     (tab === "lab" && (route || path[0] === "backtest")) ||
@@ -320,7 +337,7 @@ export function App() {
       id: "tune",
       label: "Tune a strategy",
       group: "Action",
-      run: go("lab/tune"),
+      run: go("tune"),
     },
     {
       id: "refresh",
@@ -483,11 +500,7 @@ export function App() {
               <div className="page-head">
                 <div>
                   <h1 className="page-title">{pageTitle}</h1>
-                  <p className="page-sub">
-                    {tab === "lab" && path[0] === "tune"
-                      ? "Change one setting at a time, and keep only what holds up on unseen sessions."
-                      : PAGE_SUBS[tab]}
-                  </p>
+                  <p className="page-sub">{PAGE_SUBS[tab]}</p>
                 </div>
               </div>
             )}
@@ -495,6 +508,7 @@ export function App() {
               !loadError &&
               tab !== "overview" &&
               tab !== "history" &&
+              tab !== "tune" &&
               tab !== "research" &&
               tab !== "calendar" &&
               tab !== "data" &&
@@ -531,25 +545,19 @@ export function App() {
             {tab === "lab" && path[0] === "backtest" && path[1] && (
               <LabBacktestView id={path[1]} />
             )}
-            {tab === "lab" && path[0] === "tune" && (
+            {tab === "tune" && (
               <TunerView
                 key={path.join("/")}
-                sessionId={path[1] === "s" && path[2] ? path[2] : null}
-                startId={path[1] === "from" && path[2] ? path[2] : null}
+                sessionId={path[0] === "s" && path[1] ? path[1] : null}
+                startId={path[0] === "from" && path[1] ? path[1] : null}
               />
             )}
-            {data &&
-              tab === "lab" &&
-              !route &&
-              path[0] !== "backtest" &&
-              path[0] !== "tune" && (
-                <LabView
-                  key={path.join("/")}
-                  initialSelected={
-                    path[0] === "view" && path[1] ? path[1] : null
-                  }
-                />
-              )}
+            {data && tab === "lab" && !route && path[0] !== "backtest" && (
+              <LabView
+                key={path.join("/")}
+                initialSelected={path[0] === "view" && path[1] ? path[1] : null}
+              />
+            )}
             {data && tab === "backtests" && (
               <BacktestsView listing={data.backtests} />
             )}

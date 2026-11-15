@@ -145,7 +145,7 @@ def lab_dirs(tmp_path_factory):
         .replace("warmup_sessions: 60", "warmup_sessions: 55")
         .replace("min_sessions: 60", "min_sessions: 30")
         .replace("min_test_trades: 15", "min_test_trades: 1")
-        .replace("workers: 6", "workers: 1")
+        .replace("workers: 10", "workers: 1")
     )
     (config_dir / "backtest.yaml").write_text(text)
     events = config_dir / "events.yaml"

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from functools import cache, cached_property
 
 import numpy as np
 import pandas as pd
@@ -32,19 +34,57 @@ BUILDUP_RANGE = 0.03
 IV_HISTORY_MIN_DAYS_TO_EXPIRY = 5
 
 
-@dataclass(frozen=True)
 class ExpiryStats:
-    atm_iv: float | None
-    forward: float
-    forward_implied: bool
-    T: float
-    expected_move: float | None
-    skew: float | None
-    pcr: float | None
-    max_pain: float | None
-    walls: dict[str, list[float]]
-    buildup: float | None  # -1 fully bearish to +1 fully bullish.
-    zones: tuple[Zone, ...]
+    """One expiry's readings. Each is worked out the first time something reads it.
+
+    A replay builds these at every decision, but most decisions read none of them: they
+    are needed only when an entry fires, and then only for the expiry it trades."""
+
+    def __init__(self, group: pd.DataFrame, base_levels: Callable[[], list[Level]]):
+        self._group = group
+        self._base_levels = base_levels
+        self.forward = float(group["forward"].iloc[0])
+        self.T = float(group["T"].iloc[0])
+        self.forward_implied = bool(group["forward_implied"].all())
+
+    @cached_property
+    def atm_iv(self) -> float | None:
+        return atm_iv(self._group)
+
+    @cached_property
+    def expected_move(self) -> float | None:
+        iv = self.atm_iv
+        return None if iv is None or self.T <= 0 else self.forward * iv * float(np.sqrt(self.T))
+
+    @cached_property
+    def skew(self) -> float | None:
+        return skew_25d(self._group)
+
+    @cached_property
+    def pcr(self) -> float | None:
+        return put_call_ratio(self._group)
+
+    @cached_property
+    def max_pain(self) -> float | None:
+        return max_pain(self._group)
+
+    @cached_property
+    def walls(self) -> dict[str, list[float]]:
+        return oi_walls(self._group)
+
+    @cached_property
+    def buildup(self) -> float | None:
+        """-1 fully bearish to +1 fully bullish."""
+        return _buildup_score(self._group, self.forward)
+
+    @cached_property
+    def zones(self) -> tuple[Zone, ...]:
+        walls = self.walls
+        levels = list(self._base_levels())
+        levels += [Level(k, "oi_wall") for k in walls["resistance"][:1] + walls["support"][:1]]
+        if self.max_pain is not None:
+            levels.append(Level(self.max_pain, "max_pain"))
+        return tuple(confluence_zones(levels))
 
 
 @dataclass(frozen=True)
@@ -121,31 +161,6 @@ def _base_levels(bars: pd.DataFrame) -> list[Level]:
     return levels
 
 
-def _expiry_stats(group: pd.DataFrame, base_levels: list[Level]) -> ExpiryStats:
-    forward = float(group["forward"].iloc[0])
-    T = float(group["T"].iloc[0])
-    iv = atm_iv(group)
-    pain = max_pain(group)
-    walls = oi_walls(group)
-    levels = list(base_levels)
-    levels += [Level(k, "oi_wall") for k in walls["resistance"][:1] + walls["support"][:1]]
-    if pain is not None:
-        levels.append(Level(pain, "max_pain"))
-    return ExpiryStats(
-        atm_iv=iv,
-        forward=forward,
-        forward_implied=bool(group["forward_implied"].all()),
-        T=T,
-        expected_move=None if iv is None or T <= 0 else forward * iv * float(np.sqrt(T)),
-        skew=skew_25d(group),
-        pcr=put_call_ratio(group),
-        max_pain=pain,
-        walls=walls,
-        buildup=_buildup_score(group, forward),
-        zones=tuple(confluence_zones(levels)),
-    )
-
-
 def reference_atm_iv(chain: pd.DataFrame) -> float | None:
     """ATM IV of the nearest expiry far enough away to avoid expiry-day distortion."""
     minimum = IV_HISTORY_MIN_DAYS_TO_EXPIRY / 365
@@ -213,9 +228,9 @@ def build_context(
     bars = completed_bars(bars, now.date())
     vix_bars = completed_bars(vix_bars, now.date())
     live = chain[chain["T"] > 0]
-    base_levels = _base_levels(bars)
+    base_levels = cache(lambda: _base_levels(bars))
     by_expiry = {
-        expiry: _expiry_stats(group, base_levels)
+        expiry: ExpiryStats(group, base_levels)
         for expiry, group in live.groupby("expiry", sort=True)
     }
     rv, rv_rank = _rv_context(bars)

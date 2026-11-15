@@ -5,9 +5,15 @@ import {
   type TechCatalog,
   type TuneNode,
   type TuneOverview,
+  type TuneParam,
   type TuneSession,
 } from "../api";
 import { SharpeShift, TuneCompare } from "./TuneCompare";
+import { TuneCharts } from "./TuneCharts";
+import { TuneParams } from "./TuneParams";
+import { settingName } from "./tuneSettings";
+import { TuneSummary } from "./TuneSummary";
+import { TuneTiming } from "./TuneTiming";
 import { dateTimeIst, num, signedInr } from "../format";
 import {
   Empty,
@@ -67,6 +73,8 @@ interface NodeActions {
   onSelect: (node: TuneNode) => void;
   saved: Record<string, boolean>;
   onTune: (node: TuneNode) => void;
+  /** Grow the session from a version, changing only these settings. */
+  onTuneWith: (node: TuneNode, params: string[]) => void;
   onSave: (node: TuneNode) => void;
 }
 
@@ -432,7 +440,25 @@ function SessionView({
   catalog: TechCatalog | null;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [hideDropped, setHideDropped] = useState(false);
+  // Charts carry the overview, so the tree starts with changes not kept folded away.
+  const [hideDropped, setHideDropped] = useState(true);
+  const [labels, setLabels] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let current = true;
+    api
+      .labTuneParams(session.root_id)
+      .then(({ params }) => {
+        if (current)
+          setLabels(
+            Object.fromEntries(params.map((p) => [p.path, p.full ?? p.label])),
+          );
+      })
+      // A deleted start strategy leaves the paths themselves as names.
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [session.root_id]);
   const actions: NodeActions = {
     ...outer,
     selectedId,
@@ -542,6 +568,26 @@ function SessionView({
       </Panel>
       <div className={selected ? "split tune-split" : ""}>
         <div className="tune-main">
+          <Panel title="Results">
+            <TuneSummary
+              key={`${session.id}-${session.updated_at ?? ""}`}
+              session={session}
+              labels={labels}
+              busy={actions.busy}
+              selectedId={selectedId}
+              onSelect={(node) => setSelectedId(node.id)}
+              onTuneAgain={(params) =>
+                actions.onTuneWith(session.nodes[session.best_id], params)
+              }
+            />
+            <TuneTiming session={session} selectedId={selectedId} />
+            <TuneCharts
+              session={session}
+              labels={labels}
+              selectedId={selectedId}
+              onSelect={(node) => setSelectedId(node.id)}
+            />
+          </Panel>
           <Panel
             title="Tree of changes"
             aside={
@@ -556,6 +602,12 @@ function SessionView({
               </Button>
             }
           >
+            {session.params && session.params.length > 0 && (
+              <p className="panel-note tune-tree-note">
+                Settings tuned:{" "}
+                {session.params.map((p) => settingName(p, labels)).join(", ")}
+              </p>
+            )}
             <p className="panel-note tune-tree-note">
               Each round branches from the version it tuned and holds exactly
               the changes it tested, one setting each. A kept change starts the
@@ -612,6 +664,8 @@ export function TunerView({
   const [useAi, setUseAi] = useState(true);
   const [guidance, setGuidance] = useState("");
   const [saved, setSaved] = useState<Record<string, boolean>>({});
+  const [params, setParams] = useState<TuneParam[]>([]);
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -646,7 +700,7 @@ export function TunerView({
         next.job.session_id &&
         next.job.session_id !== sessionId
       ) {
-        window.location.hash = `#lab/tune/s/${encodeURIComponent(next.job.session_id)}`;
+        window.location.hash = `#tune/s/${encodeURIComponent(next.job.session_id)}`;
       }
     }, POLL_MS);
     return () => window.clearInterval(timer);
@@ -661,10 +715,27 @@ export function TunerView({
     }
   }, [overview, start]);
 
+  useEffect(() => {
+    if (!start) return;
+    let current = true;
+    api
+      .labTuneParams(start)
+      .then(({ params: found }) => {
+        if (!current) return;
+        setParams(found);
+        setChosen(new Set(found.map((p) => p.path)));
+      })
+      .catch(() => current && setParams([]));
+    return () => {
+      current = false;
+    };
+  }, [start]);
+
   const begin = async (body: {
     start_id?: string;
     session_id?: string;
     node_id?: string;
+    params?: string[] | null;
   }) => {
     setError(null);
     try {
@@ -687,6 +758,9 @@ export function TunerView({
       saved,
       onTune: (node) =>
         session && void begin({ session_id: session.id, node_id: node.id }),
+      onTuneWith: (node, params) =>
+        session &&
+        void begin({ session_id: session.id, node_id: node.id, params }),
       onSave: async (node) => {
         if (!session) return;
         try {
@@ -786,11 +860,30 @@ export function TunerView({
               used.
             </p>
           )}
+          {params.length > 0 && (
+            <TuneParams
+              params={params}
+              chosen={chosen}
+              aiOn={aiOn && useAi}
+              onChange={setChosen}
+            />
+          )}
           <div className="builder-row">
             <Button
               variant="primary"
-              disabled={running || !overview.ready || !start}
-              onClick={() => void begin({ start_id: start })}
+              disabled={
+                running ||
+                !overview.ready ||
+                !start ||
+                (params.length > 0 && chosen.size === 0)
+              }
+              onClick={() =>
+                void begin({
+                  start_id: start,
+                  // Every setting ticked tunes them all, including ones added later.
+                  params: chosen.size === params.length ? null : [...chosen],
+                })
+              }
             >
               Start tuning
             </Button>
@@ -846,7 +939,7 @@ export function TunerView({
                   <td>
                     <ButtonLink
                       variant="link"
-                      href={`#lab/tune/s/${encodeURIComponent(row.id)}`}
+                      href={`#tune/s/${encodeURIComponent(row.id)}`}
                     >
                       {row.root_name}
                     </ButtonLink>

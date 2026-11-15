@@ -7,7 +7,7 @@ import secrets
 import threading
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -147,6 +147,8 @@ class LabTuneRequest(BaseModel):
     per_round: int | None = Field(default=None, ge=1, le=10)
     guidance: str = Field(default="", max_length=500)
     use_ai: bool = True
+    # Setting paths to tune; None tunes every setting.
+    params: list[Annotated[str, Field(max_length=160)]] | None = Field(default=None, max_length=80)
 
 
 class DataJobRequest(BaseModel):
@@ -578,8 +580,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 body.per_round,
                 body.guidance,
                 body.use_ai,
+                body.params,
             )
         )
+
+    @app.get("/api/lab/tune/params/{spec_id}")
+    def lab_tune_params(spec_id: str) -> dict:
+        return {"params": _lab(lambda: runtime.lab.tunable(spec_id))}
 
     @app.post("/api/lab/tune/{session_id}/save")
     def lab_tune_save(

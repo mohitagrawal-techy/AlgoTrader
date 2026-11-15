@@ -307,7 +307,7 @@ def ladder_dirs(tmp_path_factory):
         ("warmup_sessions: 60", "warmup_sessions: 55"),
         ("min_sessions: 60", "min_sessions: 50"),
         ("min_test_trades: 15", "min_test_trades: 1"),
-        ("workers: 6", "workers: 1"),
+        ("workers: 10", "workers: 1"),
         ("ladder_rungs: 4", "ladder_rungs: 2"),
         ("ladder_beam: 2", "ladder_beam: 1"),
         ("ladder_steps: 10", "ladder_steps: 2"),

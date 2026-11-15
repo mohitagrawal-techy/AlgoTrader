@@ -67,6 +67,7 @@ from algoverse.lab.spec import (
 from algoverse.lab.stages import STAGES, grade
 from algoverse.lab.technical import INTRADAY_MINUTES, rule_frames
 from algoverse.lab.technical import catalog as technical_catalog
+from algoverse.lab.tune_params import tunable_params
 from algoverse.lab.tuner import (
     Scorer,
     Suggestions,
@@ -586,7 +587,9 @@ class LabService:
     def tuning_session(self, session_id: str) -> dict:
         return public(self._tuning(session_id))
 
-    def _suggester(self, now: datetime, use_ai: bool, guidance: str, note):
+    def _suggester(
+        self, now: datetime, use_ai: bool, guidance: str, note, chosen: list[str] | None = None
+    ):
         budget = Budget()
         account = {
             "capital_inr": budget.capital,
@@ -610,6 +613,7 @@ class LabService:
                         account,
                         guidance,
                         help_text,
+                        chosen,
                     )
                 except LLMError as exc:
                     note(f"The AI model failed ({exc}); using built-in changes this round")
@@ -653,8 +657,12 @@ class LabService:
         note: Callable[[str], None] = lambda _: None,
         new_id: str | None = None,
         progress: Callable[[int, int], None] | None = None,
+        params: list[str] | None = None,
     ) -> dict:
-        """Start a tuning tree from a strategy, or grow an existing one from one of its nodes."""
+        """Start a tuning tree from a strategy, or grow an existing one from one of its nodes.
+
+        `params` are the settings the owner chose to tune, as paths; None allows them all. A
+        continued session keeps its earlier choice unless a new one is given."""
         config, windows = self._tuning_windows()
         rounds = rounds or config.lab.ladder_rungs
         per_round = per_round or min(config.lab.ladder_steps, 6)
@@ -676,6 +684,7 @@ class LabService:
                 "best_id": spec.id,
                 "trials": 0,
                 "guidance": guidance[:500],
+                "params": params or None,
             }
             node_id = spec.id
         else:
@@ -683,7 +692,9 @@ class LabService:
             if node_id not in session["nodes"]:
                 raise LabError("That version is not in this tuning session.")
             session.pop("final", None)
-        suggest = self._suggester(now, use_ai, guidance, note)
+            if params is not None:
+                session["params"] = params or None
+        suggest = self._suggester(now, use_ai, guidance, note, session.get("params"))
         grow(session, scorer, node_id, rounds, per_round, suggest, note)
         best = session["nodes"][session["best_id"]]
         if best["depth"] > 0:
@@ -717,6 +728,13 @@ class LabService:
     def _new_tuning_id(spec_id: str, now: datetime) -> str:
         return f"{now:%Y%m%d-%H%M%S}-{spec_id[:24]}"
 
+    def tunable(self, spec_id: str) -> list[dict]:
+        """The settings of a strategy that tuning may change, for choosing which to tune."""
+        spec = self.spec(spec_id)
+        if spec is None:
+            raise LabError("That strategy no longer exists.")
+        return tunable_params(spec)
+
     def save_tuned(self, session_id: str, node_id: str, now: datetime) -> str:
         session = self._tuning(session_id)
         node = session["nodes"].get(node_id)
@@ -739,10 +757,13 @@ class LabService:
         per_round: int | None = None,
         guidance: str = "",
         use_ai: bool = True,
+        params: list[str] | None = None,
     ) -> dict:
         self._tuning_windows()
         if session_id is None and self.spec(start_id or "") is None:
             raise LabError("Choose a strategy to tune.")
+        if params is not None and not params:
+            raise LabError("Choose at least one setting to tune.")
         if session_id is not None and node_id not in self._tuning(session_id)["nodes"]:
             raise LabError("That version is not in this tuning session.")
         if use_ai:
@@ -763,6 +784,7 @@ class LabService:
                 note,
                 new_id=target,
                 progress=progress,
+                params=params,
             )
             kept = sum(1 for n in session["nodes"].values() if n.get("accepted"))
             return f"Tested {len(session['nodes']) - 1} changes, kept {kept}."

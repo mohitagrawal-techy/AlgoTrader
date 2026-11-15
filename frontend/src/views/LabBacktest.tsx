@@ -1,4 +1,5 @@
 import { Pencil } from "lucide-react";
+import { TimingGrid, timingFromTrades } from "./TimingGrid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type LabBacktestPage, type LabTrade } from "../api";
 import {
@@ -702,6 +703,12 @@ export function LabBacktestView({ id }: { id: string }) {
                 />
               </Panel>
             </div>
+          )}
+
+          {trades.length > 0 && (
+            <Panel title="By weekday and entry time">
+              <TimingGrid cells={timingFromTrades(trades)} />
+            </Panel>
           )}
 
           {trades.length > 0 && (

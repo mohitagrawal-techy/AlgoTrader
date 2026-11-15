@@ -1595,6 +1595,15 @@ export interface LadderReport {
   final_period_uses: number;
 }
 
+/** Trades, wins and net P&L for one weekday (0 is Monday) and IST entry hour (-1: none). */
+export interface TimingCell {
+  day: number;
+  hour: number;
+  trades: number;
+  wins: number;
+  pnl: number;
+}
+
 export interface TuneNode {
   id: string;
   parent_id: string | null;
@@ -1614,6 +1623,9 @@ export interface TuneNode {
   prob_better: number | null;
   /** Cumulative unseen-period P&L by day. */
   validate_curve?: { day: string; pnl: number }[];
+  /** Results by weekday and entry hour; missing in sessions saved before they were kept. */
+  design_timing?: TimingCell[];
+  validate_timing?: TimingCell[];
 }
 
 export interface TuneRound {
@@ -1630,7 +1642,25 @@ export interface TuneRound {
 
 type FinalTest = Pick<LabResult, "verdict" | "test" | "test_2x">;
 
+/** A setting of a strategy that tuning may change. */
+export interface TuneParam {
+  path: string;
+  group: string;
+  label: string;
+  /** The current value as text. */
+  value: string;
+  /** "rule" allows any part of a rule; "add" adds a new item, which only the AI suggests. */
+  kind: "int" | "number" | "other" | "rule" | "add";
+  current: number | null;
+  /** The rule this setting is part of; it is listed under that rule. */
+  parent?: string;
+  /** Its name when shown alone, with the rule it belongs to. */
+  full?: string;
+}
+
 export interface TuneSession {
+  /** The settings chosen to tune; null or missing tunes them all. */
+  params?: string[] | null;
   id: string;
   root_id: string;
   root_name: string;
@@ -1832,7 +1862,11 @@ export const api = {
     per_round: number;
     guidance: string;
     use_ai: boolean;
+    /** Setting paths to tune; omitted or null tunes them all. */
+    params?: string[] | null;
   }) => sendJson<unknown>("/api/lab/tune", "POST", body),
+  labTuneParams: (specId: string) =>
+    getJson<{ params: TuneParam[] }>(`/api/lab/tune/params/${encodeURIComponent(specId)}`),
   labTuneSave: (sessionId: string, nodeId: string) =>
     sendJson<{ id: string }>(`/api/lab/tune/${encodeURIComponent(sessionId)}/save`, "POST", { node_id: nodeId }),
   labChart: (

@@ -50,7 +50,8 @@ lab:
   min_test_trades: 15
   rounds: 3
   per_round: 4
-  workers: 6
+  # Replays at once. Each peaks near 0.7 GB; Docker here has 15 CPUs and 13.7 GB.
+  workers: 10
   # Research stages: Reject, Research, Paper trade. The training and test sessions are cut
   # into stage_folds periods; a strategy must be profitable in stage_min_positive_share of
   # those with trades, and its unseen drawdown must stay under stage_max_drawdown_pct of its

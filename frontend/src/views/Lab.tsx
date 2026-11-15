@@ -115,7 +115,7 @@ function CycleRow({ cycle }: { cycle: AutopilotCycle }) {
       <td className="wrap-cell">
         {cycle.picked ? (
           cycle.session_id ? (
-            <a href={`#lab/tune/s/${encodeURIComponent(cycle.session_id)}`}>
+            <a href={`#tune/s/${encodeURIComponent(cycle.session_id)}`}>
               {cycle.picked.name}
             </a>
           ) : (
@@ -574,7 +574,7 @@ function Detail({
           {result ? "Test again" : "Test"}
         </Button>
         {spec.id && (
-          <ButtonLink href={`#lab/tune/from/${encodeURIComponent(spec.id)}`}>
+          <ButtonLink href={`#tune/from/${encodeURIComponent(spec.id)}`}>
             Tune
           </ButtonLink>
         )}
@@ -773,7 +773,7 @@ export function LabView({
           >
             Test all
           </Button>
-          <ButtonLink href="#lab/tune">Tune a strategy</ButtonLink>
+          <ButtonLink href="#tune">Tune a strategy</ButtonLink>
           <ButtonLink variant="primary" href="#lab/new">
             New strategy
           </ButtonLink>
