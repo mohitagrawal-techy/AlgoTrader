@@ -74,6 +74,38 @@ interface Saved {
 }
 
 const STORAGE_KEY = "algoverse.chart.v1";
+/** When candle `i` ends: when the next one starts, but no later than one usual candle length,
+ * so the day's last candle ends at its close, not at the next morning's open. */
+function candleEnd(times: number[], i: number): number {
+  const next = i + 1 < times.length ? times[i + 1] - times[i] : Infinity;
+  const previous = i > 0 ? times[i] - times[i - 1] : Infinity;
+  const length = Math.min(next, previous);
+  return times[i] + (Number.isFinite(length) ? length : 60);
+}
+
+function fitKey(data: { symbol: string; timeframe: string; time: number[] }) {
+  return `${data.symbol}/${data.timeframe}/${data.time.length}`;
+}
+
+/** The candles covering a kept time span on another timeframe, or null when the span lies
+ * outside these candles. A span that would hold too many candles to read keeps its end and
+ * shows the usual 160 candles up to it. */
+function keptRange(
+  times: number[],
+  kept: { from: number; to: number },
+): { from: number; to: number } | null {
+  const last = indexAt(times, kept.to - 1);
+  if (last < 0) return null;
+  const first = Math.max(0, indexAt(times, kept.from - 1) + 1);
+  const span = last - first + 1;
+  if (span > 400) return { from: last - 160, to: last + 2 };
+  if (span < 20) {
+    const middle = Math.round((first + last) / 2);
+    return { from: middle - 20, to: middle + 20 };
+  }
+  return { from: first, to: last + 2 };
+}
+
 const TIMEFRAMES: { value: TechTimeframe; label: string }[] = [
   { value: "1m", label: "1m" },
   { value: "5m", label: "5m" },
@@ -750,6 +782,19 @@ export function IndexChart({
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<SeriesType>[]>([]);
   const timesRef = useRef<Map<number, number>>(new Map());
+  // The chart's data and the time span in view, so switching timeframe can keep that span.
+  const dataRef = useRef<typeof data>(null);
+  const viewRef = useRef<{ symbol: string; from: number; to: number } | null>(
+    null,
+  );
+  // The data the view was last fitted to: "symbol/timeframe/candle count", and that data.
+  const lastFit = useRef("");
+  const fittedData = useRef<typeof data>(null);
+  // A replay moment waiting for a longer range of candles to load on the new timeframe.
+  const pendingMoment = useRef<number | null>(null);
+  // The moment the last switch placed the replay at, so switching back and forth without
+  // stepping returns to it rather than drifting to coarser candles' closes.
+  const switchedAt = useRef<{ moment: number; cursor: number } | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   const indicators = useMemo(
@@ -894,6 +939,24 @@ export function IndexChart({
       },
     });
     chartRef.current = chart;
+    // Remember the span in view as times, which mean the same on every timeframe.
+    chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      const shown = dataRef.current;
+      if (!range || !shown || shown.empty) return;
+      // Ignore the moment between new data arriving and the view being set for it.
+      if (lastFit.current !== fitKey(shown)) return;
+      const t = shown.time;
+      const at = (x: number) =>
+        Math.max(0, Math.min(t.length - 1, Math.round(x)));
+      const last = at(range.to);
+      // A candle lasts until the next one starts: the end of a day, not its first minute.
+      const step = t.length > 1 ? t[1] - t[0] : 60;
+      viewRef.current = {
+        symbol: shown.symbol,
+        from: t[at(range.from)],
+        to: last + 1 < t.length ? t[last + 1] : t[last] + step,
+      };
+    });
     chart.subscribeCrosshairMove((param) => {
       const index =
         param.time === undefined
@@ -1453,19 +1516,80 @@ export function IndexChart({
           .sort((a, b) => a - b)[0]
       : undefined;
 
-  // A new symbol or timeframe starts at the latest candles.
-  const lastFit = useRef("");
+  // A new symbol starts at the latest candles. Another timeframe of the same symbol keeps
+  // the same time in view, so switching from daily to 5-minute stays on the same days.
+  dataRef.current = data;
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || !data || data.empty) return;
-    const key = `${data.symbol}/${data.timeframe}/${data.time.length}`;
+    const key = fitKey(data);
     if (lastFit.current === key) return;
+    const previous = lastFit.current.split("/");
     lastFit.current = key;
     const count = data.time.length;
-    chart.timeScale().setVisibleLogicalRange({
-      from: Math.max(0, count - 160),
-      to: count + 4,
-    });
+    const kept = viewRef.current;
+    const switched =
+      kept !== null &&
+      previous[0] === data.symbol &&
+      previous[1] !== data.timeframe;
+    const before = fittedData.current;
+    fittedData.current = data;
+    // Replay keeps its moment: the last candle on the new timeframe that had finished by the
+    // time the current one did, so switching never shows a candle from the future.
+    const switchedReplay =
+      replay &&
+      cursorTime !== null &&
+      before &&
+      !before.empty &&
+      before.symbol === data.symbol &&
+      before.timeframe !== data.timeframe;
+    const waiting =
+      replay &&
+      pendingMoment.current !== null &&
+      before?.symbol === data.symbol;
+    if (switchedReplay || waiting) {
+      const unmoved =
+        switchedAt.current !== null && switchedAt.current.cursor === cursorTime;
+      const moment =
+        waiting && pendingMoment.current !== null
+          ? pendingMoment.current
+          : unmoved
+            ? switchedAt.current!.moment
+            : candleEnd(
+                before!.time,
+                Math.max(0, indexAt(before!.time, cursorTime!)),
+              );
+      // The new timeframe's default range may start after the moment: load a longer one first.
+      if (data.time[0] >= moment && MINUTES.has(data.timeframe)) {
+        const longer = rangesFor(data.timeframe).find(
+          (r) => r.sessions > (sessions ?? 0),
+        );
+        if (longer) {
+          pendingMoment.current = moment;
+          update({
+            sessions: { ...saved.sessions, [data.timeframe]: longer.sessions },
+          });
+          return;
+        }
+      }
+      pendingMoment.current = null;
+      let at = indexAt(data.time, moment - 1);
+      while (at > 0 && candleEnd(data.time, at) > moment) at -= 1;
+      at = Math.max(0, at);
+      switchedAt.current = { moment, cursor: data.time[at] };
+      setCursorTime(data.time[at]);
+      chart
+        .timeScale()
+        .setVisibleLogicalRange({ from: Math.max(0, at - 120), to: at + 20 });
+      return;
+    }
+    const range = switched ? keptRange(data.time, kept) : null;
+    chart
+      .timeScale()
+      .setVisibleLogicalRange(
+        range ?? { from: Math.max(0, count - 160), to: count + 4 },
+      );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
   const zoom = (factor: number) => {
