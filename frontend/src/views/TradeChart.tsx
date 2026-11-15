@@ -30,11 +30,19 @@ export function legPrice(trade: ReplayTrade, pnl: number | null | undefined) {
 export function TradeChart({
   trade,
   until,
+  height = HEIGHT,
+  fitCandles: fitAtFirst = false,
 }: {
   trade: ReplayTrade;
   until: number;
+  /** The chart's height in pixels; taller in a pop-up than in the replay panel. */
+  height?: number;
+  /** Start with the price scale fitted to the candles alone, leaving the stop and target
+   * lines off it when they lie far away. */
+  fitCandles?: boolean;
 }) {
   const [legIndex, setLegIndex] = useState(0);
+  const [fitCandles, setFitCandles] = useState(fitAtFirst);
   const leg = trade.legs[legIndex] ?? trade.legs[0];
   const [candles, setCandles] = useState<OptionCandles | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -155,7 +163,7 @@ export function TradeChart({
         } | null,
       ) => {
         const found = original();
-        if (!found || !levels.length) return found;
+        if (!found || !levels.length || fitCandles) return found;
         return {
           ...found,
           priceRange: {
@@ -215,7 +223,16 @@ export function TradeChart({
       // On unmount the chart itself is removed first, taking the series with it.
       if (chartRef.current === chart) chart.removeSeries(series);
     };
-  }, [candles, until, trade, leg, themeTick]);
+  }, [candles, until, trade, leg, themeTick, fitCandles]);
+
+  /** Fit the whole trade into view again, on the candles alone or with its levels. */
+  const fit = (candlesOnly: boolean) => {
+    setFitCandles(candlesOnly);
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.priceScale("right").applyOptions({ autoScale: true });
+    chart.timeScale().fitContent();
+  };
 
   return (
     <div className="trade-chart">
@@ -239,8 +256,28 @@ export function TradeChart({
         <span className="muted">
           {candles?.interval === "1d" ? "daily" : "5-minute"} option candles
         </span>
+        <div className="trade-chart-fit" role="group" aria-label="Price scale">
+          <button
+            type="button"
+            className={fitCandles ? "is-on" : undefined}
+            aria-pressed={fitCandles}
+            title="Fit the chart to the candles; far stop and target lines go off the scale"
+            onClick={() => fit(true)}
+          >
+            Fit candles
+          </button>
+          <button
+            type="button"
+            className={fitCandles ? undefined : "is-on"}
+            aria-pressed={!fitCandles}
+            title="Widen the scale so the stop loss and target are in view"
+            onClick={() => fit(false)}
+          >
+            Show stop and target
+          </button>
+        </div>
       </div>
-      <div className="trade-chart-canvas" style={{ height: HEIGHT }}>
+      <div className="trade-chart-canvas" style={{ height }}>
         <div ref={box} className="trade-chart-box" />
         {error && <div className="trade-chart-note">{error}</div>}
         {!error && candles && candles.time.length === 0 && (

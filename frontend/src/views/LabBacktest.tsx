@@ -42,6 +42,7 @@ import {
   BackLink,
   Button,
   ButtonLink,
+  Dialog,
   PAGE_SIZES,
   Status,
   Pager,
@@ -345,6 +346,60 @@ function TradeFilterBar({
   );
 }
 
+/** One trade's strike chart in a pop-up, with its result, stepping through the trades listed. */
+function TradeDialog({
+  trade,
+  intraday,
+  position,
+  count,
+  onMove,
+  onClose,
+}: {
+  trade: LabTrade;
+  intraday: boolean;
+  position: number;
+  count: number;
+  onMove: (step: number) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog
+      size="xl"
+      title={`${when(trade, "opened", intraday)} → ${when(trade, "closed", intraday)}`}
+      description={
+        <>
+          {priceText(trade)} · {trade.lots} lots ·{" "}
+          {EXIT_REASONS[trade.exit_reason ?? ""] ?? trade.exit_reason} ·{" "}
+          <Pnl value={trade.net_pnl}>{signedInr(trade.net_pnl)}</Pnl>
+        </>
+      }
+      onClose={onClose}
+      footer={
+        <div className="trade-dialog-nav">
+          <span className="muted">
+            Trade {position + 1} of {count}, newest first
+          </span>
+          <Button disabled={position === 0} onClick={() => onMove(-1)}>
+            Newer trade
+          </Button>
+          <Button disabled={position >= count - 1} onClick={() => onMove(1)}>
+            Older trade
+          </Button>
+        </div>
+      }
+    >
+      <StrikeChart
+        key={`${trade.opened_at ?? trade.opened}-${trade.legs[0]?.strike}`}
+        trade={asReplayTrade(trade)}
+        until={dayAfter(trade)}
+        // Most of the window, leaving room for the title and the trade navigation.
+        height={Math.max(320, Math.round(window.innerHeight * 0.62))}
+        fitCandles
+      />
+    </Dialog>
+  );
+}
+
 function legText(trade: LabTrade): string {
   return trade.legs
     .map(
@@ -625,6 +680,8 @@ export function LabBacktestView({
         .reverse(),
     [trades, filters],
   );
+  // The open pop-up's place in the list shown, so it can step to the trade before or after.
+  const chartedAt = newestFirst.findIndex(({ i }) => i === charted);
   const filteredNet = newestFirst.reduce(
     (sum, { trade }) => sum + trade.net_pnl,
     0,
@@ -1165,29 +1222,31 @@ export function LabBacktestView({
                         <td>
                           <Button
                             variant="link"
-                            aria-expanded={charted === i}
-                            aria-label={`${charted === i ? "Hide" : "Show"} the strike chart for the trade opened ${when(trade, "opened", intraday)}`}
-                            onClick={() => setCharted(charted === i ? null : i)}
+                            aria-haspopup="dialog"
+                            aria-label={`Open the strike chart for the trade opened ${when(trade, "opened", intraday)}`}
+                            onClick={() => setCharted(i)}
                           >
-                            {charted === i ? "Hide" : "Chart"}
+                            Chart
                           </Button>
                         </td>
                       </tr>
-                      {charted === i && (
-                        <tr className="trade-chart-row">
-                          <td colSpan={9}>
-                            <StrikeChart
-                              trade={asReplayTrade(trade)}
-                              until={dayAfter(trade)}
-                            />
-                          </td>
-                        </tr>
-                      )}
                     </Fragment>
                   ))}
                 </tbody>
               </Table>
 
+              {chartedAt >= 0 && (
+                <TradeDialog
+                  trade={newestFirst[chartedAt].trade}
+                  intraday={intraday}
+                  position={chartedAt}
+                  count={newestFirst.length}
+                  onMove={(step) =>
+                    setCharted(newestFirst[chartedAt + step]?.i ?? charted)
+                  }
+                  onClose={() => setCharted(null)}
+                />
+              )}
               <Pager
                 page={tradePage.page}
                 pages={tradePage.pages}
