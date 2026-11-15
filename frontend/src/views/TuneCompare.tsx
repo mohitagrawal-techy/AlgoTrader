@@ -17,7 +17,7 @@ import {
   signedInr,
 } from "../format";
 import { X } from "lucide-react";
-import { Button, Pnl, Status, Table } from "../components/ui";
+import { Button, ButtonLink, Pnl, Status, Table } from "../components/ui";
 import { ruleText } from "../builder/logic/ruleText";
 
 /*
@@ -478,8 +478,11 @@ export function TuneCompare({
   parent,
   catalog,
   number,
+  backtestHref,
   onClose,
 }: {
+  /** This version's full backtest page. */
+  backtestHref?: string;
   node: TuneNode;
   parent: TuneNode | undefined;
   catalog: TechCatalog | null;
@@ -506,6 +509,11 @@ export function TuneCompare({
               : `Try ${number ?? node.depth}: what changed`}
           </h3>
           {state && <Status tone={state.tone}>{state.label}</Status>}
+          {backtestHref && (
+            <ButtonLink variant="link" href={backtestHref}>
+              Full backtest
+            </ButtonLink>
+          )}
         </div>
         <Button
           variant="ghost"

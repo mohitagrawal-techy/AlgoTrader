@@ -1,6 +1,7 @@
 """Tuning a strategy one setting at a time, as a tree of tested changes."""
 
 import json
+import time
 
 import pytest
 from algoverse.ai.client import LLMError, LLMResult
@@ -425,3 +426,38 @@ def test_each_tested_version_keeps_its_timing(tuned):
             cells = node[key]
             assert isinstance(cells, list)
             assert sum(c["trades"] for c in cells) == node[key.split("_")[0]]["trades"]
+
+
+# ---- A tuned version's full backtest --------------------------------------------------------
+
+
+def _finish(lab, limit=120):
+    start = time.time()
+    while lab.job()["state"] == "running" and time.time() - start < limit:
+        time.sleep(0.2)
+    return lab.job()
+
+
+def test_each_version_keeps_its_trades_for_a_full_backtest(tuned):
+    lab, session, _, _ = tuned
+    for node_id, node in session["nodes"].items():
+        page = lab.tuning_backtest(session["id"], node_id)
+        detail = page["result"]["detail"]
+        assert len(detail["train"]["trades"]) == node["design"]["trades"]
+        assert len(detail["test"]["trades"]) == node["validate"]["trades"]
+        assert page["result"]["windows"]["test_start"] == str(session["windows"]["validate_start"])
+        assert page["tuning"]["node_id"] == node_id and page["stage"] is None
+
+
+def test_a_version_without_trades_can_be_backtested_again(tuned):
+    lab, session, _, _ = tuned
+    node_id = session["best_id"]
+    path = lab._tuning_detail_dir(session["id"]) / f"{node_id}.json"
+    kept = path.read_text()
+    path.unlink()
+    assert lab.tuning_backtest(session["id"], node_id)["result"]["detail"] is None
+    lab.start_tuning_backtest(session["id"], node_id)
+    assert _finish(lab)["state"] == "done"
+    assert json.loads(path.read_text()) == json.loads(kept)
+    with pytest.raises(LabError):
+        lab.tuning_backtest(session["id"], "nope")

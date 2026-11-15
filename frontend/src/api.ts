@@ -1554,7 +1554,7 @@ export interface LabBacktestPage {
   level: "simple" | "moderate" | "complex";
   capital: number;
   result: LabResult | null;
-  stage: ResearchStage;
+  stage: ResearchStage | null;
   stages: ResearchStageInfo[];
   regimes?: RegimeBreakdown | null;
   /** The parameter search that produced this strategy, if any. */
@@ -1565,6 +1565,15 @@ export interface LabBacktestPage {
   /** Underlyings with option history. */
   symbols?: string[];
   chart_symbols?: string[];
+  /** Set when this is a tuned version's backtest rather than a saved strategy's. */
+  tuning?: {
+    session_id: string;
+    node_id: string;
+    label: string;
+    root_name: string;
+    kept: boolean | null;
+    depth: number;
+  };
 }
 
 export interface LadderNode {
@@ -1839,6 +1848,10 @@ export const api = {
     ),
   labBacktestPage: (id: string) =>
     getJson<LabBacktestPage>(`/api/lab/strategies/${encodeURIComponent(id)}/backtest`),
+  labTuneBacktest: (sessionId: string, nodeId: string) =>
+    getJson<LabBacktestPage>(`/api/lab/tune/${encodeURIComponent(sessionId)}/versions/${encodeURIComponent(nodeId)}/backtest`),
+  labTuneBacktestRun: (sessionId: string, nodeId: string) =>
+    sendJson<unknown>(`/api/lab/tune/${encodeURIComponent(sessionId)}/versions/${encodeURIComponent(nodeId)}/backtest`, "POST", {}),
   portfolio: () => getJson<Portfolio>("/api/portfolio"),
   backtests: () => getJson<BacktestListing>("/api/backtests"),
   startWalkForward: () => sendJson<BacktestJob>("/api/backtests/walk-forward", "POST"),

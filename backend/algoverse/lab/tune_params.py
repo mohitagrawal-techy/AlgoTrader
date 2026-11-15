@@ -250,3 +250,24 @@ def sweep_changes(spec: StrategySpec, chosen: list[str] | None) -> list[tuple[st
             if values:
                 ordered.append((path, values.pop(0)))
     return ordered
+
+
+PARTS = {"op": "condition", "left": "value", "right": "compared with", "params": ""}
+
+
+def change_text(label: str, path: str | None, root: StrategySpec) -> str:
+    """A tuning change in plain words: "Stop loss (points): 20 → 10" for
+    "exits.stop_frac: 20 → 10". Labels it cannot match stay as they are."""
+    if not path or ": " not in label:
+        return label
+    names = {item["path"]: item.get("full") or item["label"] for item in tunable_params(root)}
+    name = names.get(path)
+    if name is None:
+        parts = path.split(".")
+        for end in range(len(parts) - 1, 0, -1):
+            holder = names.get(".".join(parts[:end]))
+            if holder:
+                rest = " ".join(PARTS.get(p, p) for p in parts[end:] if PARTS.get(p, p))
+                name = f"{holder.split(' (')[0].split(':')[0]} › {rest}"
+                break
+    return f"{name}: {label.split(': ', 1)[1]}" if name else label

@@ -532,6 +532,17 @@ def design_feedback(node: dict) -> dict:
     }
 
 
+def save_detail(folder: Path, spec_id: str, design_run: dict, validate_run: dict) -> None:
+    """One version's every trade and day on both periods, for its full backtest page. Kept in
+    a file of its own, since a session's file is read whole for every view of it."""
+    folder.mkdir(parents=True, exist_ok=True)
+    detail = {
+        "train": {"daily": design_run["daily"], "trades": design_run["trades"]},
+        "test": {"daily": validate_run["daily"], "trades": validate_run["trades"]},
+    }
+    (folder / f"{spec_id}.json").write_text(json.dumps(clean(detail), default=str))
+
+
 def trade_timing(trades: list[dict]) -> list[dict]:
     """Trades, wins and net P&L by weekday (0 is Monday) and the IST hour of entry.
 
@@ -585,6 +596,8 @@ class Scorer:
         self.registry = Registry(data_dir)
         self.digest = config_hash(config_dir)
         self.trials = 0
+        # Where each version's trades and days are kept for its full backtest page, if anywhere.
+        self.detail_dir: Path | None = None
 
     def score(self, specs: list[StrategySpec]) -> dict[str, dict]:
         w = self.windows
@@ -612,6 +625,8 @@ class Scorer:
                 validate["net_pnl"],
                 validate["trades"],
             )
+            if self.detail_dir is not None:
+                save_detail(self.detail_dir, spec.id, design_run, validate_run)
             scored[spec.id] = {
                 "design": _summary(design_run),
                 "design_exits": _exit_reasons(design_run["trades"]),

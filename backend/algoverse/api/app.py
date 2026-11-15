@@ -584,6 +584,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         )
 
+    @app.get("/api/lab/tune/{session_id}/versions/{node_id}/backtest")
+    def lab_tune_backtest(session_id: str, node_id: str) -> dict:
+        return _lab(lambda: runtime.lab.tuning_backtest(session_id, node_id))
+
+    @app.post("/api/lab/tune/{session_id}/versions/{node_id}/backtest")
+    def lab_tune_backtest_run(
+        session_id: str, node_id: str, x_algoverse_client: str | None = Header(default=None)
+    ) -> dict:
+        _require_dashboard(x_algoverse_client)
+        return _lab(lambda: runtime.lab.start_tuning_backtest(session_id, node_id))
+
     @app.get("/api/lab/tune/params/{spec_id}")
     def lab_tune_params(spec_id: str) -> dict:
         return {"params": _lab(lambda: runtime.lab.tunable(spec_id))}

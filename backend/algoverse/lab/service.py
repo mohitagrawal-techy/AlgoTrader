@@ -35,6 +35,7 @@ from algoverse.lab.evaluate import (
     UNPROVEN,
     evaluate_specs,
     rank_key,
+    run_tasks,
     sessions_needed,
     split_windows,
 )
@@ -67,7 +68,7 @@ from algoverse.lab.spec import (
 from algoverse.lab.stages import STAGES, grade
 from algoverse.lab.technical import INTRADAY_MINUTES, rule_frames
 from algoverse.lab.technical import catalog as technical_catalog
-from algoverse.lab.tune_params import tunable_params
+from algoverse.lab.tune_params import change_text, tunable_params
 from algoverse.lab.tuner import (
     Scorer,
     Suggestions,
@@ -76,6 +77,7 @@ from algoverse.lab.tuner import (
     grow,
     new_node,
     public,
+    save_detail,
 )
 from algoverse.risk.config import load_risk_config
 from algoverse.settings import load_universe
@@ -319,6 +321,11 @@ class LabService:
         if spec is None:
             raise LabError("That strategy no longer exists.")
         result = self.result(spec)
+        return self._backtest_page(spec, result, lab=True)
+
+    def _backtest_page(self, spec: StrategySpec, result: dict | None, lab: bool) -> dict:
+        """The backtest page's data for a strategy and a result with its trades and days.
+        `lab` adds what only a saved strategy has: its research stage, regimes and search."""
         history = History(self.data_dir)
         bars = {}
         if result and result.get("detail"):
@@ -352,12 +359,14 @@ class LabService:
                 "level": complexity_level(spec),
                 "capital": spec.budget.capital,
                 "result": result,
-                "stage": self._grade(spec, result),
-                "stages": STAGES,
+                "stage": self._grade(spec, result) if lab else None,
+                "stages": STAGES if lab else [],
                 "regimes": self._regimes(
                     result, load_backtest_config(self.config_dir).lab.regime_min_trades, history
-                ),
-                "search": self._search_for(spec.id),
+                )
+                if lab
+                else None,
+                "search": self._search_for(spec.id) if lab else None,
                 "bars": bars,
                 "technical": technical_catalog(),
                 "symbols": load_backtest_config(self.config_dir).symbols,
@@ -539,6 +548,79 @@ class LabService:
             raise LabError("That tuning session does not exist.")
         return self._folder / "tuning" / f"{session_id}.json"
 
+    def _tuning_detail_dir(self, session_id: str) -> Path:
+        return self._tuning_path(session_id).with_suffix("")
+
+    def _tuning_version(self, session_id: str, node_id: str) -> tuple[dict, dict]:
+        session = self._tuning(session_id)
+        node = session["nodes"].get(node_id)
+        if node is None:
+            raise LabError("That version is not in this tuning session.")
+        return session, node
+
+    def tuning_backtest(self, session_id: str, node_id: str) -> dict:
+        """A tuned version's full backtest page, on the tuner's design and unseen sessions.
+        Its trades are there when the run kept them, or once its full backtest has run."""
+        session, node = self._tuning_version(session_id, node_id)
+        path = self._tuning_detail_dir(session_id) / f"{node_id}.json"
+        detail = json.loads(path.read_text()) if path.is_file() else None
+        w = session["windows"]
+        result = {
+            "strategy_id": node_id,
+            "evaluated_at": session.get("updated_at") or session["created_at"],
+            "windows": {
+                "train_start": w["design_start"],
+                "train_end": w["design_end"],
+                "test_start": w["validate_start"],
+                "test_end": w["validate_end"],
+            },
+            "train": node["design"],
+            "test": node["validate"],
+            "verdict": None,
+            "detail": detail,
+        }
+        page = self._backtest_page(StrategySpec.model_validate(node["spec"]), result, lab=False)
+        return page | {
+            "tuning": {
+                "session_id": session_id,
+                "node_id": node_id,
+                "label": change_text(
+                    node["label"],
+                    node.get("path"),
+                    StrategySpec.model_validate(session["nodes"][session["root_id"]]["spec"]),
+                ),
+                "root_name": session["root_name"],
+                "kept": node.get("accepted"),
+                "depth": node["depth"],
+            }
+        }
+
+    def start_tuning_backtest(self, session_id: str, node_id: str) -> dict:
+        """Backtest one tuned version on the design and unseen sessions again, keeping its
+        trades, for sessions saved before trades were kept."""
+        session, node = self._tuning_version(session_id, node_id)
+        w = session["windows"]
+
+        def work(note, progress) -> str:
+            config = load_backtest_config(self.config_dir)
+            spec = StrategySpec.model_validate(node["spec"])
+            note(f"Backtesting {node['label']} on the design and unseen sessions")
+            base = (str(self.data_dir), str(self.config_dir), spec.model_dump_json())
+            day = date.fromisoformat
+            design_run, validate_run = run_tasks(
+                [
+                    (*base, day(w["design_start"]), day(w["design_end"]), 1.0),
+                    (*base, day(w["validate_start"]), day(w["validate_end"]), 1.0),
+                ],
+                config.lab.workers,
+                History(self.data_dir).sessions,
+                progress,
+            )
+            save_detail(self._tuning_detail_dir(session_id), node_id, design_run, validate_run)
+            return f"Full backtest ready for {node['label']}."
+
+        return self._start("tune_backtest", work)
+
     def _tuning(self, session_id: str) -> dict:
         try:
             return json.loads(self._tuning_path(session_id).read_text())
@@ -667,6 +749,11 @@ class LabService:
         rounds = rounds or config.lab.ladder_rungs
         per_round = per_round or min(config.lab.ladder_steps, 6)
         scorer = Scorer(self.data_dir, self.config_dir, windows, now, progress)
+        spec_for_id = self.spec(start_id or "") if session_id is None else None
+        sid = (
+            session_id or new_id or self._new_tuning_id(spec_for_id.id if spec_for_id else "", now)
+        )
+        scorer.detail_dir = self._tuning_detail_dir(sid)
         if session_id is None:
             spec = self.spec(start_id or "")
             if spec is None:
@@ -674,7 +761,7 @@ class LabService:
             note(f"Testing the starting version: {spec.name}")
             scored = scorer.score([spec])[spec.id]
             session = {
-                "id": new_id or self._new_tuning_id(spec.id, now),
+                "id": sid,
                 "root_id": spec.id,
                 "root_name": spec.name.split(", tuned")[0][:40],
                 "created_at": now.isoformat(),

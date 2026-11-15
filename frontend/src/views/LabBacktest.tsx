@@ -27,8 +27,10 @@ import {
   Table,
   Tiles,
   BackLink,
+  Button,
   ButtonLink,
   PAGE_SIZES,
+  Status,
   Pager,
   pageOf,
   Segmented,
@@ -72,6 +74,12 @@ const WINDOWS = {
   both: "Training and test",
 } as const;
 type WindowKey = keyof typeof WINDOWS;
+// A tuned version is shown on the tuner's own periods; the lab's final test stays unread.
+const TUNE_WINDOWS: Record<WindowKey, string> = {
+  test: "Unseen sessions",
+  train: "Design sessions",
+  both: "Design and unseen",
+};
 const PERIODS = { day: "Daily", week: "Weekly", month: "Monthly" } as const;
 const PERIOD_PLURAL = { day: "days", week: "weeks", month: "months" } as const;
 type Period = keyof typeof PERIODS;
@@ -212,7 +220,67 @@ function GroupTable({
   );
 }
 
-function usePage(id: string) {
+/** A tuned version in a tuning session, shown in place of a saved strategy. */
+export interface TunedVersion {
+  session: string;
+  node: string;
+}
+
+/** For a tuned version saved before its trades were kept: backtest it again to see them. */
+function RunTunedBacktest({
+  session,
+  node,
+  onDone,
+}: {
+  session: string;
+  node: string;
+  onDone: () => void;
+}) {
+  const [state, setState] = useState<"idle" | "running" | "failed">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const run = async () => {
+    setState("running");
+    setMessage(null);
+    try {
+      await api.labTuneBacktestRun(session, node);
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const { job } = await api.labTuning();
+        if (job?.state === "running") {
+          setMessage(job.message);
+          continue;
+        }
+        if (job?.state === "failed") throw new Error(job.message);
+        break;
+      }
+      onDone();
+    } catch (err) {
+      setState("failed");
+      setMessage(err instanceof Error ? err.message : "Could not run it.");
+    }
+  };
+  return (
+    <Empty title="This version's trades were not kept">
+      <p>
+        It was tuned before each version&apos;s trades were saved. Backtest it
+        again on the design and unseen sessions to see them; that takes a few
+        minutes.
+      </p>
+      <Button
+        variant="primary"
+        disabled={state === "running"}
+        onClick={() => void run()}
+      >
+        {state === "running" ? "Running the backtest…" : "Run full backtest"}
+      </Button>
+      {message && (
+        <p className={state === "failed" ? "pnl-down" : "muted"}>{message}</p>
+      )}
+    </Empty>
+  );
+}
+
+function usePage(id: string, tuning?: TunedVersion) {
   const [state, setState] = useState<{
     data: LabBacktestPage | null;
     error: string | null;
@@ -228,8 +296,10 @@ function usePage(id: string) {
     if (shown.current !== id || version === 0)
       setState({ data: null, error: null });
     shown.current = id;
-    api
-      .labBacktestPage(id)
+    (tuning
+      ? api.labTuneBacktest(tuning.session, tuning.node)
+      : api.labBacktestPage(id)
+    )
       .then((data) => active && setState({ data, error: null }))
       .catch(
         (err: Error) => active && setState({ data: null, error: err.message }),
@@ -237,13 +307,20 @@ function usePage(id: string) {
     return () => {
       active = false;
     };
-  }, [id, version]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, version, tuning?.session, tuning?.node]);
   const reload = useCallback(() => setVersion((v) => v + 1), []);
   return { ...state, reload };
 }
 
-export function LabBacktestView({ id }: { id: string }) {
-  const { data, error, reload } = usePage(id);
+export function LabBacktestView({
+  id,
+  tuning,
+}: {
+  id: string;
+  tuning?: TunedVersion;
+}) {
+  const { data, error, reload } = usePage(id, tuning);
   const [windowKey, setWindowKey] = useState<WindowKey>("test");
   const [period, setPeriod] = useState<Period>("week");
   const [periodView, setPeriodView] = useState<"heat" | "bars">("heat");
@@ -353,7 +430,11 @@ export function LabBacktestView({ id }: { id: string }) {
   if (!data) return <Empty title="Loading…" />;
   const { spec } = data;
   const intraday = (spec.decide_every ?? "day") !== "day";
-  const back = `#lab/view/${encodeURIComponent(spec.id ?? id)}`;
+  const tuned = data.tuning;
+  const back = tuned
+    ? `#tune/s/${encodeURIComponent(tuned.session_id)}`
+    : `#lab/view/${encodeURIComponent(spec.id ?? id)}`;
+  const windowNames = tuned ? TUNE_WINDOWS : WINDOWS;
   const verdict = result ? VERDICTS[result.verdict] : null;
 
   const wins = trades.filter((t) => t.net_pnl > 0);
@@ -390,12 +471,12 @@ export function LabBacktestView({ id }: { id: string }) {
           {
             from: result.windows.train_start,
             to: result.windows.train_end,
-            label: "Training",
+            label: tuned ? "Design" : "Training",
           },
           {
             from: result.windows.test_start,
             to: result.windows.test_end,
-            label: "Test",
+            label: tuned ? "Unseen" : "Test",
           },
         ]
       : [];
@@ -403,10 +484,25 @@ export function LabBacktestView({ id }: { id: string }) {
   return (
     <>
       <div className="strike-page-head">
-        <BackLink href={back}>Strategy lab</BackLink>
+        <BackLink href={back}>{tuned ? "Tuner" : "Strategy lab"}</BackLink>
         <div>
           <h2 className="strike-page-title">
-            {spec.name} <StageBadge stage={data.stage} />
+            {tuned ? (
+              <>
+                {tuned.depth === 0
+                  ? spec.name
+                  : `${tuned.root_name}: ${tuned.label}`}{" "}
+                {tuned.depth > 0 && (
+                  <Status tone={tuned.kept ? "good" : "critical"}>
+                    {tuned.kept ? "Kept" : "Not kept"}
+                  </Status>
+                )}
+              </>
+            ) : (
+              <>
+                {spec.name} {data.stage && <StageBadge stage={data.stage} />}
+              </>
+            )}
           </h2>
           <div className="legs">
             {data.legs_text.split(", ").map((leg) => (
@@ -415,18 +511,26 @@ export function LabBacktestView({ id }: { id: string }) {
           </div>
           <span className="muted">Enter {data.entry_text}</span>
         </div>
-        <ButtonLink
-          icon={Pencil}
-          href={`#lab/${spec.source === "template" ? "copy" : "edit"}/${encodeURIComponent(spec.id as string)}`}
-        >
-          {spec.source === "template" ? "Copy and edit" : "Edit"}
-        </ButtonLink>
+        {!tuned && (
+          <ButtonLink
+            icon={Pencil}
+            href={`#lab/${spec.source === "template" ? "copy" : "edit"}/${encodeURIComponent(spec.id as string)}`}
+          >
+            {spec.source === "template" ? "Copy and edit" : "Edit"}
+          </ButtonLink>
+        )}
       </div>
 
       {!result ? (
         <Empty title="Not tested yet">
           Test this strategy in the Strategy lab first.
         </Empty>
+      ) : !detail && tuned ? (
+        <RunTunedBacktest
+          session={tuned.session_id}
+          node={tuned.node_id}
+          onDone={reload}
+        />
       ) : !detail ? (
         <Empty title="This result has no trade detail">
           It was tested before trade detail was kept. Test it again in the
@@ -439,7 +543,7 @@ export function LabBacktestView({ id }: { id: string }) {
               label="Window"
               value={windowKey}
               onChange={setWindowKey}
-              options={Object.entries(WINDOWS).map(([value, label]) => ({
+              options={Object.entries(windowNames).map(([value, label]) => ({
                 value: value as WindowKey,
                 label,
               }))}
@@ -518,16 +622,18 @@ export function LabBacktestView({ id }: { id: string }) {
             />
           </Tiles>
 
-          <Panel
-            title="Research stage"
-            aside={
-              verdict && (
-                <span className="muted">Lab verdict: {verdict.label}</span>
-              )
-            }
-          >
-            <StageCard stage={data.stage} stages={data.stages} />
-          </Panel>
+          {data.stage && (
+            <Panel
+              title="Research stage"
+              aside={
+                verdict && (
+                  <span className="muted">Lab verdict: {verdict.label}</span>
+                )
+              }
+            >
+              <StageCard stage={data.stage} stages={data.stages} />
+            </Panel>
+          )}
 
           {data.regimes && (
             <Panel
@@ -545,8 +651,8 @@ export function LabBacktestView({ id }: { id: string }) {
               title="All statistics"
               aside={
                 <span className="muted">
-                  {WINDOWS[windowKey]}, after costs, on a ₹{num(data.capital)}{" "}
-                  budget
+                  {windowNames[windowKey]}, after costs, on a ₹
+                  {num(data.capital)} budget
                 </span>
               }
             >
@@ -599,7 +705,7 @@ export function LabBacktestView({ id }: { id: string }) {
                 anyRules={spec.entry.any_rules ?? []}
                 draft={spec}
                 replaySource={{
-                  label: WINDOWS[windowKey].toLowerCase(),
+                  label: windowNames[windowKey].toLowerCase(),
                   load: (chartSymbol) =>
                     api.labBacktestReplay(
                       spec.id as string,
@@ -816,29 +922,40 @@ export function LabBacktestView({ id }: { id: string }) {
               />
             </Panel>
           )}
-          <Panel
-            title="Parameter search"
-            aside={
-              data.search && (
-                <span className="muted">
-                  This strategy came from a {data.search.method} search of{" "}
-                  {data.search.trials} settings
-                </span>
-              )
-            }
-          >
-            <SearchPanel specId={id} onFinished={reload} />
-          </Panel>
+          {!tuned && (
+            <Panel
+              title="Parameter search"
+              aside={
+                data.search && (
+                  <span className="muted">
+                    This strategy came from a {data.search.method} search of{" "}
+                    {data.search.trials} settings
+                  </span>
+                )
+              }
+            >
+              <SearchPanel specId={id} onFinished={reload} />
+            </Panel>
+          )}
+          {!tuned && (
+            <Panel title="Research dossier">
+              <DossierPanel specId={id} />
+            </Panel>
+          )}
 
-          <Panel title="Research dossier">
-            <DossierPanel specId={id} />
-          </Panel>
-
+          {tuned && (
+            <p className="panel-note">
+              The tuner compared versions on the design sessions and judged them
+              on the unseen ones. The lab&apos;s final test period is not shown,
+              so tuning never reads it.
+            </p>
+          )}
           <p className="panel-note">
             Fills use the next session&apos;s open with modelled spreads, after
             brokerage, taxes and slippage. Positions held to expiry settle at
-            intrinsic value. The training window is where rules were chosen;
-            only the test window is unseen.
+            intrinsic value.
+            {!tuned &&
+              " The training window is where rules were chosen; only the test window is unseen."}
           </p>
         </>
       )}

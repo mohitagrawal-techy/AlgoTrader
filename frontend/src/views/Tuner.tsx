@@ -66,6 +66,8 @@ function Metrics({ label, summary }: { label: string; summary: LabSummary }) {
 }
 
 interface NodeActions {
+  /** The tuning session, for links to a version's full backtest. */
+  sessionId: string;
   busy: boolean;
   selectedId: string | null;
   /** Fold changes that were not kept under one line per branch. */
@@ -136,6 +138,12 @@ function NodeCard({
             Tune from here
           </Button>
         )}
+        <ButtonLink
+          variant="link"
+          href={`#tune/s/${encodeURIComponent(actions.sessionId)}/v/${encodeURIComponent(node.id)}`}
+        >
+          Full backtest
+        </ButtonLink>
         {actions.saved[node.id] ? (
           <ButtonLink
             variant="link"
@@ -436,7 +444,10 @@ function SessionView({
   catalog,
 }: {
   session: TuneSession;
-  actions: Omit<NodeActions, "selectedId" | "onSelect" | "hideDropped">;
+  actions: Omit<
+    NodeActions,
+    "selectedId" | "onSelect" | "hideDropped" | "sessionId"
+  >;
   catalog: TechCatalog | null;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -461,6 +472,7 @@ function SessionView({
   }, [session.root_id]);
   const actions: NodeActions = {
     ...outer,
+    sessionId: session.id,
     selectedId,
     hideDropped,
     onSelect: (node) => setSelectedId(node.id),
@@ -627,6 +639,7 @@ function SessionView({
         {selected && (
           <aside className="panel detail-panel">
             <TuneCompare
+              backtestHref={`#tune/s/${encodeURIComponent(session.id)}/v/${encodeURIComponent(selected.id)}`}
               node={selected}
               parent={
                 selected.parent_id
@@ -752,25 +765,27 @@ export function TunerView({
     }
   };
 
-  const actions: Omit<NodeActions, "selectedId" | "onSelect" | "hideDropped"> =
-    {
-      busy: running,
-      saved,
-      onTune: (node) =>
-        session && void begin({ session_id: session.id, node_id: node.id }),
-      onTuneWith: (node, params) =>
-        session &&
-        void begin({ session_id: session.id, node_id: node.id, params }),
-      onSave: async (node) => {
-        if (!session) return;
-        try {
-          const { id } = await api.labTuneSave(session.id, node.id);
-          setSaved((current) => ({ ...current, [node.id]: true, [id]: true }));
-        } catch (err) {
-          setError(err instanceof Error ? err.message : "Could not save.");
-        }
-      },
-    };
+  const actions: Omit<
+    NodeActions,
+    "selectedId" | "onSelect" | "hideDropped" | "sessionId"
+  > = {
+    busy: running,
+    saved,
+    onTune: (node) =>
+      session && void begin({ session_id: session.id, node_id: node.id }),
+    onTuneWith: (node, params) =>
+      session &&
+      void begin({ session_id: session.id, node_id: node.id, params }),
+    onSave: async (node) => {
+      if (!session) return;
+      try {
+        const { id } = await api.labTuneSave(session.id, node.id);
+        setSaved((current) => ({ ...current, [node.id]: true, [id]: true }));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not save.");
+      }
+    },
+  };
 
   if (!overview) {
     return error ? (

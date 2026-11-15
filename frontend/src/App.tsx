@@ -312,8 +312,11 @@ export function App() {
           ? "Strike chart"
           : TABS.find((item) => item.id === tab)?.label;
   // Sub-pages (the editor, a backtest, a strike chart) carry their own heading.
+  const tunedBacktest =
+    tab === "tune" && path[0] === "s" && path[2] === "v" && !!path[3];
   const topLevel = !(
     (tab === "lab" && (route || path[0] === "backtest")) ||
+    tunedBacktest ||
     (tab === "market" && strikeRoute)
   );
 
@@ -545,7 +548,14 @@ export function App() {
             {tab === "lab" && path[0] === "backtest" && path[1] && (
               <LabBacktestView id={path[1]} />
             )}
-            {tab === "tune" && (
+            {tunedBacktest && (
+              <LabBacktestView
+                key={path.join("/")}
+                id={path[3]}
+                tuning={{ session: path[1], node: path[3] }}
+              />
+            )}
+            {tab === "tune" && !tunedBacktest && (
               <TunerView
                 key={path.join("/")}
                 sessionId={path[0] === "s" && path[1] ? path[1] : null}
