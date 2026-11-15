@@ -1137,6 +1137,18 @@ main {
   text-overflow: ellipsis;
 }
 
+/* Two panels in a row on wide screens, one under the other when either would be cramped. */
+.panel-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.panel-pair > * {
+  min-width: 0;
+}
+
 .grid-3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3127,7 +3139,7 @@ main {
 }
 
 .timing-table th {
-  padding: 4px 8px;
+  padding: 4px 6px;
   color: var(--ink-2);
   font-weight: 500;
   text-align: left;
@@ -3139,8 +3151,8 @@ main {
 }
 
 .timing-cell {
-  min-width: 78px;
-  padding: 5px 8px;
+  min-width: 58px;
+  padding: 4px 6px;
   border-radius: 2px;
   text-align: right;
   vertical-align: top;

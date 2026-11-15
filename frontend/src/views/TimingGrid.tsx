@@ -132,8 +132,8 @@ export function TimingGrid({
               <th scope="col">Day</th>
               {showHours &&
                 hours.map((h) => (
-                  <th scope="col" key={h}>
-                    {hourLabel(h)}
+                  <th scope="col" key={h} title={`Entered ${hourLabel(h)}`}>
+                    {h < 0 ? "Any time" : hourLabel(h).split("–")[0]}
                   </th>
                 ))}
               <th scope="col">{showHours ? "Day total" : "Net P&L"}</th>

@@ -634,74 +634,81 @@ export function LabBacktestView({ id }: { id: string }) {
             )}
           </Panel>
 
-          <Panel
-            title="Profit and loss by period"
-            aside={
-              <div className="period-controls">
-                <Segmented
-                  label="Show as"
-                  value={periodView}
-                  onChange={setPeriodView}
-                  options={[
-                    { value: "heat", label: "Heat map" },
-                    { value: "bars", label: "Bars" },
-                  ]}
+          <div className="panel-pair">
+            <Panel
+              title="Profit and loss by period"
+              aside={
+                <div className="period-controls">
+                  <Segmented
+                    label="Show as"
+                    value={periodView}
+                    onChange={setPeriodView}
+                    options={[
+                      { value: "heat", label: "Heat map" },
+                      { value: "bars", label: "Bars" },
+                    ]}
+                  />
+                  <LabeledSelect
+                    label="Period"
+                    value={period}
+                    onChange={setPeriod}
+                    options={Object.entries(PERIODS).map(([value, label]) => ({
+                      value: value as Period,
+                      label,
+                    }))}
+                  />
+                </div>
+              }
+            >
+              {periods.length === 0 ? (
+                <Empty title="No P&L in this window" />
+              ) : periodView === "heat" ? (
+                <PnlHeatmap daily={daily} period={period} />
+              ) : (
+                <ValueColumns
+                  data={periods}
+                  height={220}
+                  label={`${PERIODS[period]} P&L of ${spec.name}`}
+                  formatX={(key) => periodLabel(key, period)}
+                  formatY={inrCompact}
+                  formatTip={(value) => signedInr(value)}
                 />
-                <LabeledSelect
-                  label="Period"
-                  value={period}
-                  onChange={setPeriod}
-                  options={Object.entries(PERIODS).map(([value, label]) => ({
-                    value: value as Period,
-                    label,
-                  }))}
-                />
-              </div>
-            }
-          >
-            {periods.length === 0 ? (
-              <Empty title="No P&L in this window" />
-            ) : periodView === "heat" ? (
-              <PnlHeatmap daily={daily} period={period} />
-            ) : (
-              <ValueColumns
-                data={periods}
-                height={220}
-                label={`${PERIODS[period]} P&L of ${spec.name}`}
-                formatX={(key) => periodLabel(key, period)}
-                formatY={inrCompact}
-                formatTip={(value) => signedInr(value)}
-              />
-            )}
-            {periodView === "bars" &&
-              period !== "day" &&
-              periods.length > 0 && (
-                <Table>
-                  <thead>
-                    <tr>
-                      <th>{period === "week" ? "Week of" : "Month"}</th>
-                      <th className="right">Trades closed</th>
-                      <th className="right">P&amp;L</th>
-                      <th className="right">Running total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {runningRows(periods).map((p) => (
-                      <tr key={p.key}>
-                        <td>{periodLabel(p.key, period)}</td>
-                        <td className="right">{p.trades}</td>
-                        <td className="right">
-                          <Pnl value={p.value}>{signedInr(p.value)}</Pnl>
-                        </td>
-                        <td className="right">
-                          <Pnl value={p.total}>{signedInr(p.total)}</Pnl>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
               )}
-          </Panel>
+              {periodView === "bars" &&
+                period !== "day" &&
+                periods.length > 0 && (
+                  <Table>
+                    <thead>
+                      <tr>
+                        <th>{period === "week" ? "Week of" : "Month"}</th>
+                        <th className="right">Trades closed</th>
+                        <th className="right">P&amp;L</th>
+                        <th className="right">Running total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {runningRows(periods).map((p) => (
+                        <tr key={p.key}>
+                          <td>{periodLabel(p.key, period)}</td>
+                          <td className="right">{p.trades}</td>
+                          <td className="right">
+                            <Pnl value={p.value}>{signedInr(p.value)}</Pnl>
+                          </td>
+                          <td className="right">
+                            <Pnl value={p.total}>{signedInr(p.total)}</Pnl>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                )}
+            </Panel>
+            {trades.length > 0 && (
+              <Panel title="By weekday and entry time">
+                <TimingGrid cells={timingFromTrades(trades)} />
+              </Panel>
+            )}
+          </div>
 
           <h3 className="section-title">
             Where it worked and where it did not
@@ -734,12 +741,6 @@ export function LabBacktestView({ id }: { id: string }) {
                 />
               </Panel>
             </div>
-          )}
-
-          {trades.length > 0 && (
-            <Panel title="By weekday and entry time">
-              <TimingGrid cells={timingFromTrades(trades)} />
-            </Panel>
           )}
 
           {trades.length > 0 && (
