@@ -4391,7 +4391,8 @@ main > .empty {
   gap: 8px;
 }
 
-.index-chart .chart-group {
+.index-chart .chart-group,
+.trade-chart .chart-group {
   display: inline-flex;
   padding: 2px;
   border-radius: var(--r-md);
@@ -4399,7 +4400,8 @@ main > .empty {
   border: 1px solid var(--border);
 }
 
-.index-chart .chart-chip {
+.index-chart .chart-chip,
+.trade-chart .chart-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -4413,25 +4415,29 @@ main > .empty {
   cursor: pointer;
 }
 
-.index-chart .chart-chip:hover {
+.index-chart .chart-chip:hover,
+.trade-chart .chart-chip:hover {
   background: var(--hover-wash);
   color: var(--ink);
 }
 
-.index-chart .chart-chip[aria-pressed="true"] {
+.index-chart .chart-chip[aria-pressed="true"],
+.trade-chart .chart-chip[aria-pressed="true"] {
   background: var(--surface);
   color: var(--ink);
   box-shadow: 0 0 0 1px var(--border);
 }
 
 .index-chart .chart-chip:focus-visible,
+.trade-chart .chart-chip:focus-visible,
 .index-chart .chart-tool:focus-visible,
 .index-chart .chart-picker-item:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
-.index-chart .chart-add {
+.index-chart .chart-add,
+.trade-chart .chart-add {
   border: 1px solid var(--border);
   background: var(--surface);
 }
@@ -4441,7 +4447,8 @@ main > .empty {
 }
 
 .index-chart .chart-range select,
-.index-chart .chart-symbol select {
+.index-chart .chart-symbol select,
+.trade-chart .chart-range select {
   min-height: 34px;
   padding: 0 28px 0 10px;
   border: 1px solid var(--border);
@@ -4767,7 +4774,8 @@ main > .empty {
   font-size: 13px;
 }
 
-.index-chart .replay-bar {
+.index-chart .replay-bar,
+.trade-chart .replay-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -4778,24 +4786,28 @@ main > .empty {
   background: var(--accent-wash);
 }
 
-.index-chart .replay-badge {
+.index-chart .replay-badge,
+.trade-chart .replay-badge {
   font: 600 12px/1 var(--font);
   color: var(--accent-ink);
 }
 
-.index-chart .replay-play {
+.index-chart .replay-play,
+.trade-chart .replay-play {
   min-width: 84px;
   justify-content: center;
   font-weight: 600;
 }
 
-.index-chart .replay-time {
+.index-chart .replay-time,
+.trade-chart .replay-time {
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   font-size: 13px;
 }
 
-.index-chart .replay-exit {
+.index-chart .replay-exit,
+.trade-chart .replay-exit {
   margin-left: auto;
 }
 
@@ -4968,6 +4980,26 @@ main > .empty {
   place-items: center;
   color: var(--ink-3);
   font-size: 12.5px;
+}
+
+.trade-chart-replay {
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm, 4px);
+  background: var(--accent-wash);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.trade-chart-replay + .trade-chart-fit {
+  margin-left: 0;
+}
+
+.trade-chart .replay-bar {
+  margin-bottom: 6px;
 }
 
 .trade-chart-fit {

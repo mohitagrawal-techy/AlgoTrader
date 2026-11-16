@@ -395,6 +395,7 @@ function TradeDialog({
         // Most of the window, leaving room for the title and the trade navigation.
         height={Math.max(320, Math.round(window.innerHeight * 0.62))}
         fitCandles
+        replayable
       />
     </Dialog>
   );

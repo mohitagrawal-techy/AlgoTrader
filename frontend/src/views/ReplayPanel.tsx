@@ -211,6 +211,9 @@ interface ControlsProps {
   onNextTrade: () => void;
   onSpeed: (speed: number) => void;
   onExit: () => void;
+  /** The jump button's label and hint, "Next trade" unless set. */
+  nextLabel?: string;
+  nextTitle?: string;
 }
 
 export function ReplayControls(props: ControlsProps) {
@@ -253,9 +256,9 @@ export function ReplayControls(props: ControlsProps) {
         <ChartChip
           onClick={props.onNextTrade}
           disabled={!props.hasNextTrade}
-          title="Jump to the next entry"
+          title={props.nextTitle ?? "Jump to the next entry"}
         >
-          Next trade
+          {props.nextLabel ?? "Next trade"}
         </ChartChip>
       </div>
       <label className="chart-range">

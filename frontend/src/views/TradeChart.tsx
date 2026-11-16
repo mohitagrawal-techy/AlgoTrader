@@ -9,7 +9,8 @@ import {
 } from "lightweight-charts";
 import { api, type OptionCandles, type ReplayTrade } from "../api";
 import { css, useThemeTick } from "./chartTheme";
-import { legText, stopAt } from "./replay";
+import { legText, stopAt, wallText } from "./replay";
+import { ReplayControls } from "./ReplayPanel";
 
 const HEIGHT = 220;
 const BAR_SECONDS: Record<string, number> = { "5m": 300, "1d": 86400 };
@@ -32,6 +33,7 @@ export function TradeChart({
   until,
   height = HEIGHT,
   fitCandles: fitAtFirst = false,
+  replayable = false,
 }: {
   trade: ReplayTrade;
   until: number;
@@ -40,6 +42,8 @@ export function TradeChart({
   /** Start with the price scale fitted to the candles alone, leaving the stop and target
    * lines off it when they lie far away. */
   fitCandles?: boolean;
+  /** Offer to replay the day on this contract, one candle at a time. */
+  replayable?: boolean;
 }) {
   const [legIndex, setLegIndex] = useState(0);
   const [fitCandles, setFitCandles] = useState(fitAtFirst);
@@ -49,6 +53,38 @@ export function TradeChart({
   const box = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const themeTick = useThemeTick();
+  // Replay: the last candle shown, by index, or null for the whole day.
+  const [cursor, setCursor] = useState<number | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(2);
+  const barWidth = candles ? (BAR_SECONDS[candles.interval] ?? 300) : 300;
+  const times = candles?.time ?? [];
+  // A candle shows once it has finished, so the replay never shows one early.
+  const limit =
+    cursor === null || !times.length
+      ? until
+      : Math.min(until, times[Math.min(cursor, times.length - 1)] + barWidth);
+  // The first candle by whose close the trade had opened, and had closed.
+  const reached = (moment: number) =>
+    times.findIndex((time) => time + barWidth >= moment);
+  const entryIndex = reached(trade.open_time);
+  const exitIndex = reached(trade.close_time);
+  const nextStop = [entryIndex, exitIndex].find(
+    (index) => index >= 0 && cursor !== null && index > cursor,
+  );
+
+  useEffect(() => {
+    if (!playing || cursor === null) return;
+    if (cursor >= times.length - 1) {
+      setPlaying(false);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setCursor((at) => (at === null ? at : at + 1)),
+      1000 / speed,
+    );
+    return () => window.clearTimeout(timer);
+  }, [playing, cursor, speed, times.length]);
 
   const start = isoDay(trade.open_time);
   const end = isoDay(trade.close_time);
@@ -123,7 +159,7 @@ export function TradeChart({
     const width = BAR_SECONDS[candles.interval] ?? 300;
     // A candle is shown once it has finished by the replay's cursor.
     const shown = candles.time.flatMap((time, i) =>
-      time + width <= until || (candles.interval === "1d" && time < until)
+      time + width <= limit || (candles.interval === "1d" && time < limit)
         ? [
             {
               time: time as Time,
@@ -138,7 +174,9 @@ export function TradeChart({
     series.setData(shown);
 
     const single = trade.legs.length === 1;
-    const stop = stopAt(trade, until);
+    const stop = stopAt(trade, limit);
+    // Before the trade opens there is no entry, stop or target to draw yet.
+    const opened = trade.open_time <= limit;
     const lines: [string, number | null | undefined, string][] = [
       ["Entry", leg.entry_price, css("--accent")],
       [
@@ -153,7 +191,7 @@ export function TradeChart({
       ],
     ];
     // Keep the stop and target in view as well as the candles.
-    const levels = lines
+    const levels = (opened ? lines : [])
       .map(([, value]) => value)
       .filter((value): value is number => typeof value === "number");
     series.applyOptions({
@@ -173,7 +211,7 @@ export function TradeChart({
         };
       },
     });
-    for (const [title, value, color] of lines) {
+    for (const [title, value, color] of opened ? lines : []) {
       if (value === null || value === undefined) continue;
       series.createPriceLine({
         price: value,
@@ -194,7 +232,7 @@ export function TradeChart({
       return found ?? (shown[0]?.time as number | undefined) ?? null;
     };
     const markers = [];
-    const entryAt = at(trade.open_time);
+    const entryAt = opened ? at(trade.open_time) : null;
     if (entryAt !== null) {
       markers.push({
         time: entryAt as Time,
@@ -204,7 +242,7 @@ export function TradeChart({
         text: `${leg.side === "buy" ? "Buy" : "Sell"} ${leg.entry_price.toFixed(2)}`,
       });
     }
-    if (trade.close_time < until) {
+    if (trade.close_time < limit) {
       const exitAt = at(trade.close_time);
       if (exitAt !== null && leg.exit_price !== null) {
         markers.push({
@@ -218,12 +256,18 @@ export function TradeChart({
     }
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     createSeriesMarkers(series, markers);
-    chart.timeScale().fitContent();
+    if (cursor === null) chart.timeScale().fitContent();
+    // In replay the whole day keeps its place, filling in from the left.
+    else
+      chart
+        .timeScale()
+        .setVisibleLogicalRange({ from: -1, to: candles.time.length });
     return () => {
       // On unmount the chart itself is removed first, taking the series with it.
       if (chartRef.current === chart) chart.removeSeries(series);
     };
-  }, [candles, until, trade, leg, themeTick, fitCandles]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candles, limit, trade, leg, themeTick, fitCandles, cursor === null]);
 
   /** Fit the whole trade into view again, on the candles alone or with its levels. */
   const fit = (candlesOnly: boolean) => {
@@ -256,6 +300,18 @@ export function TradeChart({
         <span className="muted">
           {candles?.interval === "1d" ? "daily" : "5-minute"} option candles
         </span>
+        {replayable && cursor === null && times.length > 0 && (
+          <button
+            type="button"
+            className="trade-chart-replay"
+            onClick={() => {
+              setCursor(0);
+              setPlaying(false);
+            }}
+          >
+            ▶ Replay this day
+          </button>
+        )}
         <div className="trade-chart-fit" role="group" aria-label="Price scale">
           <button
             type="button"
@@ -277,6 +333,37 @@ export function TradeChart({
           </button>
         </div>
       </div>
+      {cursor !== null && times.length > 0 && (
+        <ReplayControls
+          playing={playing}
+          speed={speed}
+          atStart={cursor <= 0}
+          atEnd={cursor >= times.length - 1}
+          hasNextTrade={nextStop !== undefined}
+          nextLabel={nextStop === exitIndex ? "To exit" : "To entry"}
+          nextTitle="Jump to the candle by whose close the trade opened, then closed"
+          label={wallText(times[cursor] + barWidth, candles?.interval !== "1d")}
+          onPlay={() => setPlaying(!playing)}
+          onStep={(by) => {
+            setPlaying(false);
+            setCursor(Math.max(0, Math.min(times.length - 1, cursor + by)));
+          }}
+          onRestart={() => {
+            setPlaying(false);
+            setCursor(0);
+          }}
+          onNextTrade={() => {
+            if (nextStop === undefined) return;
+            setPlaying(false);
+            setCursor(nextStop);
+          }}
+          onSpeed={setSpeed}
+          onExit={() => {
+            setPlaying(false);
+            setCursor(null);
+          }}
+        />
+      )}
       <div className="trade-chart-canvas" style={{ height }}>
         <div ref={box} className="trade-chart-box" />
         {error && <div className="trade-chart-note">{error}</div>}
