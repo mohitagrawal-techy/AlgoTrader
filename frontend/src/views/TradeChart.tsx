@@ -1,0 +1,379 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  CandlestickSeries,
+  createChart,
+  createSeriesMarkers,
+  LineStyle,
+  type IChartApi,
+  type Time,
+} from "lightweight-charts";
+import { api, type OptionCandles, type ReplayTrade } from "../api";
+import { css, useThemeTick } from "./chartTheme";
+import { legText, stopAt, wallText } from "./replay";
+import { ReplayControls } from "./ReplayPanel";
+
+const HEIGHT = 220;
+const BAR_SECONDS: Record<string, number> = { "5m": 300, "1d": 86400 };
+
+/** The chart's wall-clock seconds as an ISO date. */
+const isoDay = (seconds: number) =>
+  new Date(seconds * 1000).toISOString().slice(0, 10);
+
+/** A position-level P&L as one leg's option price, when the position has one leg. */
+export function legPrice(trade: ReplayTrade, pnl: number | null | undefined) {
+  if (trade.legs.length !== 1 || pnl === null || pnl === undefined) return null;
+  const leg = trade.legs[0];
+  return leg.entry_price + pnl / (leg.units * (leg.side === "buy" ? 1 : -1));
+}
+
+/** One traded contract's candles up to the replay's cursor, with the fill, the stop and the
+ * target drawn on them. Candles after `until` are not shown, so nothing leaks ahead. */
+export function TradeChart({
+  trade,
+  until,
+  height = HEIGHT,
+  fitCandles: fitAtFirst = false,
+  replayable = false,
+}: {
+  trade: ReplayTrade;
+  until: number;
+  /** The chart's height in pixels; taller in a pop-up than in the replay panel. */
+  height?: number;
+  /** Start with the price scale fitted to the candles alone, leaving the stop and target
+   * lines off it when they lie far away. */
+  fitCandles?: boolean;
+  /** Offer to replay the day on this contract, one candle at a time. */
+  replayable?: boolean;
+}) {
+  const [legIndex, setLegIndex] = useState(0);
+  const [fitCandles, setFitCandles] = useState(fitAtFirst);
+  const leg = trade.legs[legIndex] ?? trade.legs[0];
+  const [candles, setCandles] = useState<OptionCandles | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const themeTick = useThemeTick();
+  // Replay: the last candle shown, by index, or null for the whole day.
+  const [cursor, setCursor] = useState<number | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(2);
+  const barWidth = candles ? (BAR_SECONDS[candles.interval] ?? 300) : 300;
+  const times = candles?.time ?? [];
+  // A candle shows once it has finished, so the replay never shows one early.
+  const limit =
+    cursor === null || !times.length
+      ? until
+      : Math.min(until, times[Math.min(cursor, times.length - 1)] + barWidth);
+  // The first candle by whose close the trade had opened, and had closed.
+  const reached = (moment: number) =>
+    times.findIndex((time) => time + barWidth >= moment);
+  const entryIndex = reached(trade.open_time);
+  const exitIndex = reached(trade.close_time);
+  const nextStop = [entryIndex, exitIndex].find(
+    (index) => index >= 0 && cursor !== null && index > cursor,
+  );
+
+  useEffect(() => {
+    if (!playing || cursor === null) return;
+    if (cursor >= times.length - 1) {
+      setPlaying(false);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setCursor((at) => (at === null ? at : at + 1)),
+      1000 / speed,
+    );
+    return () => window.clearTimeout(timer);
+  }, [playing, cursor, speed, times.length]);
+
+  const start = isoDay(trade.open_time);
+  const end = isoDay(trade.close_time);
+  useEffect(() => {
+    let live = true;
+    setCandles(null);
+    setError(null);
+    api
+      .labReplayOption({
+        symbol: trade.symbol,
+        expiry: leg.expiry,
+        strike: leg.strike,
+        option_type: leg.option_type,
+        start,
+        end,
+      })
+      .then((found) => live && setCandles(found))
+      .catch(
+        (reason: Error) =>
+          live && setError(reason.message || "The candles could not load."),
+      );
+    return () => {
+      live = false;
+    };
+  }, [trade.symbol, leg.expiry, leg.strike, leg.option_type, start, end]);
+
+  useEffect(() => {
+    if (!box.current) return;
+    const chart = createChart(box.current, {
+      autoSize: true,
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+        borderVisible: false,
+      },
+      rightPriceScale: { borderVisible: false },
+      handleScroll: { mouseWheel: false, pressedMouseMove: true },
+      handleScale: { mouseWheel: false, pinch: true },
+    });
+    chartRef.current = chart;
+    return () => {
+      chart.remove();
+      chartRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !candles) return;
+    const tick = css("--tick");
+    const grid = css("--grid");
+    chart.applyOptions({
+      layout: {
+        background: { color: "transparent" },
+        textColor: tick,
+        fontFamily: getComputedStyle(document.body).fontFamily,
+        fontSize: 11,
+      },
+      grid: { vertLines: { color: grid }, horzLines: { color: grid } },
+    });
+    const up = css("--good");
+    const down = css("--critical");
+    const series = chart.addSeries(CandlestickSeries, {
+      upColor: up,
+      downColor: down,
+      borderUpColor: up,
+      borderDownColor: down,
+      wickUpColor: up,
+      wickDownColor: down,
+      priceLineVisible: false,
+    });
+    const width = BAR_SECONDS[candles.interval] ?? 300;
+    // A candle is shown once it has finished by the replay's cursor.
+    const shown = candles.time.flatMap((time, i) =>
+      time + width <= limit || (candles.interval === "1d" && time < limit)
+        ? [
+            {
+              time: time as Time,
+              open: candles.open[i],
+              high: candles.high[i],
+              low: candles.low[i],
+              close: candles.close[i],
+            },
+          ]
+        : [],
+    );
+    series.setData(shown);
+
+    const single = trade.legs.length === 1;
+    const stop = stopAt(trade, limit);
+    // Before the trade opens there is no entry, stop or target to draw yet.
+    const opened = trade.open_time <= limit;
+    const lines: [string, number | null | undefined, string][] = [
+      ["Entry", leg.entry_price, css("--accent")],
+      [
+        stop?.kind === "stop loss" || !stop ? "SL" : stop.kind,
+        single ? legPrice(trade, stop?.level) : leg.stop_price,
+        css("--pnl-down"),
+      ],
+      [
+        "Target",
+        single ? legPrice(trade, trade.target_pnl) : leg.target_price,
+        css("--pnl-up"),
+      ],
+    ];
+    // Keep the stop and target in view as well as the candles.
+    const levels = (opened ? lines : [])
+      .map(([, value]) => value)
+      .filter((value): value is number => typeof value === "number");
+    series.applyOptions({
+      autoscaleInfoProvider: (
+        original: () => {
+          priceRange: { minValue: number; maxValue: number };
+        } | null,
+      ) => {
+        const found = original();
+        if (!found || !levels.length || fitCandles) return found;
+        return {
+          ...found,
+          priceRange: {
+            minValue: Math.min(found.priceRange.minValue, ...levels),
+            maxValue: Math.max(found.priceRange.maxValue, ...levels),
+          },
+        };
+      },
+    });
+    for (const [title, value, color] of opened ? lines : []) {
+      if (value === null || value === undefined) continue;
+      series.createPriceLine({
+        price: value,
+        color,
+        lineWidth: 1,
+        lineStyle: title === "Entry" ? LineStyle.Solid : LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `${title} ${value.toFixed(2)}`,
+      });
+    }
+
+    // The fill uses the price known at the fill time: the close of the candle before it.
+    const at = (moment: number) => {
+      let found: number | null = null;
+      for (const bar of shown) {
+        if ((bar.time as number) + width <= moment) found = bar.time as number;
+      }
+      return found ?? (shown[0]?.time as number | undefined) ?? null;
+    };
+    const markers = [];
+    const entryAt = opened ? at(trade.open_time) : null;
+    if (entryAt !== null) {
+      markers.push({
+        time: entryAt as Time,
+        position: (leg.side === "buy" ? "belowBar" : "aboveBar") as "belowBar",
+        color: css("--accent"),
+        shape: (leg.side === "buy" ? "arrowUp" : "arrowDown") as "arrowUp",
+        text: `${leg.side === "buy" ? "Buy" : "Sell"} ${leg.entry_price.toFixed(2)}`,
+      });
+    }
+    if (trade.close_time < limit) {
+      const exitAt = at(trade.close_time);
+      if (exitAt !== null && leg.exit_price !== null) {
+        markers.push({
+          time: exitAt as Time,
+          position: "aboveBar" as const,
+          color: trade.net_pnl >= 0 ? css("--pnl-up") : css("--pnl-down"),
+          shape: "circle" as const,
+          text: `Exit ${leg.exit_price.toFixed(2)}`,
+        });
+      }
+    }
+    markers.sort((a, b) => (a.time as number) - (b.time as number));
+    createSeriesMarkers(series, markers);
+    if (cursor === null) chart.timeScale().fitContent();
+    // In replay the whole day keeps its place, filling in from the left.
+    else
+      chart
+        .timeScale()
+        .setVisibleLogicalRange({ from: -1, to: candles.time.length });
+    return () => {
+      // On unmount the chart itself is removed first, taking the series with it.
+      if (chartRef.current === chart) chart.removeSeries(series);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candles, limit, trade, leg, themeTick, fitCandles, cursor === null]);
+
+  /** Fit the whole trade into view again, on the candles alone or with its levels. */
+  const fit = (candlesOnly: boolean) => {
+    setFitCandles(candlesOnly);
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.priceScale("right").applyOptions({ autoScale: true });
+    chart.timeScale().fitContent();
+  };
+
+  return (
+    <div className="trade-chart">
+      {trade.legs.length > 1 && (
+        <div className="trade-chart-legs" role="group" aria-label="Leg">
+          {trade.legs.map((item, index) => (
+            <button
+              key={index}
+              type="button"
+              className={index === legIndex ? "is-on" : undefined}
+              aria-pressed={index === legIndex}
+              onClick={() => setLegIndex(index)}
+            >
+              {legText(item, trade.lots)}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="trade-chart-head">
+        <strong>{legText(leg, trade.lots)}</strong>
+        <span className="muted">
+          {candles?.interval === "1d" ? "daily" : "5-minute"} option candles
+        </span>
+        {replayable && cursor === null && times.length > 0 && (
+          <button
+            type="button"
+            className="trade-chart-replay"
+            onClick={() => {
+              setCursor(0);
+              setPlaying(false);
+            }}
+          >
+            ▶ Replay this day
+          </button>
+        )}
+        <div className="trade-chart-fit" role="group" aria-label="Price scale">
+          <button
+            type="button"
+            className={fitCandles ? "is-on" : undefined}
+            aria-pressed={fitCandles}
+            title="Fit the chart to the candles; far stop and target lines go off the scale"
+            onClick={() => fit(true)}
+          >
+            Fit candles
+          </button>
+          <button
+            type="button"
+            className={fitCandles ? undefined : "is-on"}
+            aria-pressed={!fitCandles}
+            title="Widen the scale so the stop loss and target are in view"
+            onClick={() => fit(false)}
+          >
+            Show stop and target
+          </button>
+        </div>
+      </div>
+      {cursor !== null && times.length > 0 && (
+        <ReplayControls
+          playing={playing}
+          speed={speed}
+          atStart={cursor <= 0}
+          atEnd={cursor >= times.length - 1}
+          hasNextTrade={nextStop !== undefined}
+          nextLabel={nextStop === exitIndex ? "To exit" : "To entry"}
+          nextTitle="Jump to the candle by whose close the trade opened, then closed"
+          label={wallText(times[cursor] + barWidth, candles?.interval !== "1d")}
+          onPlay={() => setPlaying(!playing)}
+          onStep={(by) => {
+            setPlaying(false);
+            setCursor(Math.max(0, Math.min(times.length - 1, cursor + by)));
+          }}
+          onRestart={() => {
+            setPlaying(false);
+            setCursor(0);
+          }}
+          onNextTrade={() => {
+            if (nextStop === undefined) return;
+            setPlaying(false);
+            setCursor(nextStop);
+          }}
+          onSpeed={setSpeed}
+          onExit={() => {
+            setPlaying(false);
+            setCursor(null);
+          }}
+        />
+      )}
+      <div className="trade-chart-canvas" style={{ height }}>
+        <div ref={box} className="trade-chart-box" />
+        {error && <div className="trade-chart-note">{error}</div>}
+        {!error && candles && candles.time.length === 0 && (
+          <div className="trade-chart-note">
+            No stored candles for this contract.
+          </div>
+        )}
+        {!error && !candles && <div className="trade-chart-note">Loading…</div>}
+      </div>
+    </div>
+  );
+}

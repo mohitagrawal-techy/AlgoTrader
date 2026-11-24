@@ -1,0 +1,11 @@
+# Market events that matter to option positions.
+#
+# reviewed_through is the last date you have checked this list for. Short premium ideas are
+# blocked whenever their holding period extends past it, because an empty calendar must not be
+# read as "no events".
+reviewed_through: null
+
+# Example entry:
+#   - {date: 2026-12-05, name: RBI policy, severity: high, symbols: []}
+# Empty symbols means the event applies to every underlying. Severity is high or medium.
+events: []

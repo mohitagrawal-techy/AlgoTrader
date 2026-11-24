@@ -1,0 +1,62 @@
+# Start everything:   docker compose up --build -d --remove-orphans
+# Dashboard:          http://127.0.0.1:8000
+# Any CLI command:    docker compose run --rm backend forward-status
+
+x-backend: &backend
+  build:
+    context: .
+    target: backend
+  image: algoverse-backend:local
+  restart: unless-stopped
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    ALGOVERSE_DATA_DIR: /data
+    ALGOVERSE_OLLAMA_BASE_URL: http://host.docker.internal:11434
+  extra_hosts:
+    - host.docker.internal:host-gateway
+  volumes:
+    - algoverse-data:/data
+    # Mounted so edits to events.yaml and other settings apply without rebuilding.
+    - ./config:/app/config:ro
+
+services:
+  frontend:
+    build:
+      context: .
+      target: frontend
+    image: algoverse-frontend:local
+    restart: unless-stopped
+    ports:
+      # Localhost only, because the app has no login. Upstox's redirect URL expects port 8000.
+      - 127.0.0.1:${ALGOVERSE_PORT:-8000}:8080
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  backend:
+    <<: *backend
+    command: ["serve"]
+
+  collect:
+    <<: *backend
+    command: ["collect"]
+    healthcheck:
+      disable: true
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # Keeps the Upstox live feed connected in market hours and saves every tick to /data/ticks.
+  stream:
+    <<: *backend
+    command: ["stream"]
+    healthcheck:
+      disable: true
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  algoverse-data:

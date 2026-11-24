@@ -1,0 +1,79 @@
+# Backtest settings. Files downloaded by hand from NSE go through `algoverse history-import`.
+symbols: [NIFTY, BANKNIFTY, FINNIFTY]
+expiries_per_underlying: 3
+strike_range: 0.15
+
+# Fills in history use the next session's open, so these replace the paper-trading values.
+idea_ttl_minutes: 10080
+max_entry_drift_pct: 30.0
+warmup_sessions: 60
+
+# Daily files have no bid/ask, so spreads are modelled. Full spread as a percent of price:
+#   base_pct + moneyness_pct_per_pct * |strike/spot - 1|% + illiquidity_pct / sqrt(1 + lots traded)
+# These are starting estimates. Run `algoverse calibrate-spreads` once snapshots exist.
+spread:
+  base_pct: 0.5
+  moneyness_pct_per_pct: 0.15
+  illiquidity_pct: 5.0
+  tick: 0.05
+  # Modelled size at the touch, as a share of the day's reported volume.
+  depth_share: 0.02
+
+walk_forward:
+  train_sessions: 252
+  test_sessions: 63
+  holdout_sessions: 63
+  min_train_trades: 20
+  workers: 8
+
+# Each combination is one trial per fold. Every trial is logged and counted in the report.
+grid:
+  min_score: [50, 55, 60, 65, 70, 75]
+  disabled_profiles:
+    - []
+    - [directional_buy, long_vol]
+
+monte_carlo_runs: 2000
+tail_share: 0.05
+min_trades_for_confidence: 100
+
+# Reported separately whenever the imported data covers them.
+stress_windows:
+  - {name: COVID crash, start: 2020-02-20, end: 2020-04-30}
+  - {name: 2024 election result, start: 2024-06-03, end: 2024-06-07}
+
+# Strategy lab. Strategies are tuned on the earlier part of the history. The final test_share is
+# only used for the final ranking, and the AI designer never sees results from it.
+lab:
+  test_share: 0.3
+  min_sessions: 60
+  min_test_trades: 15
+  rounds: 3
+  per_round: 4
+  # Replays at once. Each peaks near 0.7 GB; Docker here has 15 CPUs and 13.7 GB.
+  workers: 10
+  # Research stages: Reject, Research, Paper trade. The training and test sessions are cut
+  # into stage_folds periods; a strategy must be profitable in stage_min_positive_share of
+  # those with trades, and its unseen drawdown must stay under stage_max_drawdown_pct of its
+  # budget.
+  stage_folds: 6
+  stage_min_positive_share: 0.6
+  stage_max_drawdown_pct: 15.0
+  # The unseen Sharpe must beat, with this probability, the Sharpe the best of all logged
+  # trials would show by luck alone (deflated Sharpe ratio).
+  stage_min_deflated_sharpe: 0.95
+  # Trades needed in a market regime before a strategy is said to suit or avoid it.
+  regime_min_trades: 5
+  # Parameter search runs at most search_max_trials on the design sessions, validates the
+  # best search_validate_top, and calls the best setting robust when search_min_neighbour_share
+  # of its neighbours keep at least half its design Sharpe.
+  search_max_trials: 40
+  search_validate_top: 3
+  search_min_neighbour_share: 0.6
+  # Strategy ladder. It climbs from simple to complex, one tested change per rung.
+  validate_share: 0.35
+  ladder_rungs: 4
+  ladder_beam: 2
+  ladder_steps: 10
+  ladder_min_trades: 8
+  ladder_alpha: 0.2

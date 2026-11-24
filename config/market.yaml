@@ -1,0 +1,35 @@
+# Model for the AI buttons and chat. Trade reviews use config/ai.yaml, which forward runs lock.
+assistant: {model: "gpt-oss:20b", think: low}
+
+# Indices on the Overview page. Names match the NSE_INDEX list in the Upstox instrument file.
+broad:
+  - {name: Nifty 50, label: Nifty 50}
+  - {name: Nifty Next 50, label: Next 50}
+  - {name: Nifty Bank, label: Bank Nifty}
+  - {name: NIFTY MIDCAP 100, label: Midcap 100}
+  - {name: NIFTY SMLCAP 100, label: Smallcap 100}
+  - {name: Nifty 500, label: Nifty 500, compare: false}
+volatility: {name: India VIX, label: India VIX}
+sectors:
+  - {name: Nifty Bank, label: Bank}
+  - {name: Nifty PSU Bank, label: PSU Bank}
+  - {name: Nifty Pvt Bank, label: Private Bank}
+  - {name: Nifty Fin Service, label: Financial Services}
+  - {name: Nifty Capital Mkt, label: Capital Markets}
+  - {name: Nifty IT, label: IT}
+  - {name: Nifty Auto, label: Auto}
+  - {name: Nifty Pharma, label: Pharma}
+  - {name: NIFTY HEALTHCARE, label: Healthcare}
+  - {name: Nifty FMCG, label: FMCG}
+  - {name: NIFTY CONSR DURBL, label: Consumer Durables}
+  - {name: Nifty Metal, label: Metal}
+  - {name: Nifty Energy, label: Energy}
+  - {name: NIFTY OIL AND GAS, label: Oil and Gas}
+  - {name: Nifty Chemicals, label: Chemicals}
+  - {name: Nifty Cement, label: Cement}
+  - {name: Nifty Infra, label: Infrastructure}
+  - {name: Nifty Realty, label: Realty}
+  - {name: Nifty Media, label: Media}
+  - {name: Nifty Ind Defence, label: Defence}
+  - {name: Nifty RailwaysPSU, label: Railways PSU}
+  - {name: Nifty CPSE, label: CPSE}

@@ -1,0 +1,144 @@
+# These weights are starting judgements and have not been validated by any backtest.
+# `prefer` says which way a parameter helps a profile: high (default), low or mid.
+
+risk_free_rate: 0.055   # Approximate 91-day T-bill yield. Has little effect on short expiries.
+forecast_iv_weight: 0.5 # Forecast vol for POP and EV: weight on IV, remainder on realised vol.
+
+generation:
+  long_deltas: [0.50, 0.35]
+  debit_long_delta: 0.50
+  debit_short_delta: 0.30
+  credit_short_delta: 0.25
+  credit_long_delta: 0.12
+  condor_short_delta: 0.20
+  condor_long_delta: 0.08
+  strangle_delta: 0.20
+  long_strangle_delta: 0.25
+  butterfly_wing_steps: 4
+
+filters:
+  max_spread_pct: 10.0
+  max_spread_abs: 1.0     # A leg passes if either spread limit is met, for cheap wings.
+  min_oi: 1000
+  min_volume: 100
+  max_dte: 45
+  max_cost_ratio: 0.5     # Costs and exit spread, as a share of the 2-sigma reward.
+  min_coverage: 0.6       # Share of profile weight that must have data.
+  block_on_high_events: [short_premium]
+
+profiles:
+  directional_buy:
+    trend_alignment: {w: 4}
+    trend_strength: {w: 2}
+    iv_rank: {w: 3, prefer: low}
+    iv_percentile: {w: 2, prefer: low}
+    iv_rv_spread: {w: 2, prefer: low}
+    oi_buildup_alignment: {w: 2}
+    pcr_alignment: {w: 1}
+    wall_room: {w: 2}
+    level_room: {w: 2}
+    support_proximity: {w: 2}
+    spread_quality: {w: 3}
+    leg_volume: {w: 1}
+    leg_oi: {w: 1}
+    breakeven_distance: {w: 2, prefer: low}
+    ev_ratio: {w: 3}
+    reward_risk: {w: 2}
+    cost_efficiency: {w: 2}
+    expiry_proximity: {w: 2}
+    event_clear: {w: 1}
+
+  debit_spread:
+    trend_alignment: {w: 4}
+    trend_strength: {w: 2}
+    iv_rank: {w: 1, prefer: low}
+    oi_buildup_alignment: {w: 2}
+    pcr_alignment: {w: 1}
+    wall_room: {w: 2}
+    level_room: {w: 2}
+    spread_quality: {w: 3}
+    leg_oi: {w: 1}
+    pop: {w: 2}
+    ev_ratio: {w: 3}
+    reward_risk: {w: 3}
+    cost_efficiency: {w: 3}
+    event_clear: {w: 1}
+
+  credit_spread:
+    trend_alignment: {w: 3}
+    iv_rank: {w: 3}
+    iv_percentile: {w: 2}
+    iv_rv_spread: {w: 3}
+    wall_room: {w: 2}
+    level_room: {w: 2}
+    breakeven_vs_zones: {w: 2}
+    spread_quality: {w: 3}
+    leg_oi: {w: 1}
+    pop: {w: 3}
+    ev_ratio: {w: 3}
+    breakeven_distance: {w: 3}
+    return_on_margin: {w: 2}
+    cost_efficiency: {w: 3}
+    session_calm: {w: 1}
+    event_clear: {w: 3}
+
+  butterfly:
+    trend_alignment: {w: 3}
+    iv_rank: {w: 2}
+    max_pain_distance: {w: 2}
+    level_room: {w: 2}
+    spread_quality: {w: 3}
+    leg_oi: {w: 1}
+    ev_ratio: {w: 3}
+    reward_risk: {w: 3}
+    cost_efficiency: {w: 4}
+    session_calm: {w: 1}
+    event_clear: {w: 2}
+
+  short_premium:
+    trend_alignment: {w: 3}
+    iv_rank: {w: 4}
+    iv_percentile: {w: 3}
+    iv_rv_spread: {w: 4}
+    term_slope: {w: 2}
+    vix_change: {w: 2, prefer: low}
+    wall_room: {w: 2}
+    breakeven_vs_zones: {w: 3}
+    spread_quality: {w: 2}
+    leg_oi: {w: 2}
+    pop: {w: 2}
+    ev_ratio: {w: 3}
+    breakeven_distance: {w: 3}
+    theta_gamma: {w: 3}
+    delta_neutrality: {w: 2}
+    return_on_margin: {w: 2}
+    session_calm: {w: 2}
+    event_clear: {w: 4}
+
+  long_vol:
+    iv_rank: {w: 4, prefer: low}
+    iv_percentile: {w: 3, prefer: low}
+    iv_rv_spread: {w: 4, prefer: low}
+    rv_percentile: {w: 2}
+    trend_strength: {w: 1}
+    spread_quality: {w: 3}
+    leg_oi: {w: 1}
+    breakeven_distance: {w: 3, prefer: low}
+    ev_ratio: {w: 3}
+    reward_risk: {w: 2}
+    cost_efficiency: {w: 2}
+    delta_neutrality: {w: 2}
+    expiry_proximity: {w: 2}
+
+  calendar:
+    trend_alignment: {w: 2}
+    iv_rank: {w: 3, prefer: low}
+    term_slope: {w: 4, prefer: low}
+    max_pain_distance: {w: 2}
+    level_room: {w: 2}
+    spread_quality: {w: 4}
+    leg_oi: {w: 2}
+    ev_ratio: {w: 3}
+    reward_risk: {w: 2}
+    cost_efficiency: {w: 3}
+    event_clear: {w: 2}

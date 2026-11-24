@@ -1,0 +1,20 @@
+# Underlyings to collect. Symbols match `underlying_symbol` in the Upstox instrument master.
+underlyings:
+  - NIFTY
+  - BANKNIFTY
+  - FINNIFTY
+
+# Indices kept for reference only (no option chain is collected).
+reference_indices:
+  INDIAVIX: "NSE_INDEX|India VIX"
+  SENSEX: "BSE_INDEX|SENSEX"
+
+# Number of nearest expiries the dashboard analyses and builds ideas from.
+expiries_per_underlying: 3
+
+# Save every listed expiry on each snapshot (all strikes, all contracts), not only the
+# analysed ones. About 27 chains across the three indices, well inside the rate limit.
+save_all_expiries: true
+
+# Each chain is one API call. Upstox allows 2000 standard calls per 30 minutes.
+snapshot_interval_minutes: 5

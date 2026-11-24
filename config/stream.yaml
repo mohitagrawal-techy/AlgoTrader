@@ -1,0 +1,33 @@
+# Upstox live feed (WebSocket). Every tick is saved under <data dir>/ticks.
+enabled: true
+
+# Two connections, the most Upstox allows a normal account. Instruments are handed out in
+# priority order: indices and futures, then options nearest the money.
+#   full:          LTP, five levels of depth, OI, IV, Greeks and day OHLC.
+#   option_greeks: LTP, best bid and ask, OI, IV, Greeks and volume.
+# With both modes in use Upstox allows 1500 full and 2000 option_greeks keys, so 3,500 in all.
+# NIFTY, BANKNIFTY and FINNIFTY list about 3,840 options, so the few hundred strikes farthest
+# from the money get no ticks. The collector still saves every contract every 5 minutes.
+connections:
+  - mode: full
+    max_instruments: 1500
+  - mode: option_greeks
+    max_instruments: 2000
+
+# Contracts to subscribe to, chosen once at each connection. Leave a value empty for all.
+expiries_per_underlying:     # every listed expiry
+strike_range:                # every strike
+# Expiries more than this many days away (the long-dated NIFTY contracts, which barely
+# trade) get no ticks, leaving room for near expiries. They are still in the 5-minute
+# snapshots. 500 days keeps everything to December 2027 as of November 2026.
+max_days_to_expiry: 500
+
+# Connect this long around each session, whose hours come from the Upstox holiday list.
+# Outside these hours the feed disconnects and the day's files are merged.
+minutes_before_open: 15
+minutes_after_close: 15
+
+# How often ticks reach disk. A crash can lose at most this much.
+flush_seconds: 10
+# How often the latest prices are published to the dashboard.
+live_seconds: 2

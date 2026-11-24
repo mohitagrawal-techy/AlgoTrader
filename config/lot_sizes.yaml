@@ -1,0 +1,8 @@
+# Needed only for the older NSE file format, which has no lot-size column.
+# The newer format carries lot size on every row and ignores this file.
+# Add entries from NSE circulars. A day with no matching entry is refused rather than guessed.
+#
+# Example:
+#   NIFTY:
+#     - {from: 2021-07-01, lot_size: 50}
+lot_sizes: {}

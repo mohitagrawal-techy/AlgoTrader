@@ -1,0 +1,22 @@
+# Forward-test thresholds. These are copied into a run when it starts, so editing this file
+# never changes the bar for a run already in progress.
+
+# Promotion gate.
+min_weeks: 8
+min_trades: 40
+min_volatility_regimes: 2
+min_expiries: 6
+# Observed spread divided by the spread the backtest assumed. 1.0 means no worse than modelled.
+max_slippage_ratio: 1.0
+
+# A run is halted and flattened if its peak-to-trough loss reaches this share of capital.
+max_drawdown_pct: 8.0
+
+# Drift checks: how many standard errors from the backtest counts as outside the expected range.
+confidence_sigmas: 2.0
+min_drift_samples: 10
+
+# Rejected ideas are followed at one lot. These caps keep the workload bounded.
+shadow:
+  max_new_per_cycle: 6
+  max_new_per_day: 40

@@ -1,0 +1,26 @@
+# Daily copy of everything AlgoVerse records (ticks, option chains, candles, contracts,
+# databases) to S3. Credentials come from AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in
+# .env; they need s3:PutObject and s3:GetObject on the folder below.
+enabled: true
+bucket: us-east-1-stock-history-data
+# Everything goes under this folder. Nothing else in the bucket is written, and nothing in S3
+# is ever deleted.
+prefix: algoverse/
+region: us-east-1
+# Never written to, whatever the prefix above says.
+protected_prefixes:
+  - ohlc_new/
+  - ohlc_updated/
+  - nifty_history_data/
+  - instrument/
+
+# A day is uploaded once it is finished: after this time (IST), and once the live feed has
+# merged that day's ticks. The collector runs the upload at 16:30 and 20:30, and on start.
+finished_after: "16:30"
+
+# Local tick folders older than this many days are deleted, but only after S3 confirms every
+# file of that day. Leave empty to keep all ticks locally. Other data is always kept.
+keep_tick_days: 30
+
+# Parallel uploads.
+workers: 8

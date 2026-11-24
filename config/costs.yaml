@@ -1,0 +1,33 @@
+# Percent values are percent of premium, except stt_exercise_pct (percent of intrinsic value).
+# Verified: Upstox brokerage, and STT from 2026-04-01 (secondary sources on Budget 2026).
+# Checked 2026-11-13 against broker pages, not an NSE or SEBI circular:
+#   exchange_pct 0.03503 matches Upstox's published options rate from 2024-10-01. Zerodha
+#     lists 0.03553; the 0.0005 gap may be NSE's investor protection fund charge.
+#   sebi_pct 0.0001 is SEBI's Rs 10 per crore. stamp_buy_pct 0.003 matches published rates.
+# Compare a sample trade with Upstox's brokerage calculator before trusting net P&L.
+schedules:
+  # Older rates are from memory and unverified. They apply only to backtests before 2024-10-01.
+  - effective_from: 2023-04-01
+    brokerage_per_order: 20.0
+    stt_sell_pct: 0.0625
+    stt_exercise_pct: 0.125
+    exchange_pct: 0.05
+    sebi_pct: 0.0001
+    stamp_buy_pct: 0.003
+    gst_pct: 18.0
+  - effective_from: 2024-10-01
+    brokerage_per_order: 20.0
+    stt_sell_pct: 0.10
+    stt_exercise_pct: 0.125
+    exchange_pct: 0.03503
+    sebi_pct: 0.0001
+    stamp_buy_pct: 0.003
+    gst_pct: 18.0
+  - effective_from: 2026-04-01
+    brokerage_per_order: 20.0
+    stt_sell_pct: 0.15
+    stt_exercise_pct: 0.15
+    exchange_pct: 0.03503
+    sebi_pct: 0.0001
+    stamp_buy_pct: 0.003
+    gst_pct: 18.0

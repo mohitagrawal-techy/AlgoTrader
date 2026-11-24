@@ -1,0 +1,347 @@
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+import pytest
+from algoverse.lab.chart import ChartRequest, chart, rule_series
+from algoverse.lab.technical import CompareRule, Frames, PatternRule, rule_failure, rule_text
+from conftest import IST, make_bars
+
+
+def minutes(days=12, seed=5):
+    rng = np.random.default_rng(seed)
+    rows = []
+    for day in pd.bdate_range("2026-10-01", periods=days):
+        start = pd.Timestamp(day.date()).tz_localize(IST) + pd.Timedelta(hours=9, minutes=15)
+        price = 24000 + rng.normal(0, 50)
+        for minute in range(375):
+            move = rng.normal(0, 4)
+            rows.append(
+                {
+                    "ts": start + pd.Timedelta(minutes=minute),
+                    "open": price,
+                    "high": price + abs(move) + 1,
+                    "low": price - abs(move) - 1,
+                    "close": price + move,
+                }
+            )
+            price += move
+    return pd.DataFrame(rows)
+
+
+RULES = [
+    {"left": {"name": "close"}, "op": "above", "right": {"name": "ema", "params": {"period": 10}}},
+    {"left": {"name": "rsi"}, "op": "below", "right": {"kind": "value", "value": 45}},
+    {
+        "left": {"name": "ema", "params": {"period": 5}},
+        "op": "crosses_above",
+        "right": {"name": "sma", "params": {"period": 20}},
+    },
+    {
+        "left": {"name": "close", "bars_ago": 2},
+        "op": "crosses_below",
+        "right": {"name": "bbands", "field": "middle"},
+    },
+    {"left": {"name": "high"}, "op": "at_or_above", "right": {"name": "prior_high"}},
+    {"left": {"name": "rsi"}, "op": "at_or_below", "right": {"kind": "value", "value": 55}},
+    {"left": {"name": "open"}, "op": "equals", "right": {"name": "candle", "field": "open"}},
+]
+
+
+@pytest.mark.parametrize("timeframe", ["1d", "15m"])
+@pytest.mark.parametrize("candles", ["normal", "heikin_ashi"])
+def test_signals_match_the_backtest_rule_check_at_every_candle(timeframe, candles):
+    daily, mins = make_bars(count=120), minutes()
+    rules = [CompareRule(timeframe=timeframe, candles=candles, **rule) for rule in RULES] + [
+        PatternRule(timeframe=timeframe, candles=candles, pattern="bullish_engulfing", within=3),
+        PatternRule(timeframe=timeframe, candles=candles, pattern="doji", present=False),
+    ]
+    full = Frames(daily, mins)
+    length = len(full.frame(timeframe, candles))
+    series = [rule_series(rule, full).reset_index(drop=True) for rule in rules]
+    checked = 0
+    for end in range(1, length + 1, 3):
+        if timeframe == "1d":
+            frames = Frames(daily.iloc[:end].reset_index(drop=True), mins)
+        else:
+            # Minute candles up to the end of the `end`-th 15-minute candle.
+            cutoff = full.frame("15m")["ts"].iloc[end - 1] + pd.Timedelta(minutes=15)
+            frames = Frames(daily, mins[mins["ts"] < cutoff])
+            if len(frames.frame(timeframe, candles)) != end:
+                continue
+        for rule, held in zip(rules, series, strict=True):
+            assert (rule_failure(rule, frames) is None) == bool(held.iloc[end - 1]), (rule, end)
+        checked += 1
+    assert checked > 20
+
+
+def request(**changes):
+    return ChartRequest.model_validate({"symbol": "NIFTY", **changes})
+
+
+def test_studies_split_into_price_overlays_and_their_own_panes():
+    body = chart(
+        make_bars(count=200),
+        pd.DataFrame(),
+        request(
+            studies=[
+                {"id": "a", "name": "ema", "params": {"period": 9}},
+                {"id": "b", "name": "bbands"},
+                {"id": "c", "name": "rsi"},
+                {"id": "d", "name": "opening_range"},
+                {"id": "e", "name": "sma", "params": {"period": 1000}},
+            ]
+        ),
+    )
+    assert len(body["time"]) == len(body["close"]) == 200
+    ema, bands, rsi, orb, bad = body["studies"]
+    assert ema["label"] == "Exponential moving average (9)" and ema["lines"][0]["overlay"]
+    assert len(ema["lines"][0]["values"]) == 200 and ema["lines"][0]["values"][0] is None
+    overlays = {line["field"]: line["overlay"] for line in bands["lines"]}
+    assert overlays == {"upper": True, "middle": True, "lower": True}
+    assert not rsi["lines"][0]["overlay"]
+    assert "needs minute" in orb["error"] and "between 2 and 400" in bad["error"]
+
+
+def test_minute_charts_show_recent_sessions_in_ist_wall_time():
+    body = chart(make_bars(count=50), minutes(days=12), request(timeframe="15m", sessions=3))
+    assert len(body["time"]) == 3 * 25
+    first = datetime.utcfromtimestamp(body["time"][0])
+    assert (first.hour, first.minute) == (9, 15)
+    assert chart(make_bars(), pd.DataFrame(), request(timeframe="5m"))["empty"]
+
+
+def test_signal_hits_combine_all_and_any_rules_on_this_timeframe_only():
+    always = {
+        "type": "compare",
+        "left": {"name": "close"},
+        "op": "above",
+        "right": {"kind": "value", "value": 1},
+    }
+    never = {
+        "type": "compare",
+        "left": {"name": "close"},
+        "op": "below",
+        "right": {"kind": "value", "value": 1},
+    }
+    body = chart(
+        make_bars(count=60),
+        pd.DataFrame(),
+        request(
+            rules=[always, {**always, "timeframe": "1w"}],
+            any_rules=[never, {**always, "left": {"name": "rsi"}}],
+        ),
+    )
+    signals = body["signals"]
+    assert signals["other_timeframes"] == ["weekly close above 1"]
+    counts = {(r["group"], r["text"]): r["count"] for r in signals["rules"]}
+    assert counts[("all", "daily close above 1")] == 60
+    assert counts[("any", "daily close below 1")] == 0
+    # RSI needs 14 candles of warm-up, so the any-group holds from then on.
+    assert signals["hits"] == list(range(14, 60))
+
+
+def test_signal_positions_are_within_the_candles_shown():
+    rule = {
+        "type": "compare",
+        "timeframe": "15m",
+        "left": {"name": "close"},
+        "op": "above",
+        "right": {"name": "ema", "params": {"period": 5}},
+    }
+    body = chart(make_bars(), minutes(days=12), request(timeframe="15m", sessions=2, rules=[rule]))
+    hits = body["signals"]["hits"]
+    assert hits and all(0 <= i < len(body["time"]) for i in hits)
+    assert len(hits) == body["signals"]["rules"][0]["count"]
+
+
+def test_minute_charts_read_only_recent_sessions_plus_warm_up():
+    from algoverse.lab import chart as chart_module
+
+    mins = minutes(days=12)
+    study = [{"id": "a", "name": "ema", "params": {"period": 20}}]
+    full = chart(make_bars(), mins, request(timeframe="15m", sessions=12, studies=study))
+    old = chart_module.WARMUP_SESSIONS
+    try:
+        chart_module.WARMUP_SESSIONS = 3
+        short = chart(make_bars(), mins, request(timeframe="15m", sessions=2, studies=study))
+    finally:
+        chart_module.WARMUP_SESSIONS = old
+    assert len(short["time"]) == 50 and short["time"] == full["time"][-50:]
+    # 75 candles of warm-up leave a 20-candle EMA within a few millionths of the full value.
+    tail = full["studies"][0]["lines"][0]["values"][-50:]
+    assert short["studies"][0]["lines"][0]["values"] == pytest.approx(tail, rel=1e-5)
+
+
+def test_each_case_of_a_strategy_is_marked_separately():
+    above = {
+        "type": "compare",
+        "left": {"name": "close"},
+        "op": "above",
+        "right": {"kind": "value", "value": 1},
+    }
+    below = {**above, "op": "below"}
+    body = chart(
+        make_bars(count=30),
+        pd.DataFrame(),
+        request(
+            rules=[below],
+            cases=[{"name": "Put", "bias": "bearish", "rules": [above]}],
+        ),
+    )
+    assert body["signals"]["hits"] == []
+    put = body["signals"]["cases"][0]
+    assert put["name"] == "Put" and put["bias"] == "bearish" and len(put["hits"]) == 30
+
+
+def test_long_minute_ranges_reach_back_and_one_minute_is_capped():
+    data = minutes(days=200)
+    five = chart(pd.DataFrame(), data, ChartRequest(symbol="NIFTY", timeframe="5m", sessions=1500))
+    first_day = str(pd.to_datetime(data["ts"]).dt.tz_convert(IST).dt.date.min())
+    assert five["first"] == first_day
+    one = chart(pd.DataFrame(), data, ChartRequest(symbol="NIFTY", timeframe="1m", sessions=1500))
+    days = pd.Series([datetime.fromtimestamp(t, IST).date() for t in one["time"]]).nunique()
+    assert days == 125
+
+
+def test_signal_hits_join_rules_by_and_then_or_as_the_backtest_does():
+    from algoverse.lab.technical import rules_failures
+
+    daily = make_bars(count=120)
+    raw = [
+        {
+            "left": {"name": "close"},
+            "op": "above",
+            "right": {"name": "ema", "params": {"period": 10}},
+        },
+        {"left": {"name": "rsi"}, "op": "above", "right": {"kind": "value", "value": 55}},
+        {
+            "join": "or",
+            "left": {"name": "rsi"},
+            "op": "below",
+            "right": {"kind": "value", "value": 40},
+        },
+    ]
+    body = chart(daily, pd.DataFrame(), request(rules=[{"type": "compare", **r} for r in raw]))
+    hits = set(body["signals"]["hits"])
+    rules = [CompareRule(**rule) for rule in raw]
+    shown = len(body["time"])
+    first = len(daily) - shown
+    expected = {
+        position
+        for position in range(shown)
+        if not rules_failures(
+            rules, Frames(daily.iloc[: first + position + 1].reset_index(drop=True))
+        )
+    }
+    assert hits == expected and 0 < len(hits) < shown
+
+
+def test_studies_from_other_candles_show_only_finished_values():
+    daily, mins = make_bars(count=60), minutes(days=12)
+    # make_bars dates do not line up with the minute days, so daily candles come from minutes.
+    days = pd.to_datetime(mins["ts"]).dt.tz_convert(IST).dt.date
+    daily = (
+        mins.assign(day=days)
+        .groupby("day")
+        .agg(
+            open=("open", "first"),
+            high=("high", "max"),
+            low=("low", "min"),
+            close=("close", "last"),
+        )
+        .reset_index()
+        .rename(columns={"day": "ts"})
+    )
+    daily["ts"] = pd.to_datetime(daily["ts"])
+    study = {"id": "a", "name": "sma", "params": {"period": 3}, "timeframe": "1d"}
+    body = chart(daily, mins, request(timeframe="15m", sessions=5, studies=[study]))
+    values = body["studies"][0]["lines"][0]["values"]
+    assert body["studies"][0]["label"].endswith(", Daily")
+    closes = daily["close"].rolling(3).mean().round(4).tolist()
+    shown_days = sorted({datetime.utcfromtimestamp(t).date() for t in body["time"]})
+    by_day = {d.date(): i for i, d in enumerate(daily["ts"])}
+    for t, value in zip(body["time"], values, strict=True):
+        when = datetime.utcfromtimestamp(t)
+        i = by_day[when.date()]
+        # The day's own average is known only once its last candle finishes.
+        expected = closes[i] if (when.hour, when.minute) == (15, 15) else closes[i - 1]
+        assert value == pytest.approx(expected), when
+    assert len(shown_days) == 5
+
+    # The chart's own candles give the same line as before.
+    same = chart(
+        daily, mins, request(timeframe="15m", sessions=5, studies=[{**study, "timeframe": "15m"}])
+    )
+    plain = chart(
+        daily, mins, request(timeframe="15m", sessions=5, studies=[{**study, "timeframe": None}])
+    )
+    assert same["studies"][0]["lines"] == plain["studies"][0]["lines"]
+
+
+@pytest.mark.parametrize("other", ["15m", "1h", "1d"])
+def test_a_side_read_on_other_candles_matches_the_backtest_and_never_looks_ahead(other):
+    mins = minutes(days=8)
+    days = pd.to_datetime(mins["ts"]).dt.tz_convert(IST).dt.date
+    daily = (
+        mins.assign(day=days)
+        .groupby("day")
+        .agg(
+            open=("open", "first"),
+            high=("high", "max"),
+            low=("low", "min"),
+            close=("close", "last"),
+        )
+        .reset_index()
+        .rename(columns={"day": "ts"})
+    )
+    daily["ts"] = pd.to_datetime(daily["ts"])
+    rules = [
+        CompareRule(
+            timeframe="5m",
+            left={"name": "close"},
+            op="above",
+            right={"name": "ema", "params": {"period": 3}, "timeframe": other},
+        ),
+        CompareRule(
+            timeframe="5m",
+            left={"name": "close"},
+            op="crosses_below",
+            right={"name": "sma", "params": {"period": 2}, "timeframe": other, "bars_ago": 1},
+        ),
+    ]
+    full = Frames(daily, mins)
+    series = [rule_series(rule, full).reset_index(drop=True) for rule in rules]
+    stamps = full.frame("5m")["ts"]
+    checked = 0
+    for end in range(30, len(stamps) + 1, 7):
+        cutoff = stamps.iloc[end - 1] + pd.Timedelta(minutes=5)
+        # What was known then: finished minutes, and only daily candles of earlier sessions.
+        day = cutoff.tz_convert(IST).date()
+        known_daily = daily[daily["ts"].dt.date < day].reset_index(drop=True)
+        if (cutoff.tz_convert(IST).hour, cutoff.tz_convert(IST).minute) == (15, 30):
+            known_daily = daily[daily["ts"].dt.date <= day].reset_index(drop=True)
+        frames = Frames(known_daily, mins[mins["ts"] < cutoff])
+        if len(frames.frame("5m")) != end:
+            continue
+        for rule, held in zip(rules, series, strict=True):
+            assert (rule_failure(rule, frames) is None) == bool(held.iloc[end - 1]), (rule, end)
+        checked += 1
+    assert checked > 20
+
+
+def test_a_side_on_other_candles_says_so_and_keeps_old_signatures():
+    rule = CompareRule(
+        timeframe="5m",
+        left={"name": "close"},
+        op="above",
+        right={
+            "name": "opening_range_body",
+            "params": {"minutes": 15},
+            "field": "high",
+            "timeframe": "15m",
+        },
+    )
+    assert "(15-minute)" in rule_text(rule)
+    assert "timeframe" not in rule.model_dump()["left"]
+    assert rule.model_dump()["right"]["timeframe"] == "15m"

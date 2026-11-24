@@ -1,0 +1,3 @@
+# NSE holidays and special sessions come from Upstox automatically.
+# Add a date here, as YYYY-MM-DD, only to force the market closed on a day Upstox has wrong.
+holidays: []
